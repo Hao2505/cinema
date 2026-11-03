@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0e0b12">
+  <meta name="color-scheme" content="dark">
+  <title>Chính sách &amp; quyền riêng tư — VibeCinema</title>
+  <meta name="description" content="VibeCinema dùng dịch vụ YouTube API; rạp lưu gì, không lưu gì, báo cáo vi phạm và gỡ nội dung.">
+  <link rel="canonical" href="%SITE_URL%/chinh-sach">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { overflow: auto; }
+    .doc { max-width: 760px; margin: 0 auto; padding: 28px 18px 60px; color: var(--ink-2); font-size: 15px; line-height: 1.65; }
+    .doc h1 { color: var(--ink); font-size: 26px; margin: 8px 0 4px; }
+    .doc h2 { color: var(--ink); font-size: 18px; margin: 28px 0 8px; }
+    .doc .upd { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+    .doc ul { padding-left: 20px; }
+    .doc li { margin: 4px 0; }
+    .doc .back { display: inline-flex; gap: 6px; align-items: center; text-decoration: none; font-weight: 600; }
+    .doc .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+  </style>
+</head>
+<body>
+  <main class="doc">
+    <a class="back" href="/">← Về rạp</a>
+    <h1>🎬 Chính sách &amp; quyền riêng tư</h1>
+    <div class="upd">VibeCinema · cập nhật 03/11/2026</div>
+
+    <div class="box">
+      <b>Tóm tắt:</b> rạp dùng <b>dịch vụ YouTube API</b> để phát video. Bạn vào rạp chỉ bằng một cái tên tự đặt, không cần
+      tài khoản. Rạp không bán, không chia sẻ dữ liệu của bạn, không chạy quảng cáo riêng. Thấy video vi phạm thì bấm
+      <b>🚩 Báo cáo</b> — admin gỡ ngay.
+    </div>
+
+    <h2>1. Rạp dùng dịch vụ YouTube</h2>
+    <ul>
+      <li>Video được phát bằng <b>trình phát chính thức của YouTube</b> (YouTube IFrame Player) nhúng trên trang. Rạp không tải
+        video về máy chủ, không phát lại luồng của người khác, không chỉnh sửa, che hay chặn quảng cáo của trình phát.</li>
+      <li>Khi bạn thêm một link, máy chủ rạp hỏi <b>YouTube Data API</b> thông tin công khai của video (tên, kênh, độ dài, có cho
+        nhúng không, có giới hạn tuổi / vùng không) để chỉ nhận video được phép.</li>
+      <li>Khi dùng rạp, bạn đồng thời đồng ý với <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">Điều khoản dịch vụ của YouTube</a>.
+        YouTube / Google xử lý dữ liệu theo <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Chính sách quyền riêng tư của Google</a>.</li>
+      <li>Trình phát được nhúng ở chế độ bảo mật nâng cao (youtube-nocookie.com) khi có thể; YouTube vẫn có thể lưu cookie
+        hoặc dữ liệu trên trình duyệt của bạn khi bạn xem video. Bạn có thể xoá / chặn chúng trong cài đặt trình duyệt, và
+        quản lý quyền truy cập của ứng dụng tại <a href="https://security.google.com/settings/security/permissions" target="_blank" rel="noopener">trang bảo mật tài khoản Google</a>.</li>
+    </ul>
+
+    <h2>2. Rạp lưu gì</h2>
+    <ul>
+      <li><b>Trên máy chủ, trong lúc bạn ở trong rạp</b>: tên bạn đặt, ngoại hình nhân vật, vị trí, động tác, tin nhắn chat
+        (chỉ giữ ~50 tin gần nhất của mỗi phòng, trong bộ nhớ), danh sách video bạn thêm.</li>
+      <li><b>Để chống spam và thi hành lệnh cấm</b>: một mã băm một chiều của địa chỉ IP (không lưu IP gốc) và một mã ngẫu nhiên
+        của trình duyệt. Lệnh cấm lưu tên + hai mã này tới khi hết hạn.</li>
+      <li><b>Báo cáo vi phạm</b>: thời điểm, video / người bị báo cáo, lý do, ghi chú bạn viết và tên bạn đặt — để admin xử lý.</li>
+      <li><b>Trên trình duyệt của bạn (localStorage)</b>: tên, ngoại hình, mã ngẫu nhiên của trình duyệt, tuỳ chọn màn hình lớn —
+        để lần sau vào nhanh. Xoá dữ liệu trang web là mất hết.</li>
+      <li>Cookie của rạp: chỉ có cookie dành cho admin (HttpOnly). Người xem thường không có cookie nào của rạp.</li>
+      <li>Phông chữ tải từ Google Fonts.</li>
+    </ul>
+
+    <h2>3. Rạp không làm gì</h2>
+    <ul>
+      <li>Không yêu cầu tài khoản, email hay số điện thoại.</li>
+      <li>Không bán, cho thuê hay chia sẻ dữ liệu của bạn cho bên thứ ba.</li>
+      <li>Không gắn quảng cáo hay link tiếp thị cạnh trình phát.</li>
+    </ul>
+
+    <h2>4. Luật trong rạp</h2>
+    <ul>
+      <li>Chỉ chiếu video YouTube công khai, cho phép nhúng, không giới hạn tuổi, xem được ở Việt Nam, trong giới hạn độ dài của rạp.</li>
+      <li>Không chửi bậy, quấy rối, spam link. Admin có thể tắt tiếng, mời ra hoặc cấm người vi phạm.</li>
+      <li>Chủ kênh tắt cho phép nhúng giữa chừng thì rạp tự chuyển bài.</li>
+    </ul>
+
+    <h2>5. Báo cáo &amp; gỡ nội dung</h2>
+    <ul>
+      <li>Bấm <b>🚩 Báo cáo</b> dưới màn hình (hoặc trong thẻ Đang chiếu) để báo video vi phạm bản quyền / không phù hợp; bấm vào một
+        nhân vật để báo cáo người xem. Admin được báo ngay và gỡ khi có khiếu nại; nhiều người cùng báo cáo thì rạp tự gỡ video.</li>
+      <li>Chủ sở hữu nội dung muốn khiếu nại bản quyền: dùng nút báo cáo, ghi cách liên hệ trong phần ghi chú<span id="contact" data-email="%CONTACT_EMAIL%"></span>.
+        Video vẫn nằm trên YouTube — bạn cũng có thể gửi yêu cầu gỡ trực tiếp cho YouTube.</li>
+    </ul>
+
+    <h2>6. Thay đổi</h2>
+    <p>Chính sách có thể được cập nhật khi rạp thêm tính năng; ngày cập nhật ghi ở đầu trang.</p>
+  </main>
+  <script type="module" src="js/policy.js"></script>
+</body>
+</html>

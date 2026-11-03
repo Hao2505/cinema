@@ -1,0 +1,15 @@
+node_modules
+.env
+# dữ liệu chạy thật (hàng chờ, lệnh cấm, báo cáo) — của máy chạy, không commit
+data/*
+!data/.gitkeep
+*.tmp-*
+
+# thông tin VPS + .env production (mật khẩu, key, token)
+deploy/vps.env
+deploy/.env.production
+
+# rác hệ điều hành / log / cấu hình cục bộ
+.DS_Store
+*.log
+.claude/settings.local.json

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0e0b12">
+  <meta name="color-scheme" content="dark">
+  <title>VibeCinema — Rạp chiếu phim 2D xem YouTube cùng nhau</title>
+  <meta name="description" content="Vào rạp chỉ cần đặt tên: điều khiển nhân vật, xem YouTube chung trên màn hình lớn, chat bong bóng, nhảy hip hop, vỗ tay, thả tim cùng mọi người. Không cần đăng nhập.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="application-name" content="VibeCinema">
+  <meta name="apple-mobile-web-app-title" content="VibeCinema">
+  <meta name="format-detection" content="telephone=no">
+  <!-- %SITE_URL% / %OG_VERSION%: server điền khi trả trang (src/app.ts sendHtml) — thẻ chia sẻ cần URL tuyệt đối -->
+  <link rel="canonical" href="%SITE_URL%/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="VibeCinema">
+  <meta property="og:locale" content="vi_VN">
+  <meta property="og:url" content="%SITE_URL%/">
+  <meta property="og:title" content="VibeCinema — rạp chiếu phim 2D, xem YouTube cùng cả rạp">
+  <meta property="og:description" content="Đặt tên là vào rạp: đi lại, chat bong bóng, nhảy, thả tim, dán link YouTube để chiếu cho mọi người cùng xem.">
+  <meta property="og:image" content="%SITE_URL%/og-image.jpg?v=%OG_VERSION%">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Khán phòng VibeCinema: màn hình lớn phía trên, các nhân vật ngồi xem và nhảy phía dưới">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="VibeCinema — rạp chiếu phim 2D, xem YouTube cùng cả rạp">
+  <meta name="twitter:description" content="Đặt tên là vào rạp: đi lại, chat bong bóng, nhảy, thả tim, dán link YouTube để chiếu cho mọi người cùng xem.">
+  <meta name="twitter:image" content="%SITE_URL%/og-image.jpg?v=%OG_VERSION%">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- rạp phủ cả cửa sổ; mọi nút là cụm nổi nhỏ. Rạp tự chừa chỗ cho chúng → không gì đè lên khung video -->
+    <main class="stage" id="stage" aria-label="Rạp chiếu phim">
+      <canvas id="hall" tabindex="-1" aria-label="Khán phòng — bấm sàn để đi tới, bấm vào người để xem tên"></canvas>
+      <!-- khung trình phát YouTube: JS đặt khít vào màn hình vẽ trên canvas; không phần tử nào được đè lên -->
+      <div class="screen-slot" id="screen-slot" hidden><div id="yt-host"></div></div>
+      <!-- nút điều khiển nằm DƯỚI màn hình (trên sàn sân khấu), không che video -->
+      <div class="screen-tools" id="screen-tools">
+        <button type="button" class="pill-btn pill-accent" id="btn-tap-play" hidden>▶ Xem cùng mọi người</button>
+        <button type="button" class="pill-btn pill-accent" id="btn-unmute" hidden>🔊 Bật tiếng</button>
+        <button type="button" class="pill-btn" id="btn-add-video" hidden>📋 Dán link YouTube để chiếu</button>
+        <span class="screen-title" id="screen-title"></span>
+        <button type="button" class="pill-btn" id="btn-vote" hidden>⏭ Bỏ qua <span id="vote-count"></span></button>
+        <span class="vol" id="vol" hidden>
+          <button type="button" class="pill-btn pill-ghost" id="btn-vol" aria-label="Tắt / bật tiếng" title="Tắt / bật tiếng">🔊</button>
+          <input type="range" id="vol-range" min="0" max="100" step="1" value="100" aria-label="Âm lượng">
+        </span>
+        <button type="button" class="pill-btn pill-ghost" id="btn-fs" hidden aria-label="Xem video toàn màn hình" title="Xem video toàn màn hình">⛶</button>
+        <button type="button" class="pill-btn pill-ghost" id="btn-report" hidden aria-label="Báo cáo video này" title="Báo cáo video này">🚩</button>
+      </div>
+      <ol class="chat-feed" id="chat-feed" aria-hidden="true"></ol>
+      <div class="joystick" id="joystick" hidden aria-hidden="true"><div class="joy-knob"></div></div>
+      <div class="wheel" id="wheel" hidden role="menu" aria-label="Chọn động tác"></div>
+      <div class="user-card" id="user-card" hidden role="dialog" aria-label="Người xem"></div>
+      <div class="conn-banner" id="conn" hidden role="status"></div>
+      <div class="focus-hint" id="focus-hint" hidden>Bấm vào khán phòng để điều khiển nhân vật</div>
+      <div class="toasts" id="toasts" aria-live="polite"></div>
+    </main>
+
+    <!-- cụm nổi góc trên trái: logo + phòng -->
+    <header class="hud hud-l" id="hud-l">
+      <a class="hud-btn hud-brand" href="/" aria-label="VibeCinema — trang chủ" title="VibeCinema">🎬</a>
+      <button type="button" class="room-pill" id="room-pill" aria-label="Chọn phòng" title="Phòng đang xem — bấm để đổi phòng">
+        <span class="live-dot" aria-hidden="true"></span><span id="room-name">Phòng 1</span>
+        <span class="room-count"><span aria-hidden="true">👥</span> <span id="room-count">0</span>/<span id="room-cap">60</span></span>
+      </button>
+    </header>
+    <!-- cụm nổi góc trên phải: công cụ -->
+    <nav class="hud hud-r" id="hud-r" aria-label="Công cụ">
+      <button type="button" class="hud-btn" id="btn-theater" aria-label="Màn hình lớn" title="Màn hình lớn (bật / tắt)">📺</button>
+      <button type="button" class="hud-btn" id="btn-full" aria-label="Toàn màn hình" title="Toàn màn hình" hidden>⛶</button>
+      <button type="button" class="hud-btn" id="btn-look" aria-label="Đổi ngoại hình" title="Đổi ngoại hình" hidden>🎨</button>
+      <button type="button" class="hud-btn" id="btn-help" aria-label="Hướng dẫn &amp; phím tắt" title="Hướng dẫn &amp; phím tắt">?</button>
+      <button type="button" class="hud-btn icon-admin" id="btn-admin" aria-label="Bảng quản trị" title="Bảng quản trị" hidden>🛠</button>
+    </nav>
+
+    <!-- ngăn kéo Hàng chờ + Trò chuyện: máy tính = thẻ nổi bên phải (video tự dời sang trái), điện thoại = tấm trượt dưới màn hình -->
+    <aside class="side" id="side" aria-label="Hàng chờ và trò chuyện">
+      <div class="side-head">
+        <h2 class="side-title d-only">📋 Hàng chờ &amp; 💬 Trò chuyện</h2>
+        <div class="side-tabs m-only" role="tablist">
+          <button type="button" class="side-tab" data-tab="queue" role="tab">📋 Hàng chờ</button>
+          <button type="button" class="side-tab" data-tab="chat" role="tab">💬 Trò chuyện</button>
+        </div>
+        <button type="button" class="side-close" id="side-close" aria-label="Đóng" title="Đóng (Esc)">✕</button>
+      </div>
+      <section class="panel now-panel" data-pane="queue" aria-label="Đang chiếu">
+        <div class="now-head"><span class="badge badge-live" id="now-badge">ĐANG CHIẾU</span><span class="now-time" id="now-time"></span></div>
+        <div class="now-title" id="now-title">Chưa có video</div>
+        <div class="now-meta" id="now-meta">Dán link YouTube bên dưới để chiếu cho cả rạp.</div>
+        <div class="now-bar" aria-hidden="true"><span id="now-fill"></span></div>
+        <div class="now-actions" id="now-actions"></div>
+      </section>
+      <section class="panel queue-panel" data-pane="queue" aria-label="Hàng chờ">
+        <div class="panel-head"><h2>Hàng chờ <span class="count" id="q-count">0</span></h2><span class="badge badge-lock" id="q-lock" hidden>🔒 Đang khoá</span></div>
+        <form class="add-form" id="add-form" autocomplete="off">
+          <input type="url" inputmode="url" id="add-input" placeholder="Dán link YouTube…" aria-label="Link video YouTube" maxlength="500" enterkeyhint="send">
+          <button type="submit" class="btn btn-accent" id="add-btn">Thêm</button>
+        </form>
+        <div class="add-msg" id="add-msg" role="status"></div>
+        <ol class="queue-list" id="queue-list"></ol>
+      </section>
+      <section class="panel chat-panel" data-pane="chat" aria-label="Trò chuyện">
+        <div class="panel-head"><h2>Trò chuyện</h2></div>
+        <ol class="chat-log" id="chat-log" aria-live="polite"></ol>
+      </section>
+    </aside>
+
+    <!-- dock nổi giữa đáy: cảm xúc · động tác · ô chat · hàng chờ · trò chuyện -->
+    <div class="dock-wrap" id="dock-wrap">
+      <footer class="dock" id="dock">
+        <div class="react-pop" id="react-pop" hidden><div class="reactions" id="reactions" role="group" aria-label="Thả cảm xúc"></div></div>
+        <button type="button" class="dock-btn" id="btn-react" aria-label="Thả cảm xúc" title="Thả cảm xúc" aria-expanded="false">😀</button>
+        <button type="button" class="dock-btn" id="btn-actions" aria-label="Động tác (phím E)" title="Động tác — phím E">🎭</button>
+        <form class="chat-form" id="chat-form" autocomplete="off">
+          <input type="text" id="chat-input" maxlength="140" placeholder="Nhắn gì đó… (Enter)" aria-label="Tin nhắn" enterkeyhint="send" disabled>
+          <button type="submit" class="dock-send" id="chat-send" aria-label="Gửi" title="Gửi">➤</button>
+        </form>
+        <button type="button" class="dock-btn" id="btn-queue" aria-label="Hàng chờ" title="Hàng chờ — dán link YouTube">📋<span class="badge-n" id="q-badge"></span></button>
+        <button type="button" class="dock-btn" id="btn-chat" aria-label="Trò chuyện" title="Trò chuyện">💬<span class="badge-n" id="c-badge"></span></button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- vào rạp: đặt tên + chọn ngoại hình -->
+  <div class="join" id="join" role="dialog" aria-modal="true" aria-labelledby="join-title">
+    <form class="join-card" id="join-form" autocomplete="off">
+      <div class="join-hero">
+        <canvas class="join-preview" id="join-preview" width="180" height="200" aria-hidden="true"></canvas>
+        <div>
+          <h1 id="join-title">🎬 Vibe<b>Cinema</b></h1>
+          <p class="join-sub">Rạp chiếu phim 2D — xem YouTube cùng nhau, đi lại, chat, nhảy, thả tim.</p>
+          <p class="join-room" id="join-room"></p>
+        </div>
+      </div>
+      <label class="field">
+        <span>Tên của bạn</span>
+        <input type="text" id="join-name" minlength="2" maxlength="20" placeholder="2–20 ký tự, không cần đăng nhập" required enterkeyhint="go">
+      </label>
+      <div class="looks" id="join-looks"></div>
+      <div class="join-err" id="join-err" role="alert"></div>
+      <div class="join-actions">
+        <button type="button" class="btn btn-ghost" id="join-random">🎲 Ngẫu nhiên</button>
+        <button type="submit" class="btn btn-accent btn-big" id="join-go">Vào rạp 🍿</button>
+      </div>
+      <p class="join-legal">Video phát bằng trình phát chính thức của YouTube. Vào rạp là bạn đồng ý với <a href="/chinh-sach" target="_blank" rel="noopener">chính sách &amp; quyền riêng tư</a> của rạp.</p>
+    </form>
+  </div>
+
+  <!-- tấm dùng chung: ngoại hình, báo cáo, hướng dẫn, chọn phòng, quản trị (máy tính: thẻ nổi bên phải, video tự dời;
+       điện thoại: trượt lên dưới màn hình) → không bao giờ che video -->
+  <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true">
+    <div class="sheet-card">
+      <div class="sheet-head"><h2 id="sheet-title"></h2><button type="button" class="icon-btn" id="sheet-close" aria-label="Đóng">✕</button></div>
+      <div class="sheet-body" id="sheet-body"></div>
+    </div>
+  </div>
+
+  <noscript><div class="noscript">VibeCinema cần bật JavaScript để chạy.</div></noscript>
+</body>
+</html>
