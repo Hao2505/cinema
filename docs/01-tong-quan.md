@@ -100,7 +100,7 @@ Trình duyệt ──HTTPS / WSS──► Cloudflare (proxy, SSL Full) ──►
    │                                                                                                   │
    │ IFrame Player ◄──── video đi thẳng từ YouTube (KHÔNG qua VPS)                                       ├─ app.ts   HTTP tĩnh + /api + /ws
    │                                                                                                   ├─ hub.ts   rạp / phòng / người / hàng chờ / đồng hồ
-   └─ canvas khán phòng ◄── WS JSON: frame 15 Hz, sự kiện, chat, đồng hồ phòng ───────────────────────── ├─ youtube.ts ──► YouTube Data API v3 / oEmbed
+   └─ canvas khán phòng ◄── WS JSON: frame 30 Hz, sự kiện, chat, đồng hồ phòng ───────────────────────── ├─ youtube.ts ──► YouTube Data API v3 / oEmbed
                                                                                                        └─ data/  rooms.json · bans.json · reports.jsonl
 ```
 
@@ -133,7 +133,7 @@ Trình duyệt ──HTTPS / WSS──► Cloudflare (proxy, SSL Full) ──►
 | Client tự đi trước (dự đoán), server kiểm "ngân sách quãng đường" + va chạm | mượt ngay trên máy, vẫn chống đi xuyên tường / dịch chuyển |
 | Frame mang **giờ máy người đi** + bộ đệm thích ứng phía người xem | bài học VibeCorp: giật do so le WebSocket qua Cloudflare, không phải CPU |
 | Động tác là **sự kiện** ("A bắt đầu điệu X lúc T"), hoạt ảnh là hàm thuần của thời gian | gửi ít, mọi máy 60 fps cùng nhịp |
-| Frame 15 Hz, chỉ người vừa đổi | băng thông nhỏ với 60 người / phòng |
+| Frame 30 Hz, chỉ người vừa đổi | băng thông nhỏ với 60 người / phòng |
 | `shared/hall.js` thuần JS, server import thẳng (+ `.d.ts` viết tay) | một nguồn sự thật cho sơ đồ, luật, bảng giá trị; không cần build |
 | Mọi rạp chung sơ đồ `HALL`, chủ đề chỉ đổi cách vẽ, nạp động | server không đổi khi thêm rạp; trang nhẹ; file một rạp lỗi không làm hỏng rạp khác |
 | Phiên bản tài nguyên `/v/<băm>/` + `immutable` | deploy xong trình duyệt / Cloudflare lấy ngay bản mới, không cần xoá cache |

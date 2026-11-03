@@ -62,8 +62,15 @@ main.js ── điểm vào: nối mọi thứ (đọc §2)
    chào lại mà lỗi không phải tên / cấm thì báo ngay trên thẻ), `replaced` (tab khác đã nhận nhân vật), `venue` (đổi chủ
    đề vẽ), `conn` (băng "Mất kết nối — đang nối lại…").
 7. Vào nhanh (`quickJoin(roomId)`): gửi `join` bằng tên + ngoại hình đã lưu (`vc.name`, `vc.look`) và phòng được chọn.
-   Đổi rạp khi đã vào: đặt `sessionStorage vc.autojoin = 1`, xoá token, tải `/?phong=<id>`; khi mở trang mà là người quay
-   lại và (vừa đổi rạp hoặc URL có `?phong=` hợp lệ) → tự `quickJoin` ngay khi nhận `hello`.
+   Đổi rạp khi đã vào (`switchRoom(id)`): **không tải lại trang** — gửi `switch`, canvas tối dần + tải khung cảnh rạp mới
+   ngay (`stage.setVenue`), server chuyển nhân vật sang và gửi `welcome` mới → rạp mới sáng dần; server từ chối (đầy,
+   trùng tên → `notice` warn) hoặc quá 4 s → sáng lại rạp đang ở. Mở trang mà là người quay lại và URL có `?phong=` hợp lệ
+   (hoặc cờ cũ `vc.autojoin`) → tự `quickJoin` ngay khi nhận `hello`.
+   **Mở trang mượt**: `<html class="booting">` che thẻ vào rạp + cụm nút, hiện vòng chờ "Đang mở rạp…"; `main.js` bỏ
+   lớp này khi đã dựng xong + nhận `hello` đầu tiên + phông chữ sẵn sàng (tối đa 2,5 s; CSS tự hiện sau 6 s nếu JS hỏng)
+   → thẻ hiện đủ một lần, không còn cảnh ô đặt tên hiện trước rồi bảng nhân vật mới hiện sau. Server chèn
+   `<link rel="modulepreload">` cho mọi module (`app.ts MODULE_PRELOADS`, thay `<!-- %MODULEPRELOAD% -->`) → tải song
+   song thay vì lần lượt theo chuỗi import. Rảnh thì tải sẵn các rạp khác (`prefetchThemes`).
 8. `window.__vc` (§15).
 
 ## 3. Bố cục: canvas tràn cửa sổ + giao diện nổi
@@ -303,10 +310,18 @@ gói + bộ đệm phát.
   `off = min(giờ mình lúc nhận − c)` (đường truyền nhanh nhất; theo kịp lệch đồng hồ rất chậm), vẽ tại `c* = now −
   buffer − off`, nội suy giữa hai mốc kẹp `c*`. Dùng giờ máy người đi (không phải giờ server) nên so le của **cả hai
   chặng** (người đi → server → mình) đều bị bộ đệm nuốt.
-- Bộ đệm thích ứng chung (`store.net`): khởi đầu 140 ms, trong 90–450 ms; gói tới sát giờ vẽ (dư < 22 ms) → nới ngay;
-  90 gói liền đều dư nhiều → siết dần.
+- Nhịp: client gửi `move` tới **30 lần / giây** (`LIMITS.sendHz`), server gom **30 Hz** (`TICK_HZ`).
+- Bộ đệm thích ứng chung (`store.net`): khởi đầu 80 ms, trong **40–260 ms**; gói tới sát giờ vẽ (dư < 12 ms) → nới mức
+  cần; 60 gói liền đều dư nhiều → siết dần. Cỡ bộ đệm **nhích dần** về mức cần (`tickNet`, nới ≤ 0,25 ms / ms, siết ≤
+  0,05 ms / ms) — giãn / nén thời gian chứ không giật lùi.
+- **Đoán trước** (`targetPos`): gói mới tới muộn hơn bộ đệm mà người kia đang đi → đi tiếp theo vận tốc hai mốc cuối, tối
+  đa 220 ms, qua `moveWithCollision` (không xuyên tường) — thay vì đứng khựng. Gói thật tới sửa lại đường đoán → phần
+  lệch (`errX/errY`, tính ngay trong `pushSample`: vị trí trước − sau khi thêm mốc) được **kéo mượt** về 0 với hằng số
+  110 ms (`actorPos`) thay vì nhảy.
+- Đo bằng `npm run qa -- --jitter 100` (người xem giả gửi gói trễ ngẫu nhiên 0–100 ms như mạng 4G / Cloudflare): khựng
+  0,5 % (bản 15 Hz cũ 1,1 %), độ dao động bước đi 0,10 (cũ 0,22), bộ đệm ~108 ms (cũ ~169 ms).
 - Đứng lâu (> 300 ms) rồi mới đi → chèn mốc "vẫn ở chỗ cũ" để không trôi chậm; nhảy xa > 3 ô giữa hai mốc = dịch chuyển
-  tức thời; máy người kia vừa tải lại trang (`c` lùi > 2 s) → neo lại trục. Giữ tối đa 14 mốc.
+  tức thời (không kéo mượt); máy người kia vừa tải lại trang (`c` lùi > 2 s) → neo lại trục. Giữ tối đa 24 mốc.
 - Động tác của người khác bắt đầu đúng lúc trên trục đã đệm (`localTimeOf(c)`) → không nhảy trước khi dừng chân; người
   vào sau thấy động tác đang dở nhờ `ae`.
 - Đồng hồ server (cho video): `offset` từ `hello.s`, chỉnh bằng `ping / pong` (3 s một lần × 8 lúc đầu, sau đó 15 s), giữ
@@ -358,7 +373,7 @@ hiện). Người bị ẩn vẫn được cập nhật vị trí, chỉ không 
 | `vc.vol`, `vc.muted` | localStorage | âm lượng |
 | `vc.prefs` | localStorage | tùy chọn ⚙️ + danh sách người đang ẩn |
 | `vc.token` | sessionStorage | token nối lại nhân vật (theo tab) |
-| `vc.autojoin` | sessionStorage | cờ tự vào lại sau khi đổi rạp |
+| `vc.autojoin` | sessionStorage | cờ cũ (bản tải lại trang khi đổi rạp) — vẫn đọc để tương thích |
 
 Không có cookie nào cho người xem thường (chỉ `vc_admin` HttpOnly cho admin). Đổi những gì lưu → cập nhật trang
 `/chinh-sach` ([04](04-youtube-va-phap-ly.md) §10).

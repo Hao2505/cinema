@@ -89,7 +89,7 @@ npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 20 --video aqz-KE-bpKQ 
 - `qa-server.ts`: biến `PORT` (3399), `CAPACITY` (người / phòng); `maxConnPerIp 500`, `joinsPerMinute 10000` để chạy
   nhiều bot. Nhận mọi link (id lạ = 200 s). Video mặc định bật (fixture giả), nhưng khung YouTube vẫn tải video **thật**
   từ YouTube (cần Internet để xem hình).
-- `bots.ts` (`startBots` cũng được `qa.ts` dùng): mỗi bot vào rạp (tên Việt, ngoại hình ngẫu nhiên), 15 Hz đi tới ghế /
+- `bots.ts` (`startBots` cũng được `qa.ts` dùng): mỗi bot vào rạp (tên Việt, ngoại hình ngẫu nhiên), 30 Hz đi tới ghế /
   sàn nhảy / lối đi, ngẫu nhiên làm động tác, thả emoji, chat; bot 0 thêm `--video`. `--seconds 0` = chạy mãi, rớt thì
   tự vào lại sau 3 s.
 - Chạy bản thật với key: `cp .env.example .env`, điền `ADMIN_TOKEN`, `YT_API_KEY`, rồi `npm run dev` (port 3300).

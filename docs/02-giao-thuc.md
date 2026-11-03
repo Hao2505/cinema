@@ -31,7 +31,8 @@ wss://<host>/ws[?room=<id phòng>]        ← trang /?phong=<id> thì net.js g�
 - `Origin` phải cùng trang (hoặc trùng `SITE_URL`); không có `Origin` (bot, test) được nhận. Sai → HTTP 403.
 - Quyền admin quyết định **lúc mở socket** từ cookie `vc_admin` → `hello.admin`.
 - Mỗi IP tối đa `MAX_CONN_PER_IP` socket (mặc định 12), cả server 1500 → đóng mã `1013`.
-- Server ping mỗi 30 s; không pong → ngắt. Client tự nối lại với backoff `min(12 s, 0,7 s × 1,7^lần) × (0,8–1,2)`, nối
+- Server ping WebSocket mỗi **10 s**; không pong → ngắt (socket chết im lặng bị phát hiện trong 10–20 s → nhân vật chuyển
+  "mất mạng", 15 s sau mới bị bỏ). Đóng tab → client gửi `leave` (trên `pagehide`) → nhân vật bị bỏ **ngay**. Client tự nối lại với backoff `min(12 s, 0,7 s × 1,7^lần) × (0,8–1,2)`, nối
   ngay khi tab hiện lại / có mạng lại — trừ khi bị đóng mã `4001` / `4002` (§9).
 - Mở socket = **đứng xem** phòng (nhận mọi thứ của phòng, chưa có nhân vật). Gửi `join` mới có nhân vật.
 
@@ -72,6 +73,8 @@ Vị trí luôn tính **bằng ô** (tile), là **điểm chân**: `x` ngang (0 
 |---|---|---|
 | `ping` | `c` số (thiếu → 0) | trả `pong {c, s}` |
 | `spec` | `room` khớp `ROOM_ID_RE` (≤ 16 ký tự) | chỉ khi chưa có nhân vật: đổi phòng đang xem → `hello` mới |
+| `switch` | `room` khớp `ROOM_ID_RE` (≤ 16 ký tự) | đã có nhân vật: chuyển sang phòng / rạp khác **không tải lại trang** — giữ id, tên, ngoại hình, token; xuất hiện ở lối đi cuối rạp mới → `welcome` mới. Rạp đầy / trùng tên / đổi quá nhanh (`JOINS_PER_MINUTE`) → `notice` warn, ở yên |
+| `leave` | — | đóng tab / rời trang (`pagehide`, không phải bộ nhớ đệm): bỏ nhân vật ngay (`pl` cho cả phòng); socket vẫn mở như người đứng xem |
 | `join` | `name` chuỗi ≤ 80; `look` bất kỳ; `room` (sai → `''`); `token` 32 hex (sai → `''`); `ck` 16–64 hex (sai → `''`) | vào rạp / nối lại → `welcome` hoặc `join_err` ([07](07-server.md) §5) |
 | `move` | `x, y` hữu hạn, \|·\| ≤ 1000; `d` nguyên 0–3; `c` 0–1e12 (làm tròn); `m` = `1`/`true` → 1, còn lại 0 | kiểm ngân sách + va chạm, có thể trả `corr`; vào frame `f` |
 | `act` | `a` ∈ `ACTION_IDS` hoặc `''` (thôi); `c` (sai → 0) | phát `act` cho cả phòng |
@@ -110,7 +113,7 @@ Mọi lệnh trừ `ping`, `spec`, `join`, `adm` cần đã có nhân vật **v�
 | `hello` | `v` (= `PROTOCOL`, hiện 1), `s`, `rooms: RoomInfo[]`, `room` (id), `snap: RoomSnapshot`, `admin`, `cfg: PublicSettings` | ngay khi nối; sau `spec`; khi bản sao bị đóng và mình bị dời về phòng chính |
 | `welcome` | `you` (id nhân vật), `token` (giữ trong `sessionStorage` để nối lại), `room`, `snap` | vào rạp / nối lại thành công |
 | `join_err` | `code`, `text` | §9 |
-| `f` | `p: FrameEntry[]` — mỗi dòng `[id, x, y, d, c, m]` | nhịp `TICK_HZ` (15 Hz), **chỉ người vừa đổi**; `c` = giờ máy người đi |
+| `f` | `p: FrameEntry[]` — mỗi dòng `[id, x, y, d, c, m]` | nhịp `TICK_HZ` (30 Hz), **chỉ người vừa đổi**; `c` = giờ máy người đi |
 | `pj` | `p: PlayerInfo` | người vào (người khác) |
 | `pl` | `id` | người rời hẳn (hết 15 s chờ, bị mời ra / cấm) |
 | `pu` | `p: PlayerInfo` | đổi tên / ngoại hình / mất mạng (`ghost`) / nối lại |
@@ -200,7 +203,7 @@ client                                   server
 
 ```
 A: tickMe (60 fps, tự đi) ── move {x,y,d,c,m} ≤ 15/s ──► onMove (kiểm) ──► (sai) corr {x,y} ──► A
-                                                         └─ Room.tick 15 Hz ── f [[idA,x,y,d,c,m],…] ──► B, C…
+                                                         └─ Room.tick 30 Hz ── f [[idA,x,y,d,c,m],…] ──► B, C…
 B: store.onFrame → pushSample(theo c của A) → stage vẽ tại now − buffer (nội suy)
 ```
 

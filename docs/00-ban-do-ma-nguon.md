@@ -53,7 +53,7 @@ vibe-cinema/
 
 | File | Vai trò | Ai dùng |
 |---|---|---|
-| `hall.js` | **thuần JS, không DOM / Node**: `PROTOCOL`; sơ đồ `HALL` (34 × 16 ô, sân khấu, sàn nhảy, 5 hàng ghế × 3 dãy, loa, quầy, biển lối ra), `HOME`; `isWalkable`, `clampToWalkable`, `moveWithCollision`, `SPEED` (3,4 ô/s); `SEATS` (130), `nearestSeat`, `seatAt`, `spawnPoint`; `VENUES`, `DEFAULT_VENUE`, `ROOM_ID_RE`, `venueById`, `parseRoomId`, `roomName`; `DIRS`, `dirIndex`; `ACTIONS` (8), `ACTION_IDS`, `actionById`; `REACTIONS` (8 emoji); bảng ngoại hình `SKINS`, `HAIR_COLORS`, `HAIR_STYLES`, `SHIRTS`, `PANTS`, `ACCESSORIES`, `BODIES`, `FACIALS`, `normalizeLook`, `randomLook`; `LIMITS` (tên 2–20, chat 140, gửi 15 Hz) | server (`hub.ts`, `protocol.ts`, `app.ts`, `server.ts`), client (`main`, `store`, `me`, `input`, `render/*`, `ui/*`), scripts |
+| `hall.js` | **thuần JS, không DOM / Node**: `PROTOCOL`; sơ đồ `HALL` (34 × 16 ô, sân khấu, sàn nhảy, 5 hàng ghế × 3 dãy, loa, quầy, biển lối ra), `HOME`; `isWalkable`, `clampToWalkable`, `moveWithCollision`, `SPEED` (3,4 ô/s); `SEATS` (130), `nearestSeat`, `seatAt`, `spawnPoint`; `VENUES`, `DEFAULT_VENUE`, `ROOM_ID_RE`, `venueById`, `parseRoomId`, `roomName`; `DIRS`, `dirIndex`; `ACTIONS` (8), `ACTION_IDS`, `actionById`; `REACTIONS` (8 emoji); bảng ngoại hình `SKINS`, `HAIR_COLORS`, `HAIR_STYLES`, `SHIRTS`, `PANTS`, `ACCESSORIES`, `BODIES`, `FACIALS`, `normalizeLook`, `randomLook`; `LIMITS` (tên 2–20, chat 140, gửi 30 Hz) | server (`hub.ts`, `protocol.ts`, `app.ts`, `server.ts`), client (`main`, `store`, `me`, `input`, `render/*`, `ui/*`), scripts |
 | `hall.d.ts` | kiểu TypeScript cho `hall.js` — **viết tay, phải sửa cùng lúc** với `hall.js` (server không phục vụ `.d.ts`) | `tsc` |
 
 ## 4. Client — `public/js/`
@@ -65,7 +65,7 @@ vibe-cinema/
 | `main.js` | điểm vào: khoá máy `ck`, đăng nhập admin, dựng stage + trình phát + mọi UI, `syncInsets` (chừa chỗ cho DOM nổi), ngăn kéo, dock, 📺 góc xem, ⛶, ⚙️ tùy chọn, tự mờ nút, hướng dẫn, 🎨, chọn rạp, luồng vào rạp (form / vào nhanh cho người quay lại) / bị mời ra / nối lại, `window.__vc` | — (module gốc) | `index.html` |
 | `net.js` | WebSocket `/ws?room=` (từ `/?phong=`), nối lại backoff, ping đo giờ, mã đóng 4001 / 4002; `#admin=` → `POST /api/admin/login` | `connect`, `send`, `isOpen`, `adminLoginFromUrl`, `adminLogout` | `main`, `me`, `player`, `ui/*` |
 | `store.js` | trạng thái client, `handleMessage` (mọi `ServerMsg`), bus sự kiện, đồng hồ server (`onPong`, `serverNow`), **nội suy người khác** (`pushSample`, `actorPos`, bộ đệm thích ứng), bong bóng, emoji bay | `store`, `handleMessage`, `onPong`, `setConn`, `actorPos`, `setAction`, `spawnFx`, `bubbleDuration` | `net`, `main`, `me`, `player`, `render/stage`, `ui/*` |
-| `me.js` | nhân vật của mình: dự đoán + va chạm chung, gửi `move` ≤ 15 Hz kèm giờ máy, sửa mượt khi `corr`, tự ngồi ghế, đi tới điểm chạm, động tác, emoji | `me`, `tickMe`, `placeMe`, `myRenderPos`, `applyCorrection`, `walkTo`, `doAction`, `react`, `mySeat`, `setKey`, `clearKeys`, `setJoy` | `main`, `input`, `stage`, `ui/wheel`, `ui/chat`, `ui/usercard` |
+| `me.js` | nhân vật của mình: dự đoán + va chạm chung, gửi `move` ≤ 30 Hz kèm giờ máy, sửa mượt khi `corr`, tự ngồi ghế, đi tới điểm chạm, động tác, emoji | `me`, `tickMe`, `placeMe`, `myRenderPos`, `applyCorrection`, `walkTo`, `doAction`, `react`, `mySeat`, `setKey`, `clearKeys`, `setJoy` | `main`, `input`, `stage`, `ui/wheel`, `ui/chat`, `ui/usercard` |
 | `player.js` | trình phát YouTube chính thức + đồng bộ đồng hồ phòng, âm lượng, toàn màn hình video, báo lỗi `vid_err` | `createPlayer(slot, host, hooks)` → `{ enable, disable, sync, setVolume, toggleMute, fullscreen, userPlay, status, debug, … }` | `main` |
 | `input.js` | phím WASD / mũi tên / E / 1–8 / Enter / Esc, nhả phím khi mất focus, trả focus khỏi iframe, cần điều khiển ảo | `initInput(hooks)` | `main` |
 | `prefs.js` | tùy chọn người xem (⚙️) trong `localStorage vc.prefs` + ẩn riêng từng người theo tên | `prefs`, `DEFAULT_PREFS`, `DIM_LEVELS`, `setPref`, `onPrefs`, `resetPrefs`, `personFlags`, `setPersonFlag`, `unhidePerson`, `hiddenList`, `showPerson`, `showChatFrom`, `showActsFrom`, `showEmojiFrom` | `main`, `store`, `render/stage`, `ui/chat`, `ui/usercard` |
@@ -139,7 +139,7 @@ server.ts ─► dotenv ─► loadConfig ─► setExtraBadWords ─► createY
           └► createApp(cfg, {youtube, dataDir})
                ├─ loadOrCreateSalt (data/ip-salt.txt)        ├─ ASSET_VERSION = băm public/
                └─ new Hub(cfg) ─► BanList(bans.json) ─► load(rooms.json) ─► phòng chính cho mỗi rạp
-                    hub.start(): tick 15 Hz · refreshDefault() ngay + 6 giờ · lưu rooms.json 30 s
+                    hub.start(): tick 30 Hz · refreshDefault() ngay + 6 giờ · lưu rooms.json 30 s
           └► listen(PORT, HOST)
 ```
 
@@ -161,7 +161,7 @@ store.onWelcome ─► main: lưu token, rememberJoin(phòng), ẩn màn vào r�
 ```
 input.js / joystick / chạm sàn ─► me.tickMe (moveWithCollision, 60 fps) ─► net.send(move {x,y,d,c,m}) ≤ 15/s
 hub.onMove: ngân sách + va chạm + kẹp giờ ─► (lệch) corr ─► me.applyCorrection (kéo mượt 180 ms)
-            p.dirty ─► Room.tick (15 Hz) ─► f [[id,x,y,d,c,m],…] ─► store.onFrame ─► pushSample (trục giờ người đi)
+            p.dirty ─► Room.tick (30 Hz) ─► f [[id,x,y,d,c,m],…] ─► store.onFrame ─► pushSample (trục giờ người đi)
 stage.prepareActors ─► actorPos(a, now − buffer − off) ─► vẽ
 ```
 

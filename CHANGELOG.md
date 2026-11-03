@@ -1,5 +1,31 @@
 # Lịch sử thay đổi
 
+## 0.4.1 — 2026-11-03 · Đi mượt gần như tức thì, hết kẹt nhân vật, chuyển rạp mượt
+
+**Thấy nhau đi gần như tức thì** — gửi + gom vị trí 30 lần / giây (trước 15); bộ đệm chống giật nhỏ hẳn (40–260 ms, trước
+90–450) và đổi cỡ từ từ; gói tới muộn thì **đoán trước** người đó đi tiếp theo hướng đang đi (không đứng khựng), gói thật tới
+thì **kéo mượt** về đúng chỗ (không giật). Đo với mạng xấu giả lập (trễ ngẫu nhiên 0–100 ms): khựng 0,5 % (trước 1,1 %),
+độ giật bước đi giảm một nửa, trễ bộ đệm ~108 ms (trước ~169 ms); mạng thường còn 40–80 ms.
+
+**Hết nhân vật bị kẹt / báo trùng tên**
+- Chuyển rạp **tại chỗ, không tải lại trang** (lệnh `switch`): nhân vật đi theo sang rạp mới, rạp cũ không còn "xác".
+- Đóng tab → nhân vật biến mất ngay (lệnh `leave`); kết nối chết im lặng (điện thoại tắt màn hình, mất sóng) bị phát hiện
+  trong 10–20 s (trước 30–60 s).
+- Vào lại ở tab mới / đóng tab mở lại trên cùng máy → **nhận lại đúng nhân vật cũ**, không còn "tên đã có người dùng";
+  cố ý đổi tên thì nhân vật cũ bị bỏ. Vào lại mà chọn rạp khác → chuyển luôn sang rạp đó.
+
+**Gặp được nhau** — khách mới không chọn rạp được xếp vào **rạp đông nhất** (trước: rạp đầu danh sách → ít người thì mỗi người
+một rạp). Thẻ "Chào mừng quay lại" xếp rạp đông lên đầu, nhãn 🔥 ĐÔNG NHẤT; vào rạp vắng trong khi rạp khác có người → nhắc
+"N người đang ở …".
+
+**Mở trang + chuyển rạp mượt**
+- Mở trang: vòng chờ "Đang mở rạp…" rồi thẻ vào rạp hiện **đủ một lần** (trước: ô đặt tên hiện trước, bảng nhân vật / danh
+  sách rạp hiện sau). Server chèn `modulepreload` → trình duyệt tải song song ~26 file JS thay vì lần lượt.
+- Chuyển rạp / xem rạp khác: khung cảnh tối dần → đổi → sáng dần (video vẫn hiện, không bị che); các rạp được tải sẵn lúc
+  rảnh nên không phải chờ mạng. Khung video hiện dần khi bật.
+- `npm test`: 22 test đơn vị + 35 bước smoke (thêm: vào lại ở tab mới, đổi tên, chuyển rạp tại chỗ, rời rạp, rạp đông
+  nhất). `npm run qa -- --jitter <ms>` giả lập mạng xấu.
+
 ## 0.4.0 — 2026-11-03 · 4 rạp + kênh mặc định + làm tối khi chiếu + tùy chọn
 
 **4 rạp, mỗi rạp một khung cảnh** — 🎭 Rạp Nhung Đỏ (trong nhà), 🌳 Rạp Công Viên (ngoài trời: bãi cỏ, gối lười), 🚗 Rạp

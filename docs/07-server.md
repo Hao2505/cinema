@@ -90,7 +90,8 @@ nằm trong `public/` (chặn symlink ra ngoài); không phục vụ `.d.ts`; th
   đứng xem ban đầu.
 - Mỗi tin: `rawToString` (bỏ binary, rỗng, > 4096 byte) → `parseClientMsg` (sai dạng → bỏ im lặng) → `hub.message(conn,
   msg)` (bọc try/catch).
-- Nhịp tim 30 s: `ping`; lượt sau chưa thấy `pong` → `terminate()`. `close` → `hub.disconnect(conn)`.
+- Nhịp tim **10 s**: `ping`; lượt sau chưa thấy `pong` → `terminate()` (socket chết im lặng bị phát hiện trong 10–20 s).
+  `close` → `hub.disconnect(conn)`.
 
 ## 3. `hub.ts` — mô hình dữ liệu
 
@@ -181,7 +182,20 @@ Client tự đi trước (dự đoán), server **kiểm tra rồi sửa nhẹ**:
 5. Cập nhật `x, y, d, m, ct`, đánh dấu `dirty`; đang đi (`m = 1`) thì bỏ động tác. Đã sửa → gửi `corr {x, y}` cho chính
    người đó (tối đa 1 lần / 150 ms).
 
-`Room.tick` (15 Hz, `TICK_HZ`) gom người `dirty` thành một tin `f` — **chỉ người vừa đổi**.
+`Room.tick` (**30 Hz**, `TICK_HZ`) gom người `dirty` thành một tin `f` — **chỉ người vừa đổi**. Giới hạn gói: `moveBucket`
+dồn 60, hồi 40 / s; cả kết nối dồn 120, hồi 70 / s (đủ cho 30 gói vị trí / s + ping + chat).
+
+**Vào lại / chuyển rạp / rời** (`hub.ts`):
+- `findReturning(token, ck)`: nhân vật cũ theo **token** của tab (rớt mạng, F5) trước, rồi theo **khoá máy `ck`** (đóng
+  tab mở lại, tab mới — không còn token). Tìm thấy: cùng tên → nhận lại đúng nhân vật (socket cũ còn treo thì đóng 4002),
+  cập nhật ngoại hình, nếu `join.room` là rạp khác → `moveTo` sang luôn; **khác tên** (cố ý đổi tên) → `dropPlayer` bỏ
+  nhân vật cũ rồi vào mới. Nhờ vậy cùng máy không bao giờ bị "tên đã có người dùng" vì nhân vật của chính mình.
+- `onSwitch` → `moveTo(c, p, from, roomId, now, limit)`: `pickRoom(roomId)` (đầy → bản sao cùng rạp), khác rạp mong muốn
+  / trùng tên → `notice` warn; được thì `removePlayer` ở phòng cũ, chỗ xuất hiện mới (`spawnPoint`), `addPlayer`, gửi
+  `welcome` với ảnh chụp phòng mới.
+- `onLeave`: bỏ nhân vật ngay (client gửi khi đóng tab).
+- `pickRoom()` **không chọn rạp** → rạp **đông nhất** còn chỗ (theo `present()`), để ít người thì mọi người gặp nhau thay
+  vì mỗi người một rạp.
 
 ## 7. Động tác, chat, emoji, ngoại hình
 
@@ -345,7 +359,7 @@ Tắt tiếng, mời ra, báo lỗi trình phát, bộ đệm YouTube **không**
 | `REPORT_AUTOSKIP` | 3 | 1–100 | số IP khác nhau báo cáo video → tự gỡ |
 | `ROOM_CAPACITY` | 60 | 2–200 | người / phòng (tính cả người đang nối lại) |
 | `MAX_ROOMS` | 3 | 1–9 | số phòng tối đa **mỗi rạp** (chính + bản sao) |
-| `TICK_HZ` | 15 | 5–30 | nhịp gửi frame vị trí |
+| `TICK_HZ` | 30 | 5–30 | nhịp gửi frame vị trí |
 | `MAX_CONN_PER_IP` | 12 | ≥ 1 | socket / IP |
 | `JOINS_PER_MINUTE` | 20 | ≥ 1 | lần vào rạp / IP / phút |
 | `BLOCK_WORDS` | rỗng | | từ cấm thêm, phẩy ngăn cách, so nguyên từ còn dấu (đọc ở `server.ts`) |
