@@ -185,7 +185,37 @@ hệt — server không biết gì về hình); chủ đề chỉ đổi **cách
 
 `drawIdleScreen` và `STAGE_H` (cao sân khấu, dùng tính `audTop`) lấy chung từ `render/hall.js`. Thêm rạp mới: [08](08-mo-rong.md) §1.
 
-<!-- VENUE-DETAILS: mô tả hình từng rạp (người viết code rạp sẽ điền) -->
+### 6.1 Từng rạp trông thế nào
+
+| Rạp | File | Dải trên (trời / màn hình) | Sàn + hai bên | Ghế (hàng) | Loa · quầy | Mỗi khung |
+|---|---|---|---|---|---|---|
+| 🎭 Rạp Nhung Đỏ | `nhung.js` → `render/hall.js` | tường cuối tiêu âm, màn nhung + dây vén, diềm tua vàng | thảm có bậc theo hàng ghế, lối đi đèn LED, tường ốp gỗ + đèn tường + biển LỐI RA, sân khấu gỗ đèn chân | ghế nhung đỏ khối 3D (1 lớp) | loa cột · quầy "BẮP NƯỚC" | sàn nhảy LED nháy theo người nhảy, đốm đèn quét |
+| 🌳 Rạp Công Viên | `congvien.js` + `-band`, `-floor`, `-art` | trời đêm có dải Ngân Hà mờ, trăng (trái màn hình), phố xa có cửa sổ sáng, hàng cây; màn hình **bơm hơi** (ống viền + 2 trụ + dây néo; điện thoại dọc bỏ dây néo) | cỏ đêm có vệt cắt, lối sỏi theo lối đi, thảm picnic ca rô dưới từng dãy ghế, sàn gỗ có đèn dây; cây tròn + cột đèn công viên + dây đèn + hàng rào cây (vẽ trong `drawRoom`) | **gối lười** pastel, 2 lớp (thân sau lưng người ngồi `z−0,3` + lưng gối trước `z+0,32`), cao theo độ dốc camera | loa chân máy · xe bắp rang mái sọc "BẮP NƯỚC" | 18 đom đóm, sao lấp lánh, sao băng; vũng màu theo nhịp dưới người nhảy |
+| 🚗 Rạp Đỗ Xe | `doxe.js` + `-band`, `-floor`, `-car`, `-props` | trời sao, đồi + phố nhỏ, cột ăng-ten; **tháp màn hình** khung thép; biển neon "DRIVE / IN" bóng đèn chạy (máy tính + điện thoại ngang; dọc không đủ chỗ thì bỏ) | nhựa đường có vân, vết nứt, vết dầu; vạch đỗ xe mỗi 2 ghế, mũi tên lối đi, sàn nhảy ca rô viền neon hồng / xanh; hàng rào lưới + đèn bãi xe có quầng sáng (trong `drawRoom`) | **xe mui trần** pastel, 1 xe / 2 ghế, 2 lớp (đầu xe + thân sau lưng người ngồi, lưng ghế + đuôi xe + đèn hậu trước mặt) | loa thùng + loa kèn · quầy "SNACK BAR / BẮP NƯỚC" (cache theo camera) | bóng đèn biển neon chạy, "IN" chập chờn, đèn ăng-ten, sao băng, thiêu thân quanh đèn; ô ca rô sáng dưới người nhảy |
+| 🏖️ Rạp Bãi Biển | `bien.js` + `bien-art.js` | trời sao, trăng tròn (phải màn hình), biển lấp lánh ánh trăng, đảo có hải đăng, đèn thuyền câu mực, thúng chai; màn hình treo trên **giàn tre** có dây đèn | cát đêm gợn gió, dấu chân, vỏ sò, sao biển; sàn gỗ ván dọc + dây đèn; dừa, đuốc tiki, ván lướt sóng, lâu đài cát, hàng rào dây + phao (trong `drawRoom`) | **ghế xếp** khung gỗ vải sọc (8 cặp màu cố định theo ghế, ~10 % có khăn), 1 lớp, lưng cao theo độ dốc camera | loa khung tre mái lá · quầy tiki mái lá "NƯỚC DỪA" | lửa đuốc bập bùng + tàn lửa, sóng vỗ, ánh trăng chạy trên biển, hải đăng nháy, sao băng; vũng sáng ấm + đốm màu khi nhảy |
+
+### 6.2 Kinh nghiệm khi vẽ một rạp (từ lúc làm 3 rạp ngoài trời)
+
+- **Đồ trang trí ngoài hàng rào (x < 1 hoặc x > 33) vẽ trong `drawRoom`, không dùng `props()`.** `props` được vẽ trong
+  vùng cắt bắt đầu từ mép dưới video (`L.vb`) nên ngọn cây / đèn cao bị cắt bằng ở góc "Màn rộng" và điện thoại ngang;
+  còn trong phép chiếu này vật xa hơn ra hai bên không bao giờ che người đi trong rạp, nên để ở lớp phòng (cache) vẫn
+  đúng thứ tự trước sau. Cả 3 rạp ngoài trời đều trả `props: () => []`.
+- **Hàng ghế 2 lớp tốn kém trên điện thoại**: mỗi lớp là một ảnh rộng bằng cả rạp (~3 ms / khung ở DPR 2,5). Chỉ thêm
+  lớp sau lưng người ngồi khi thật cần (xe mui trần, gối lười); giữ khung ảnh sát nội dung.
+- **Chiều cao lưng ghế nên theo độ dốc camera** (`P.k / P.s`): điện thoại dọc nhìn gần từ trên xuống, lưng ghế cố định
+  sẽ hở cả thân người ngồi.
+- **Vẽ lại hàng ghế khi chụm phóng** (điện thoại) tốn 8–15 ms mỗi bước; đứng yên thì không vẽ lại.
+- Loa / quầy vẽ mỗi khung → cache thành ảnh nhỏ theo cỡ (Đỗ Xe đọc DPR từ `ctx.getTransform().a`).
+- `skyFx` được gọi **sau** lớp phòng: hiệu ứng trên trời có thể vẽ đè lên cây cao bên cạnh màn hình → giới hạn vùng sao
+  phía trên đường cây / phố (Công Viên làm vậy). Bãi Biển cần phép chiếu `P` trong `skyFx` để vẽ lửa đuốc nhô lên trên
+  `L.vb` nên lưu lại `P` từ `drawRoom`; lửa đuốc dưới thấp chạy trong `drawDanceLights` (hook duy nhất gọi mỗi khung
+  trước khi vẽ người — tắt "Đèn & hiệu ứng" thì đuốc hai bên đứng yên).
+
+**Hướng cải thiện giao diện chủ đề** (chưa làm, gom từ các người vẽ rạp): truyền `P` cho `skyFx` và gọi nó giữa dải
+trên và lớp phòng; thêm hook "dưới người" mỗi khung (thay cho việc mượn `drawDanceLights`); truyền `L` (hoặc `L.cs`) cho
+`renderRow` để tính đúng chiều cao lưng ghế; truyền `dpr` cho `drawSpeaker` / `drawCounter`; đưa cỡ cụm nút góc trên
+vào `L` để dải trên tránh chính xác; cho `props` một cờ "chỉ cắt khung video" thay vì cắt từ `L.vb`; giảm vẽ lại hàng
+ghế khi chụm phóng; xem lại giá của chùm máy chiếu (`drawBeam`) trên điện thoại.
 
 ## 7. Nhân vật & động tác (`render/character.js`, `render/anims.js`)
 

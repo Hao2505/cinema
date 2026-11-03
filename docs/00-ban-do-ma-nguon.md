@@ -26,7 +26,7 @@ vibe-cinema/
 │       ├── main.js  net.js  store.js  me.js  player.js  input.js  prefs.js  util.js  policy.js
 │       ├── shared/hall.js + hall.d.ts     ◄── DÙNG CHUNG server + trình duyệt
 │       ├── render/  stage.js persp.js hall.js character.js anims.js bubbles.js draw.js
-│       │   └── venues/  index.js nhung.js congvien.js doxe.js bien.js
+│       │   └── venues/  index.js nhung.js congvien(-band,-floor,-art).js doxe(-band,-floor,-car,-props).js bien(-art).js
 │       └── ui/      join.js queue.js chat.js wheel.js usercard.js sheet.js toasts.js admin.js
 ├── scripts/                 test-unit, smoke, fake-youtube, qa, qa-server, cdp, bots, qa-characters, share-images
 ├── deploy/                  deploy.sh, logs.sh, nginx.site.conf, nginx.limit.conf (+ vps.env, .env.production: BÍ MẬT)
@@ -80,7 +80,9 @@ vibe-cinema/
 | `persp.js` | phép chiếu phối cảnh một điểm tụ, khối hộp 3D, trải sàn "mode 7" | `projection`, `box`, `poly`, `drawFloor` | `stage`, `hall`, chủ đề rạp |
 | `venues/index.js` | sổ đăng ký chủ đề rạp + nạp động (`import()`), lỗi → Rạp Nhung Đỏ; mô tả giao diện một chủ đề | `defaultTheme`, `loadTheme(id)`, `themeOf(id)` | `stage` |
 | `venues/nhung.js` | Rạp Nhung Đỏ = bọc bộ vẽ `render/hall.js` | `default` (chủ đề) | `venues/index.js` |
-| `venues/congvien.js`, `doxe.js`, `bien.js` | chủ đề Rạp Công Viên / Đỗ Xe / Bãi Biển (nạp động) | `default` | `venues/index.js` (`LOADERS`) |
+| `venues/congvien.js` (+ `congvien-band.js` trời + màn hình bơm hơi, `congvien-floor.js` texture cỏ + `drawRoom`, `congvien-art.js` bảng màu, cây, cột đèn, sprite quầng sáng) | chủ đề Rạp Công Viên (nạp động) | `default` | `venues/index.js` (`LOADERS`) |
+| `venues/doxe.js` (+ `doxe-band.js` trời + tháp màn hình + biển neon, `doxe-floor.js` nhựa đường + hàng rào + đèn bãi, `doxe-car.js` xe mui trần 2 lớp, `doxe-props.js` loa, quầy SNACK BAR, đèn sàn nhảy, thiêu thân) | chủ đề Rạp Đỗ Xe (nạp động) | `default` | `venues/index.js` (`LOADERS`) |
+| `venues/bien.js` (+ `bien-art.js` dừa, đuốc + lửa, tre, dây thừng, ván lướt sóng, lâu đài cát, phao) | chủ đề Rạp Bãi Biển (nạp động) | `default` | `venues/index.js` (`LOADERS`) |
 | `hall.js` | bộ vẽ trong nhà: texture thảm, tường ốp gỗ + đèn + LỐI RA, sân khấu, hàng ghế nhung, loa, quầy BẮP NƯỚC, màn nhung + diềm, đèn sàn nhảy, chùm máy chiếu; `drawIdleScreen` (chữ trên màn hình trống) và `STAGE_H` dùng chung mọi rạp | `C`, `ZW`, `STAGE_H`, `floorTexture`, `drawRoom`, `renderRow`, `drawSpeaker`, `drawCounter`, `renderScreenBand`, `drawDanceLights`, `drawBeam`, `drawHallLight`, `drawIdleScreen` | `venues/nhung.js`, `stage` |
 | `character.js` | nhân vật chibi đủ bộ phận từ `look` (chép VibeCorp + nam / nữ, râu, ngồi bệt, khung `anim`, bắp rang, tim) | `drawCharacter`, `U`, `headTop`, `headCenter`, `HEAD_RADIUS`, `moodOf`, `portrait` (chân dung cho thẻ chào lại) | `stage`, `ui/join`, `qa-characters.ts` |
 | `anims.js` | 8 động tác = hàm thuần của thời gian; emoji bay theo động tác | `actionPose`, `ACTION_FX` | `stage`, `ui/join` |
