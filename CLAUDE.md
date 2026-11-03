@@ -83,7 +83,9 @@
   đầy tự mở phòng kế (tối đa 3), **mỗi phòng hàng chờ riêng**; 3 báo cáo → tự gỡ; 8 động tác như §1; điện thoại = cần điều
   khiển ảo + chạm sàn + nút 🎭 + chụm phóng to.
 - **Đã deploy** 2026-11-03: https://cinema.vibe-coder.fun (pm2 `vibecinema`, cổng 3300, HTTPS Let's Encrypt, DNS only —
-  thẳng VPS). Netcode người khác: phát lại đều theo đồng hồ người gửi + đệm thích ứng (`docs/03` §11, bản 0.4.3). Repo
+  thẳng VPS). Netcode người khác: phát lại đều theo đồng hồ người gửi + đệm thích ứng (`docs/03` §11, bản 0.4.3).
+- **SEO / chia sẻ link** (0.4.4): thẻ đủ bộ + ảnh chia sẻ vẽ bằng code (`npm run share-images`), kiểm bằng
+  `npm run seo-check -- --url https://cinema.vibe-coder.fun` (docs/06 §8). Ảnh chia sẻ không bao giờ chứa khung hình YouTube. Repo
   `Hao2505/cinema` (chủ dự án cho push). Cập nhật: `bash deploy/deploy.sh` (chỉ khi chủ dự án bảo).
 - **Chờ chủ dự án**: tạo `YT_API_KEY` (README) → điền `.env` + `deploy/.env.production` rồi deploy lại — chưa có key thì
   chưa ai thêm được video.

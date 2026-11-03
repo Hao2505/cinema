@@ -36,6 +36,8 @@ npx tsx scripts/qa-server.ts               # server QA :3399, YouTube giả, adm
 npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 10 --video aqz-KE-bpKQ [--room bien]   # người xem giả
 npm run qa -- --out /tmp/vc-shots [--only desktop|mobile|smooth] [--room bien] [--bunch]   # Chrome headless: ảnh, chồng lấn video, độ mượt
 npx tsx scripts/qa-characters.ts --url http://localhost:3399 --out /tmp/vc-chars                 # soi nhân vật / động tác
+npm run share-images -- --url http://localhost:3399 --room congvien   # vẽ lại ảnh chia sẻ + icon (cần server QA + bot)
+npm run seo-check -- --url https://cinema.vibe-coder.fun          # kiểm SEO / xem trước chia sẻ (docs/06 §8)
 bash deploy/deploy.sh [--setup]            # CHỈ khi chủ dự án bảo — xem docs/05
 ```
 

@@ -20,7 +20,7 @@ vibe-cinema/
 │   ├── index.html           trang rạp (canvas + DOM nổi + màn vào rạp + tấm)
 │   ├── chinh-sach.html      /chinh-sach — chính sách & quyền riêng tư
 │   ├── style.css            toàn bộ CSS (biến --aud-top, --sheet-top, --right-inset, --dock-h, --side-w)
-│   ├── og-image.jpg, icon-192.png, icon-512.png, apple-touch-icon.png   (sinh bằng scripts/share-images.ts)
+│   ├── og-image.jpg, screenshot-*.jpg, icon-*.png, apple-touch-icon.png, favicon*   (sinh bằng scripts/share-images.ts)
 │   ├── site.webmanifest, robots.txt
 │   └── js/
 │       ├── main.js  net.js  store.js  me.js  player.js  input.js  prefs.js  util.js  policy.js
@@ -28,7 +28,7 @@ vibe-cinema/
 │       ├── render/  stage.js persp.js hall.js character.js anims.js bubbles.js draw.js
 │       │   └── venues/  index.js nhung.js congvien(-band,-floor,-art).js doxe(-band,-floor,-car,-props).js bien(-art).js
 │       └── ui/      join.js queue.js chat.js wheel.js usercard.js sheet.js toasts.js admin.js
-├── scripts/                 test-unit, smoke, fake-youtube, qa, qa-server, cdp, bots, qa-characters, share-images
+├── scripts/                 test-unit, smoke, fake-youtube, qa, qa-server, cdp, bots, qa-characters, share-images, seo-check
 ├── deploy/                  deploy.sh, logs.sh, nginx.site.conf, nginx.limit.conf (+ vps.env, .env.production: BÍ MẬT)
 ├── docs/                    tài liệu (README.md = mục lục)
 ├── data/                    dữ liệu chạy thật (không commit; chỉ có .gitkeep trong repo)
@@ -114,7 +114,8 @@ vibe-cinema/
 | `qa.ts` | QA hình: Chrome headless, ảnh máy tính + điện thoại, `checkOverlap` (không gì đè video), đo mượt, bắt lỗi console | `npm run qa -- --out <dir>` |
 | `cdp.ts` | điều khiển Chrome qua DevTools Protocol chỉ bằng `ws` (`launch`, `Page`) | dùng bởi qa, qa-characters, share-images |
 | `qa-characters.ts` | bảng 8 động tác × 4 hướng + bảng dáng nam / nữ | `npx tsx scripts/qa-characters.ts --url … --out …` |
-| `share-images.ts` | vẽ `og-image.jpg` + icon | `npm run share-images -- --url …` |
+| `share-images.ts` | vẽ `og-image.jpg`, ảnh app, icon, favicon | `npm run share-images -- --url …` |
+| `seo-check.ts` | kiểm SEO + xem trước khi chia sẻ của site đang chạy (thẻ, ảnh, manifest, robots, sitemap, bot mạng xã hội) | `npm run seo-check -- --url …` |
 
 Chi tiết: [06](06-kiem-thu-qa.md).
 
@@ -233,4 +234,5 @@ player.onError 2/100/101/150 ─► vid_err ─► hub.onVideoError ─► (đ�
 | Lưu trữ | `hub.ts save / load`, `moderation.ts BanList` | nạp phải phòng thủ (dữ liệu cũ) |
 | nginx, deploy | `deploy/nginx.*.conf`, `deploy/deploy.sh` | VPS dùng chung — [05](05-van-hanh-deploy.md) |
 | Test | `scripts/test-unit.ts`, `scripts/smoke.ts`, `scripts/fake-youtube.ts` | không ra Internet |
-| Ảnh chia sẻ / icon | `scripts/share-images.ts` → `public/og-image.jpg`, `icon-*.png` | |
+| Ảnh chia sẻ / icon | `scripts/share-images.ts` → `public/og-image.jpg`, `icon-*.png`, `favicon*` | kiểm: `npm run seo-check` |
+| Thẻ SEO / chia sẻ | `<head>` của `public/index.html`, `public/chinh-sach.html`, `public/site.webmanifest`; robots / sitemap trong `src/app.ts` | docs/06 §8 |

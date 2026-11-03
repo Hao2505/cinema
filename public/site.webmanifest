@@ -1,16 +1,110 @@
 {
-  "name": "VibeCinema — Rạp chiếu phim 2D",
+  "id": "/",
+  "name": "VibeCinema — Rạp chiếu phim 2D xem YouTube cùng nhau",
   "short_name": "VibeCinema",
-  "description": "Rạp chiếu phim 2D xem YouTube cùng nhau: đi lại, chat, nhảy, thả tim.",
+  "description": "Xem YouTube cùng bạn bè trong rạp phim 2D: 4 rạp, nhân vật riêng, chat, nhảy, thả tim. Không cần đăng nhập.",
   "lang": "vi",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ],
+  "orientation": "any",
   "background_color": "#0e0b12",
   "theme_color": "#0e0b12",
+  "categories": [
+    "entertainment",
+    "social",
+    "music"
+  ],
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/favicon-48.png",
+      "sizes": "48x48",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-wide.jpg",
+      "sizes": "1280x720",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "Rạp Công Viên: màn chiếu lớn giữa trời đêm, mọi người cùng xem"
+    },
+    {
+      "src": "/screenshot-narrow.jpg",
+      "sizes": "780x1688",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Trên điện thoại: màn chiếu phía trên, khán phòng phía dưới"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Rạp Nhung Đỏ",
+      "short_name": "Nhung Đỏ",
+      "url": "/?phong=nhung",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Rạp Công Viên",
+      "short_name": "Công Viên",
+      "url": "/?phong=congvien",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Rạp Đỗ Xe",
+      "short_name": "Đỗ Xe",
+      "url": "/?phong=doxe",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Rạp Bãi Biển",
+      "short_name": "Bãi Biển",
+      "url": "/?phong=bien",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

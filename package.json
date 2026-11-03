@@ -1,6 +1,6 @@
 {
   "name": "vibe-cinema",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "Rạp chiếu phim 2D xem YouTube chung: mỗi người xem điều khiển một nhân vật, chat bong bóng, nhảy, thả tim",
   "type": "module",
@@ -16,7 +16,8 @@
     "test": "npm run typecheck && npm run test:unit && npm run smoke",
     "qa": "tsx scripts/qa.ts",
     "bots": "tsx scripts/bots.ts",
-    "share-images": "tsx scripts/share-images.ts"
+    "share-images": "tsx scripts/share-images.ts",
+    "seo-check": "tsx scripts/seo-check.ts"
   },
   "dependencies": {
     "dotenv": "^18.0.9",

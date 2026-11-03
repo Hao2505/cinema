@@ -1,5 +1,16 @@
 # Lịch sử thay đổi
 
+## 0.4.4 — 2026-11-03 · Chia sẻ link đẹp + SEO đầy đủ
+
+**Ảnh chia sẻ mới** (Facebook, Zalo, Messenger, Telegram, X…): cảnh Rạp Công Viên đêm trăng có người xem + thẻ tên trên
+màn chiếu, 1200×630, 146 KB — vẽ bằng code, không chứa khung hình YouTube nào. Thêm ảnh app cho bảng cài đặt (ngang +
+dọc), bộ icon đủ cỡ (favicon 16/32/48 + `.ico`, iPhone 180, Android 192/512 + bản bo tròn được).
+
+**SEO**: tiêu đề + mô tả chuẩn độ dài, canonical, hreflang, Open Graph + Twitter đủ bộ (kèm mô tả ảnh), dữ liệu có cấu trúc
+cho Google (WebSite, Organization, WebApplication), `robots.txt` + `sitemap.xml` tự sinh theo tên miền, manifest có lối
+tắt vào thẳng 4 rạp, trang chính sách đủ thẻ. Lệnh mới `npm run seo-check -- --url …` kiểm hết (giả làm bot từng mạng
+xã hội); production: 0 lỗi.
+
 ## 0.4.3 — 2026-11-03 · Đi đều tăm tắp, bỏ đường vòng Cloudflare, người khác quay mặt đúng hướng
 
 **Tìm ra thủ phạm giật: Cloudflare** — đo từng chặng từ mạng nhà ở VN: qua proxy Cloudflare mỗi vòng đi-về WebSocket mất

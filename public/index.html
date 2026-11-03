@@ -3,35 +3,99 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <!-- SEO + thẻ chia sẻ. %SITE_URL% / %OG_VERSION%: server điền khi trả trang (src/app.ts sendHtml) — URL phải tuyệt đối.
+       Kiểm tra: npm run seo-check -- --url https://cinema.vibe-coder.fun -->
+  <title>VibeCinema — Rạp chiếu phim 2D xem YouTube cùng nhau</title>
+  <meta name="description" content="Xem YouTube cùng bạn bè trong rạp phim 2D online miễn phí: 4 rạp, nhân vật riêng, chat bong bóng, nhảy, thả tim. Chỉ cần đặt tên, không cần đăng nhập.">
+  <meta name="keywords" content="xem youtube cùng nhau, xem phim cùng bạn bè, rạp chiếu phim online, rạp phim 2D, watch party, xem chung youtube, phòng xem phim online, vibecinema">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="author" content="VibeCinema">
   <meta name="theme-color" content="#0e0b12">
   <meta name="color-scheme" content="dark">
-  <title>VibeCinema — Rạp chiếu phim 2D xem YouTube cùng nhau</title>
-  <meta name="description" content="Vào rạp chỉ cần đặt tên: điều khiển nhân vật, xem YouTube chung trên màn hình lớn, chat bong bóng, nhảy hip hop, vỗ tay, thả tim cùng mọi người. Không cần đăng nhập.">
-  <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="application-name" content="VibeCinema">
   <meta name="apple-mobile-web-app-title" content="VibeCinema">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no">
-  <!-- %SITE_URL% / %OG_VERSION%: server điền khi trả trang (src/app.ts sendHtml) — thẻ chia sẻ cần URL tuyệt đối -->
   <link rel="canonical" href="%SITE_URL%/">
+  <link rel="alternate" hreflang="vi" href="%SITE_URL%/">
+  <link rel="alternate" hreflang="x-default" href="%SITE_URL%/">
+  <!-- Open Graph (Facebook, Zalo, Messenger, Telegram, Discord, LinkedIn…) -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="VibeCinema">
   <meta property="og:locale" content="vi_VN">
   <meta property="og:url" content="%SITE_URL%/">
-  <meta property="og:title" content="VibeCinema — rạp chiếu phim 2D, xem YouTube cùng cả rạp">
-  <meta property="og:description" content="Đặt tên là vào rạp: đi lại, chat bong bóng, nhảy, thả tim, dán link YouTube để chiếu cho mọi người cùng xem.">
+  <meta property="og:title" content="VibeCinema — Rạp phim 2D xem YouTube cùng bạn bè">
+  <meta property="og:description" content="Đặt tên là vào rạp: chọn nhân vật, đi lại, chat, nhảy, thả tim và xem YouTube cùng cả rạp. 4 rạp: Nhung Đỏ, Công Viên, Đỗ Xe, Bãi Biển. Miễn phí, không cần đăng nhập.">
   <meta property="og:image" content="%SITE_URL%/og-image.jpg?v=%OG_VERSION%">
+  <meta property="og:image:secure_url" content="%SITE_URL%/og-image.jpg?v=%OG_VERSION%">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Khán phòng VibeCinema: màn hình lớn phía trên, các nhân vật ngồi xem và nhảy phía dưới">
+  <meta property="og:image:alt" content="Rạp Công Viên của VibeCinema: màn chiếu lớn giữa trời đêm có trăng, hàng gối lười, các nhân vật đứng xem">
+  <!-- Twitter / X -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="VibeCinema — rạp chiếu phim 2D, xem YouTube cùng cả rạp">
-  <meta name="twitter:description" content="Đặt tên là vào rạp: đi lại, chat bong bóng, nhảy, thả tim, dán link YouTube để chiếu cho mọi người cùng xem.">
+  <meta name="twitter:title" content="VibeCinema — Rạp phim 2D xem YouTube cùng bạn bè">
+  <meta name="twitter:description" content="Đặt tên là vào rạp: chọn nhân vật, đi lại, chat, nhảy, thả tim và xem YouTube cùng cả rạp. Miễn phí, không cần đăng nhập.">
   <meta name="twitter:image" content="%SITE_URL%/og-image.jpg?v=%OG_VERSION%">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E">
+  <meta name="twitter:image:alt" content="Rạp Công Viên của VibeCinema: màn chiếu lớn giữa trời đêm, các nhân vật đứng xem">
+  <!-- biểu tượng: favicon.ico (16/32/48) cho trình duyệt cũ + Google, PNG đủ cỡ, iPhone, Android (manifest) -->
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
+  <!-- dữ liệu có cấu trúc cho Google (schema.org) — không phải mã chạy -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "%SITE_URL%/#website",
+        "url": "%SITE_URL%/",
+        "name": "VibeCinema",
+        "alternateName": ["Vibe Cinema", "Rạp chiếu phim 2D VibeCinema"],
+        "description": "Rạp chiếu phim 2D online: xem YouTube cùng bạn bè, mỗi người một nhân vật, chat, nhảy, thả tim.",
+        "inLanguage": "vi-VN",
+        "publisher": { "@id": "%SITE_URL%/#org" }
+      },
+      {
+        "@type": "Organization",
+        "@id": "%SITE_URL%/#org",
+        "name": "VibeCinema",
+        "url": "%SITE_URL%/",
+        "logo": { "@type": "ImageObject", "url": "%SITE_URL%/icon-512.png", "width": 512, "height": 512 },
+        "sameAs": ["https://github.com/Hao2505/cinema"]
+      },
+      {
+        "@type": "WebApplication",
+        "@id": "%SITE_URL%/#app",
+        "name": "VibeCinema",
+        "url": "%SITE_URL%/",
+        "description": "Xem YouTube cùng bạn bè trong rạp phim 2D: 4 rạp (Nhung Đỏ, Công Viên, Đỗ Xe, Bãi Biển), nhân vật nam / nữ tự chọn, chat bong bóng, thả cảm xúc, 8 động tác nhảy. Chỉ cần đặt tên, không cần đăng nhập.",
+        "applicationCategory": "EntertainmentApplication",
+        "operatingSystem": "Web, Android, iOS, Windows, macOS",
+        "browserRequirements": "Cần trình duyệt bật JavaScript (Chrome, Safari, Edge, Firefox, Cốc Cốc).",
+        "inLanguage": "vi-VN",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "VND" },
+        "image": "%SITE_URL%/og-image.jpg",
+        "screenshot": ["%SITE_URL%/screenshot-wide.jpg", "%SITE_URL%/screenshot-narrow.jpg"],
+        "featureList": [
+          "Xem YouTube cùng nhau theo thời gian thực — cả rạp cùng một chỗ trong video",
+          "4 rạp: Nhung Đỏ, Công Viên, Đỗ Xe, Bãi Biển",
+          "Nhân vật nam / nữ tự chọn tóc, áo, phụ kiện",
+          "Chat bong bóng, thả cảm xúc, 8 động tác: vẫy tay, vỗ tay, nhảy hip hop, thả tim…",
+          "Không cần đăng nhập, chạy trên điện thoại và máy tính"
+        ],
+        "publisher": { "@id": "%SITE_URL%/#org" }
+      }
+    ]
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap">
@@ -146,7 +210,7 @@
         <canvas class="join-preview" id="join-preview" width="180" height="200" aria-hidden="true"></canvas>
         <div>
           <h1 id="join-title">🎬 Vibe<b>Cinema</b></h1>
-          <p class="join-sub">Rạp chiếu phim 2D — xem YouTube cùng nhau, đi lại, chat, nhảy, thả tim.</p>
+          <p class="join-sub">Rạp chiếu phim 2D — xem YouTube cùng bạn bè, đi lại, chat, nhảy, thả tim. Miễn phí, không cần đăng nhập.</p>
           <p class="join-room" id="join-room"></p>
         </div>
       </div>
@@ -190,6 +254,13 @@
     </div>
   </div>
 
-  <noscript><div class="noscript">VibeCinema cần bật JavaScript để chạy.</div></noscript>
+  <noscript>
+    <div class="noscript">
+      <h1>VibeCinema — Rạp chiếu phim 2D xem YouTube cùng nhau</h1>
+      <p>Mỗi người xem điều khiển một nhân vật, đi lại, chat, nhảy, thả tim và xem YouTube cùng cả rạp trong 4 rạp: Nhung Đỏ,
+        Công Viên, Đỗ Xe, Bãi Biển. Miễn phí, không cần đăng nhập.</p>
+      <p>Cần bật JavaScript để vào rạp. <a href="/chinh-sach">Chính sách &amp; quyền riêng tư</a></p>
+    </div>
+  </noscript>
 </body>
 </html>

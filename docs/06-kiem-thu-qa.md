@@ -134,16 +134,33 @@ Nạp thẳng `/js/render/character.js`, `anims.js`, `shared/hall.js` trong Chro
 (đứng / ngồi ghế / ngồi bệt) ở vài thời điểm + bảng dáng Nam / Nữ (kiểu tóc, râu, biểu cảm) × 4 hướng
 (`characters-bodies.png`). Dùng khi sửa `character.js` / `anims.js`.
 
-## 8. `scripts/share-images.ts` — ảnh chia sẻ + icon
+## 8. Chia sẻ link + SEO — `scripts/share-images.ts`, `scripts/seo-check.ts`
 
 ```bash
-npx tsx scripts/qa-server.ts & npx tsx scripts/bots.ts --n 12 &
-npm run share-images -- --url http://localhost:3399 [--label cinema.vibe-coder.fun] [--out public]
+npx tsx scripts/qa-server.ts & npx tsx scripts/bots.ts --n 10 --room congvien &
+npm run share-images -- --url http://localhost:3399 [--room congvien] [--label cinema.vibe-coder.fun] [--out public]
+npm run seo-check -- --url http://localhost:3399          # hoặc --url https://cinema.vibe-coder.fun sau khi deploy
 ```
 
-Vẽ bằng code qua Chrome headless: `public/og-image.jpg` (1200×630, chụp rạp có người + thẻ tiêu đề; **ẩn khung
-video** — ảnh không chứa hình YouTube), `icon-512.png`, `icon-192.png`, `apple-touch-icon.png` (180). Đổi `og-image.jpg`
-→ `%OG_VERSION%` đổi theo → Facebook / Zalo lấy ảnh mới.
+`share-images` vẽ bằng code qua Chrome headless (không có ảnh vẽ tay nào):
+- `og-image.jpg` 1200×630 (~150 KB, < 300 KB cho WhatsApp / Zalo): cảnh **Rạp Công Viên** có người (mặc định `--room
+  congvien`) + thẻ tiêu đề đặt vào khung màn chiếu, mỗi dòng chữ tự thu nhỏ cho vừa 1 dòng. **Ẩn trình phát YouTube** —
+  ảnh không bao giờ chứa khung hình video (tranh / quảng cáo trong video là của chủ kênh; vd ảnh chụp kênh Lofi Girl có
+  tranh bản quyền + quảng cáo tai nghe nên không dùng làm ảnh chia sẻ).
+- `screenshot-wide.jpg` 1280×720 + `screenshot-narrow.jpg` 780×1688 (ảnh app trong bảng cài PWA).
+- `icon-512/192.png`, `apple-touch-icon.png` 180, `icon-maskable-512.png` (hình trong vùng an toàn 80 %),
+  `favicon-48/32/16.png` (bản vẽ đơn giản cho cỡ nhỏ), `favicon.ico` (16 + 32 + 48, ghép PNG).
+Đổi `og-image.jpg` → `%OG_VERSION%` (băm file) đổi theo → link ảnh mới, Facebook / Zalo lấy ảnh mới.
+
+Thẻ SEO nằm trong `<head>` của `public/index.html` (title 52 ký tự, description 150, canonical + hreflang, Open Graph đủ
+bộ, Twitter `summary_large_image`, JSON-LD `WebSite` + `Organization` + `WebApplication`), `public/chinh-sach.html`,
+`public/site.webmanifest` (icon, ảnh app, lối tắt 4 rạp). `/robots.txt` + `/sitemap.xml` do `src/app.ts` sinh theo
+`SITE_URL`. `seo-check` kiểm tất cả: độ dài, URL tuyệt đối, không còn `%…%`, JSON-LD đọc được, ảnh đúng cỡ khai báo
+(đọc byte PNG / JPEG), manifest + mọi icon, robots / sitemap, trang chính sách, giả làm bot Facebook / Zalo / Telegram /
+X / WhatsApp / Discord / LinkedIn / Google, http → https (production). Thoát mã 1 khi có lỗi.
+
+Sau khi đổi ảnh / thẻ trên production: Facebook https://developers.facebook.com/tools/debug/ → dán link → **Scrape
+Again**; Zalo / Messenger / Telegram lưu bản xem trước vài giờ — muốn thấy ngay thì chia sẻ link kèm `?v=2`.
 
 ## 9. Thêm test
 
