@@ -1,6 +1,6 @@
 {
   "name": "vibe-cinema",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "description": "Rạp chiếu phim 2D xem YouTube chung: mỗi người xem điều khiển một nhân vật, chat bong bóng, nhảy, thả tim",
   "type": "module",

@@ -100,10 +100,11 @@ const isDesk = () => DESK.matches;
 const isNarrow = () => !window.matchMedia('(min-width: 900px)').matches;
 const side = $('side');
 const sideOpen = () => side.classList.contains('open');
-const feedVisible = () => FEED.matches && !sideOpen();
+// khung chat nổi (máy tính): hiện trừ lúc thẻ Trò chuyện đang mở (đã thấy chat trong ngăn kéo)
+const feedVisible = () => FEED.matches && !(sideOpen() && side.dataset.tab === 'chat');
 const chat = initChat({
   // tin mới thấy được (ngăn kéo, thẻ chat, hoặc khung chat nổi góc dưới trái) → không đếm chưa đọc
-  isChatVisible: () => feedVisible() || (sideOpen() && (isDesk() || side.dataset.tab === 'chat')),
+  isChatVisible: () => feedVisible() || (sideOpen() && side.dataset.tab === 'chat'),
   feedVisible,
   onUnread: (n) => setText($('c-badge'), n ? String(Math.min(n, 99)) : ''),
 });
@@ -136,16 +137,16 @@ onSheetChange(syncInsets);
 
 function updateDock() {
   const open = sideOpen();
-  $('btn-queue').classList.toggle('on', open && (isDesk() || side.dataset.tab === 'queue'));
-  $('btn-chat').classList.toggle('on', open && (isDesk() || side.dataset.tab === 'chat'));
+  $('btn-queue').classList.toggle('on', open && side.dataset.tab === 'queue');
+  $('btn-chat').classList.toggle('on', open && side.dataset.tab === 'chat');
   $('chat-feed').hidden = !feedVisible();
 }
 function openSide(tab) {
   if (tab) side.dataset.tab = tab;
   side.classList.add('open');
   for (const b of side.querySelectorAll('.side-tab')) b.classList.toggle('on', b.dataset.tab === side.dataset.tab);
-  if (isDesk()) lsSet('vc.side', '1');
-  if (isDesk() || side.dataset.tab === 'chat') { chat.clearUnread(); chat.scrollToEnd(); }
+  if (isDesk()) { lsSet('vc.side', '1'); lsSet('vc.sideTab', side.dataset.tab); }
+  if (side.dataset.tab === 'chat') { chat.clearUnread(); chat.scrollToEnd(); }
   updateDock();
   syncInsets();
 }
@@ -156,16 +157,17 @@ function closeSide() {
   updateDock();
   syncInsets();
 }
-/** 📋 / 💬: máy tính = bật / tắt ngăn kéo (thấy cả hai); điện thoại = mở đúng thẻ, bấm lại thẻ đang mở thì đóng */
+/** 📋 / 💬: mở đúng thẻ của nút (đang mở thẻ kia thì chuyển thẻ); bấm lại nút của thẻ đang mở thì đóng */
 function toggleSide(tab) {
-  if (sideOpen() && (isDesk() || side.dataset.tab === tab)) closeSide();
+  if (sideOpen() && side.dataset.tab === tab) closeSide();
   else openSide(tab);
 }
 $('btn-queue').addEventListener('click', () => toggleSide('queue'));
 $('btn-chat').addEventListener('click', () => toggleSide('chat'));
 $('side-close').addEventListener('click', closeSide);
 for (const b of side.querySelectorAll('.side-tab')) b.addEventListener('click', () => openSide(b.dataset.tab));
-side.dataset.tab = 'queue';
+side.dataset.tab = lsGet('vc.sideTab', 'queue') === 'chat' ? 'chat' : 'queue';
+for (const b of side.querySelectorAll('.side-tab')) b.classList.toggle('on', b.dataset.tab === side.dataset.tab);
 $('btn-add-video').addEventListener('click', () => {
   openSide('queue');
   setTimeout(() => $('add-input').focus({ preventScroll: true }), 230);

@@ -62,9 +62,6 @@ kbd {
 :focus:not(:focus-visible) { outline: none; }
 
 .app { position: fixed; inset: 0; overflow: hidden; }
-/* d-only = chỉ khi ngăn kéo là thẻ nổi bên phải · m-only = chỉ khi ngăn kéo là tấm trượt dưới (khớp DESK trong main.js) */
-@media (min-width: 900px), (min-width: 640px) and (max-height: 519px) { .m-only { display: none !important; } }
-@media (max-width: 639px), (max-width: 899px) and (min-height: 520px) { .d-only { display: none !important; } }
 
 /* ------------------------------------------------------------- cụm nút nổi góc trên */
 .hud {
@@ -227,10 +224,10 @@ kbd {
 .feed-item b { font-weight: 700; margin-right: 6px; }
 .feed-item.out { opacity: 0; }
 
-/* ------------------------------------------------------------- ngăn kéo Hàng chờ + Trò chuyện
-   Máy tính: thẻ nổi bên phải (mở / đóng bằng 📋 💬), ba khung xếp dọc: Đang chiếu (gọn) · Hàng chờ (ô dán link luôn hiện
-   đủ, danh sách tự cuộn, cao tối đa 40 %) · Trò chuyện (lấp phần còn lại, tự cuộn). Mỗi khung overflow: hidden → không
-   khung nào tràn / đè lên khung khác. Điện thoại: tấm trượt có hai thẻ. */
+/* ------------------------------------------------------------- ngăn kéo 2 thẻ: Hàng chờ / Trò chuyện
+   📋 mở thẻ Hàng chờ (Đang chiếu gọn + ô dán link luôn hiện đủ + danh sách tự cuộn), 💬 mở thẻ Trò chuyện (tự cuộn); bấm lại
+   nút của thẻ đang mở thì đóng. Máy tính: thẻ nổi bên phải; điện thoại: tấm trượt dưới. Mỗi khung overflow: hidden → không
+   khung nào tràn / đè lên khung khác. */
 .side {
   position: fixed; z-index: 30; top: 10px; right: 10px; bottom: 10px; width: var(--side-w);
   display: flex; flex-direction: column; gap: 8px; padding: 8px; min-height: 0; overflow: hidden;
@@ -240,10 +237,10 @@ kbd {
 }
 .side.open { transform: none; visibility: visible; transition: transform 0.2s ease; }
 .side-head { display: flex; align-items: center; gap: 6px; flex: none; min-height: 32px; }
-.side-title { flex: 1; margin: 0 0 0 6px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
 .side-tabs { flex: 1; display: flex; gap: 6px; }
 .side-tab { flex: 1; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font-weight: 700; font-size: 13px; color: var(--ink-2); }
 .side-tab.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.side[data-tab="queue"] [data-pane="chat"], .side[data-tab="chat"] [data-pane="queue"] { display: none; }
 .side-close { flex: none; width: 32px; height: 32px; margin-left: auto; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); }
 .side-close:hover { border-color: var(--line-2); color: var(--ink); }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; min-height: 0; overflow: hidden; }
@@ -275,7 +272,7 @@ kbd {
 .now-actions .btn-icon { width: 32px; padding: 0; font-size: 14px; }
 .now-actions .adm-group { display: inline-flex; gap: 4px; margin-left: auto; padding-left: 8px; border-left: 1px dashed var(--line-2); }
 
-.queue-panel { flex: 0 1 auto; display: flex; flex-direction: column; max-height: 40%; min-height: 124px; }
+.queue-panel { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 124px; }
 .add-form { display: flex; gap: 6px; flex: none; }
 .add-form input {
   flex: 1; min-width: 0; height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2);
@@ -600,8 +597,6 @@ body.ui-quiet .chat-feed { opacity: 0.4; }
     transform: translateY(calc(100% + 24px));
   }
   .side.open { transform: none; }
-  .side[data-tab="queue"] [data-pane="chat"], .side[data-tab="chat"] [data-pane="queue"] { display: none; }
-  .queue-panel { max-height: none; flex: 1 1 auto; }
   .chat-panel { min-height: 0; }
   .sheet { left: 0; right: 0; width: auto; top: var(--sheet-top); bottom: 0; }
   .sheet-card { border-width: 1px 0 0; border-radius: 16px 16px 0 0; box-shadow: 0 -20px 40px rgba(0, 0, 0, 0.5); animation-name: slide-up; }

@@ -1,5 +1,11 @@
 # Lịch sử thay đổi
 
+## 0.4.5 — 2026-11-03 · 📋 và 💬 tách riêng
+
+Trên máy tính 2 nút 📋 (hàng chờ) và 💬 (trò chuyện) trước đây cùng mở một ngăn chung và sáng cả hai — trông như trùng
+chức năng. Giờ ngăn kéo có 2 thẻ trên mọi màn hình: 📋 mở thẻ Hàng chờ, 💬 mở thẻ Trò chuyện, chỉ nút đang mở sáng, bấm lại
+thì đóng. Đang xem hàng chờ thì khung chat nổi góc dưới trái vẫn hiện để không lỡ tin; máy tính nhớ thẻ mở lần trước.
+
 ## 0.4.4 — 2026-11-03 · Chia sẻ link đẹp + SEO đầy đủ
 
 **Ảnh chia sẻ mới** (Facebook, Zalo, Messenger, Telegram, X…): cảnh Rạp Công Viên đêm trăng có người xem + thẻ tên trên

@@ -59,8 +59,9 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
 
 **Giao diện**
 - Rạp phủ cả cửa sổ; nút là cụm nổi nhỏ: góc trên trái 🎬 + ô phòng; góc trên phải 📺 ⛶ 🎨 ⚙️ ? 🛠; dock giữa đáy 😀 🎭
-  ô chat 📋 💬. Ngăn kéo Hàng chờ + Trò chuyện: máy tính = thẻ nổi bên phải (video tự dời sang trái), điện thoại = tấm
-  trượt dưới màn hình. **Không gì đè lên video** (rạp đo các cụm nút rồi tự chừa chỗ).
+  ô chat 📋 💬. Ngăn kéo 2 thẻ: 📋 mở thẻ Hàng chờ, 💬 mở thẻ Trò chuyện (chỉ nút của thẻ đang mở sáng; bấm lại thì
+  đóng; máy tính nhớ thẻ lần trước) — máy tính = thẻ nổi bên phải (video tự dời sang trái; đang mở thẻ Hàng chờ thì khung
+  chat nổi góc dưới trái vẫn hiện), điện thoại = tấm trượt dưới màn hình. **Không gì đè lên video** (rạp đo các cụm nút rồi tự chừa chỗ).
 - 📺 Góc xem: Cân (khán phòng rộng) · **Màn lớn** (mặc định) · Màn rộng (video to nhất). ⛶ toàn màn hình cả rạp.
 - Đang chiếu thì xung quanh video **tối lại** (chuyển dần); đứng yên 4 s các nút tự mờ.
 - ⚙️ **Tùy chọn** (chỉ trên máy mình): mức tối, tự mờ nút, ẩn chat / bong bóng / khung chat nổi / emoji / động tác /

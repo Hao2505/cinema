@@ -227,6 +227,25 @@ async function main(): Promise<void> {
       await sleep(700);
       await shot(page, 'desktop-drawer.png');
       await checkOverlap(page, 'desktop ngăn kéo');
+      // 📋 và 💬 là 2 thẻ riêng: chỉ nút của thẻ đang mở sáng, chỉ khung của thẻ đó hiện
+      const tabState = (): Promise<string> => page.evaluate<string>(`(() => {
+        const on = (id) => document.getElementById(id).classList.contains('on') ? 1 : 0;
+        const shown = (sel) => getComputedStyle(document.querySelector(sel)).display !== 'none' ? 1 : 0;
+        return 'q' + on('btn-queue') + 'c' + on('btn-chat') + ' Q' + shown('.queue-panel') + 'C' + shown('.chat-panel');
+      })()`);
+      const s1 = await tabState();
+      if (s1 !== 'q1c0 Q1C0') errors.push(`[desktop] mở 📋: trạng thái ${s1} (cần q1c0 Q1C0 — chỉ hàng chờ)`);
+      await page.evaluate("document.getElementById('btn-chat').click()");
+      await sleep(400);
+      const s2 = await tabState();
+      if (s2 !== 'q0c1 Q0C1') errors.push(`[desktop] bấm 💬: trạng thái ${s2} (cần q0c1 Q0C1 — chỉ trò chuyện)`);
+      await shot(page, 'desktop-drawer-chat.png');
+      await checkOverlap(page, 'desktop thẻ trò chuyện');
+      await page.evaluate("document.getElementById('btn-chat').click()");
+      await sleep(400);
+      if (await page.evaluate<boolean>("document.getElementById('side').classList.contains('open')")) errors.push('[desktop] bấm lại 💬 không đóng ngăn kéo');
+      await page.evaluate("document.getElementById('btn-queue').click()");
+      await sleep(300);
       await page.evaluate("document.getElementById('btn-queue').click()");
       await sleep(400);
       const sm = await smoothness(page, 6);

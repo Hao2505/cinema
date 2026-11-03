@@ -87,7 +87,7 @@ main.js ── điểm vào: nối mọi thứ (đọc §2)
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Canvas `#hall` phủ cả `#stage`. DOM nổi: `#hud-l`, `#hud-r`, `#dock`, `#side` (ngăn kéo Hàng chờ + Trò chuyện),
+- Canvas `#hall` phủ cả `#stage`. DOM nổi: `#hud-l`, `#hud-r`, `#dock`, `#side` (ngăn kéo 2 thẻ: 📋 Hàng chờ / 💬 Trò chuyện),
   `#sheet` (tấm), `#screen-tools`, `#chat-feed`, `#joystick`, `#wheel`, `#user-card`, `#toasts`, `#conn`, `#focus-hint`.
 - Breakpoint (khớp giữa `main.js` và `style.css`): `DESK` = `(min-width: 900px), (min-width: 640px) and (max-height:
   519px)` → ngăn kéo / tấm là **thẻ nổi bên phải** (video dời sang trái); ngược lại là **tấm trượt từ dưới** (mép trên
