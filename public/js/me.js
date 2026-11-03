@@ -13,6 +13,7 @@ const DIR_INDEX = { down: 0, up: 1, left: 2, right: 3 };
 export const me = {
   active: false,
   x: HOME.x, y: HOME.y, dir: 'up',
+  yScale: 0.6, // px dọc / px ngang của một ô ở chỗ mình đứng (phối cảnh) — để chọn hướng mặt theo hướng nhìn thấy
   moving: false, phase: 0, moveAmt: 0,
   keys: new Set(),
   joy: null, // { x, y } độ lớn 0..1
@@ -67,10 +68,24 @@ function inputVector() {
   return null;
 }
 
-function dirOf(vx, vy, prev) {
-  if (Math.abs(vx) > Math.abs(vy) * 1.15) return vx < 0 ? 'left' : 'right';
-  if (Math.abs(vy) > Math.abs(vx) * 1.15) return vy < 0 ? 'up' : 'down';
-  return prev;
+const AXIS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const KEEP_COS = Math.cos((54 * Math.PI) / 180);
+
+/**
+ * Hướng mặt khi đi: theo hướng NHÌN THẤY trên màn hình (trục sâu bị phối cảnh nén lại — me.yScale = px dọc / px ngang
+ * của một ô ở chỗ mình đứng, stage.js cập nhật mỗi khung). Gần đường chéo thì giữ hướng cũ cho khỏi nháy qua lại, NHƯNG
+ * chỉ khi hướng cũ cùng phía chuyển động (lệch ≤ 54°) — không bao giờ giữ hướng ngược chiều (quay mặt ra mà đi lùi).
+ */
+export function dirOf(vx, vy, prev) {
+  const sx = vx, sy = vy * (me.yScale || 0.6);
+  const len = Math.hypot(sx, sy);
+  if (!(len > 0)) return prev || 'down';
+  const dom = Math.abs(sx) >= Math.abs(sy) ? (sx < 0 ? 'left' : 'right') : (sy < 0 ? 'up' : 'down');
+  if (prev && prev !== dom && AXIS[prev]) {
+    const [px, py] = AXIS[prev];
+    if ((px * sx + py * sy) / len >= KEEP_COS) return prev;
+  }
+  return dom;
 }
 
 /** ghế trống gần (x, y) — bỏ ghế đang có người khác ngồi / đứng */

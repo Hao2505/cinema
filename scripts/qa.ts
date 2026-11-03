@@ -22,6 +22,7 @@ const only = args.get('only') || ''; // 'desktop' | 'mobile'
 const room = args.get('room') || ''; // rạp cần chụp (vd 'bien'): người xem giả + trang QA vào đúng rạp đó
 const roomQs = room ? `?phong=${encodeURIComponent(room)}` : '';
 const jitter = Number(args.get('jitter') || 0); // giả lập mạng xấu cho người xem giả (ms)
+const bunch = args.has('bunch'); // giả lập gói dồn cục + khựng như đo trên production
 mkdirSync(outDir, { recursive: true });
 
 const errors: string[] = [];
@@ -109,7 +110,7 @@ async function smoothness(page: Page, seconds = 6): Promise<unknown> {
       const now = performance.now();
       deltas.push(now - prevT); prevT = now;
       for (const a of store.players.values()) {
-        if (a.isMe || !a.kf || a.kf.length < 2) continue;
+        if (a.isMe || !a.lastCt) continue;
         const p = last.get(a.id);
         if (p && a.moveAmt > 0.6) {
           moving++;
@@ -125,7 +126,11 @@ async function smoothness(page: Page, seconds = 6): Promise<unknown> {
         const sd = Math.sqrt(steps.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, steps.length));
         deltas.shift();
         const hitches = deltas.filter((d) => d > 50).length;
+        const ss = [...steps].sort((p, q) => p - q);
+        const med = ss.length ? ss[ss.length >> 1] : 0;
+        const jumps = med ? steps.filter((x) => x > med * 4).length : 0;
         resolve({ frames, fps: Math.round(frames / ${seconds}), movingSamples: moving, stallRatio: moving ? +(stalls / moving).toFixed(3) : null,
+          jumps, maxStepRatio: med ? +(ss[ss.length - 1] / med).toFixed(1) : null, catchup: store.net.catchup, dry: store.net.dry,
           stepCV: steps.length ? +(sd / mean).toFixed(3) : null, hitches, buffer: Math.round(store.net.buffer), late: store.net.late, netFrames: store.net.frames,
           view: window.__vc.view() });
       }
@@ -139,7 +144,7 @@ async function main(): Promise<void> {
   const app = createApp(cfg, { youtube: createFakeYouTube(), dataDir: null, log: () => {} });
   const port = await app.listen(0, '127.0.0.1');
   const base = `http://localhost:${port}`;
-  const stopBots = startBots({ url: `ws://127.0.0.1:${port}/ws`, n: nBots, video, room, jitter });
+  const stopBots = startBots({ url: `ws://127.0.0.1:${port}/ws`, n: nBots, video, room, jitter, bunch });
   const browser = await launch();
   try {
     await sleep(2500);

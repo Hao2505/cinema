@@ -382,6 +382,7 @@ export function createStage(canvas, slot, hooks = {}) {
     hooks.beforeFrame?.(dt, now);
     const myPos = me.active ? myRenderPos(now) : null;
     updateCamera(myPos);
+    if (myPos) me.yScale = clamp(P.k / P.s(myPos.y), 0.2, 2); // hướng mặt theo hướng nhìn thấy (me.js dirOf)
     ensureCaches();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = V.void;

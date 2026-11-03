@@ -1,5 +1,5 @@
 // Trạng thái phía client + xử lý thông điệp server (ServerMsg trong src/types.ts) + nội suy người khác chống giật.
-import { DEFAULT_VENUE, ROOM_ID_RE, SPEED, actionById, moveWithCollision, parseRoomId, roomName } from './shared/hall.js';
+import { DEFAULT_VENUE, ROOM_ID_RE, SPEED, actionById, parseRoomId, roomName } from './shared/hall.js';
 import { showEmojiFrom } from './prefs.js';
 import { clamp, num, str, arr, warnOnce } from './util.js';
 
@@ -77,130 +77,90 @@ export function onPong(msg, sentAt) {
   k.samples++;
 }
 
-// ---------------------------------------------------------------- người khác: gần như tức thì mà vẫn mượt
-// Người đi gửi vị trí 30 lần / giây kèm `c` = giờ máy họ (performance.now(), ms); server gom 30 Hz, phát lại nguyên `c`.
-// Mỗi người một trục thời gian: off = (giờ máy mình lúc nhận − c) nhỏ nhất từng thấy (= đường truyền nhanh nhất). Vẽ người
-// đó tại c* = now − buffer − off: bộ đệm NHỎ (40–260 ms, tự nới khi mạng so le, tự siết khi êm; đổi cỡ từ từ — giãn / nén
-// thời gian chứ không giật lùi). Gói tới muộn hơn bộ đệm → ĐOÁN TRƯỚC theo vận tốc cuối (tối đa 220 ms, không xuyên tường)
-// thay vì đứng khựng; gói thật tới sửa lại đường đoán → phần lệch được kéo mượt về 0 (~0,1 s) thay vì nhảy.
-const NET_MIN = 40, NET_MAX = 260, NET_START = 80, NET_SLACK = 12;
-const EXTRAP_MAX = 220; // ms đoán trước tối đa khi chưa có gói mới
-const ERR_TAU = 110; // ms: hằng số thời gian kéo mượt sai lệch
-const KF_MAX = 24;
-const TELEPORT = 3.0; // nhảy xa hơn mức này giữa 2 mốc = dịch chuyển tức thời (không kéo mượt)
-const VMAX = (SPEED * 1.6) / 1000; // ô / ms — nhanh hơn thì không đoán (mốc lạ)
+// ---------------------------------------------------------------- người khác: ĐI THEO VỆT (không bao giờ nhảy)
+// Đo thật trên production (2026-11-03): gói vị trí qua Cloudflare + 4G tới DỒN CỤC (một nửa số gói tới cùng lúc với gói
+// trước) xen những lúc KHỰNG 0,3–1,4 s rồi ùa tới cả loạt. Vẽ theo giờ (bộ đệm thời gian) thì gặp khựng là đứng lại, gói ùa
+// tới là bị kéo vọt → "đi, đứng, nhảy, đi". Cách ở đây: mỗi người có một VỆT điểm đã nhận; hình luôn ĐI BỘ dọc vệt với tốc
+// độ đi thật, tự điều tốc theo phần vệt còn lại phía trước (backlog):
+//   tụt lại xa (gói dồn cục)   → đi nhanh dần, tối đa 2,2× — bắt kịp liền mạch, không nhảy;
+//   vệt sắp hết (gói đang khựng) → đi chậm lại, tối thiểu 0,55× — đỡ phải đứng khựng chờ gói;
+//   người kia dừng hẳn          → đi nốt tới đúng chỗ dừng (ghế…) với tốc độ ≥ bình thường.
+// Vệt "cần giữ" (lag, ô) tự chỉnh theo từng người: mạng êm ~0,45 ô (~130 ms sau người thật), từng bị cạn vệt giữa lúc người
+// kia đang đi thì giữ dài hơn (tới 1,6 ô ≈ 470 ms), êm lâu thì siết lại. Người kia vừa bấm đi → hình đi ngay khi gói đầu tới.
+// Chỉ dịch chuyển tức thời khi điểm mới cách hình > 5 ô (vào rạp, bị server kéo về…).
+const LAG_MIN = 0.4, LAG_MAX = 1.6, LAG_START = 0.5; // ô
+const V_MIN = 0.55, V_MAX = 2.2; // × SPEED
+const SNAP = 5; // ô
+const PATH_MAX = 90;
+const ACT_DELAY = 120; // ms — động tác của người khác bắt đầu sau ~độ trễ vệt (đứng lại xong mới nhảy)
 
-store.net = { buffer: NET_START, target: NET_START, minSlack: Infinity, win: 0, late: 0, frames: 0, extrap: 0 };
+store.net = { buffer: 0, lag: LAG_START, dry: 0, frames: 0, catchup: 0 };
 
-function adaptBuffer(slack) {
-  const n = store.net;
-  n.frames++;
-  if (slack < NET_SLACK) {
-    n.target = Math.min(NET_MAX, n.target + (NET_SLACK - slack));
-    n.late++;
-  }
-  n.minSlack = Math.min(n.minSlack, slack);
-  if (++n.win >= 60) {
-    if (n.minSlack > NET_SLACK + 30) n.target = Math.max(NET_MIN, n.target - (n.minSlack - NET_SLACK - 20) / 2);
-    n.minSlack = Infinity;
-    n.win = 0;
-  }
-}
-
-/** mỗi khung hình: bộ đệm nhích dần về mức cần (nới nhanh, siết chậm) — không đổi cỡ đột ngột */
+/** mỗi khung: siết dần vệt cần giữ của từng người khi mạng êm; số liệu tổng cho QA / gỡ lỗi */
 export function tickNet(dtMs) {
-  const n = store.net;
-  const d = n.target - n.buffer;
-  n.buffer += d > 0 ? Math.min(d, dtMs * 0.25) : Math.max(d, -dtMs * 0.05);
-}
-
-/** vị trí "đúng" (chưa kéo mượt) của người khác tại now: nội suy giữa 2 mốc, hoặc đoán trước khi gói tới muộn */
-function targetPos(a, now) {
-  const kf = a.kf;
-  if (!kf.length || a.off === null) return { x: a.x, y: a.y, d: a.dir, seg: false };
-  const rt = now - store.net.buffer - a.off;
-  const last = kf[kf.length - 1];
-  if (rt >= last.t || kf.length === 1) {
-    if (last.m === 1 && kf.length >= 2 && !last.jump) {
-      const prev = kf[kf.length - 2];
-      const dt = last.t - prev.t;
-      const e = Math.min(rt - last.t, EXTRAP_MAX);
-      if (dt > 0 && e > 0) {
-        const vx = (last.x - prev.x) / dt, vy = (last.y - prev.y) / dt;
-        if (Math.hypot(vx, vy) <= VMAX) {
-          store.net.extrap++;
-          const r = moveWithCollision(last.x, last.y, vx * e, vy * e);
-          return { x: r.x, y: r.y, d: last.d, seg: true };
-        }
-      }
-    }
-    return { x: last.x, y: last.y, d: last.d, seg: false };
+  let sum = 0, n = 0;
+  for (const a of store.players.values()) {
+    if (a.isMe || !a.lastCt) continue;
+    if (!a.dryNow) a.lag = Math.max(LAG_MIN, a.lag - (dtMs / 1000) * 0.03);
+    sum += a.lag; n++;
   }
-  if (rt <= kf[0].t) return { x: kf[0].x, y: kf[0].y, d: kf[0].d, seg: false };
-  let i = kf.length - 2;
-  while (i > 0 && kf[i].t > rt) i--;
-  const p = kf[i], q = kf[i + 1];
-  if (q.jump) return { x: p.x, y: p.y, d: p.d, seg: false };
-  const k = q.t > p.t ? clamp((rt - p.t) / (q.t - p.t), 0, 1) : 1;
-  return { x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k, d: q.d, seg: q.m === 1 };
+  store.net.lag = n ? sum / n : LAG_START;
+  store.net.buffer = Math.round((store.net.lag / SPEED) * 1000);
 }
 
 function pushSample(a, ct, x, y, d, m, now) {
-  // vị trí đang vẽ TRƯỚC khi thêm mốc mới — sau khi thêm, phần lệch được kéo mượt thay vì nhảy
-  const before = a.kf.length && a.off !== null ? targetPos(a, now) : null;
+  // trục giờ máy người kia (chỉ để động tác bắt đầu đúng lúc): off = đường truyền nhanh nhất từng thấy
   const transit = now - ct;
-  if (a.off === null || (a.lastCt && ct < a.lastCt - 2000)) {
-    // mẫu đầu (hoặc máy người kia vừa tải lại trang → đồng hồ về 0): neo lại trục thời gian
-    a.off = transit;
-    a.kf = [];
-  } else if (transit < a.off) {
-    a.off = transit;
-  } else {
-    a.off += (transit - a.off) * 0.002; // theo kịp lệch đồng hồ rất chậm
-  }
-  adaptBuffer(store.net.buffer - (transit - a.off));
-  const kf = a.kf;
-  let last = kf.length ? kf[kf.length - 1] : null;
-  if (last && ct <= last.t) return;
-  if (!last) {
-    kf.push({ t: ct - 40, x: a.x, y: a.y, d: a.dir, m: 0, jump: false });
-    last = kf[0];
-  } else if (ct - last.t > 300) {
-    // đứng yên một lúc rồi mới đi: chèn mốc "vẫn ở chỗ cũ" ngay trước mẫu mới để không trôi chậm từ mốc cũ
-    kf.push({ t: ct - 40, x: last.x, y: last.y, d: last.d, m: 0, jump: false });
-    last = kf[kf.length - 1];
-  }
-  const jump = Math.hypot(x - last.x, y - last.y) > TELEPORT;
-  kf.push({ t: ct, x, y, d, m, jump });
-  if (kf.length > KF_MAX) kf.splice(0, kf.length - KF_MAX);
+  if (a.off === null || (a.lastCt && ct < a.lastCt - 2000)) { a.off = transit; a.lastCt = 0; }
+  else if (transit < a.off) a.off = transit;
+  else a.off += (transit - a.off) * 0.002;
+  if (a.lastCt && ct <= a.lastCt) return; // gói cũ / trùng (tới lệch thứ tự)
   a.lastCt = ct;
-  if (before) {
-    const after = targetPos(a, now);
-    const ex = before.x - after.x, ey = before.y - after.y;
-    if (Math.hypot(ex, ey) < TELEPORT) { a.errX = (a.errX || 0) + ex; a.errY = (a.errY || 0) + ey; }
-    else { a.errX = 0; a.errY = 0; }
+  store.net.frames++;
+  if (Math.hypot(x - a.rx, y - a.ry) > SNAP) {
+    // dịch chuyển (vào rạp, server kéo về…): hiện ngay chỗ mới
+    a.rx = x; a.ry = y; a.rdir = DIRS[d] || a.rdir; a.path = []; a.lastM = m;
+    return;
   }
+  const tail = a.path.length ? a.path[a.path.length - 1] : { x: a.rx, y: a.ry };
+  if (Math.hypot(x - tail.x, y - tail.y) > 0.0005 || m !== a.lastM) a.path.push({ x, y, d: DIRS[d] || 'down', m });
+  if (a.path.length > PATH_MAX) a.path.splice(0, a.path.length - PATH_MAX);
+  a.lastM = m;
 }
 
-/** vị trí + hướng của người khác để vẽ tại `now` (trục performance.now()) — gọi mỗi khung một lần mỗi người */
+/** vị trí + hướng của người khác để vẽ tại `now` — gọi mỗi khung một lần mỗi người */
 export function actorPos(a, now) {
-  const p = targetPos(a, now);
-  const fdt = a.posAt ? Math.min(250, Math.max(0, now - a.posAt)) : 0;
+  const dt = a.posAt ? Math.min(0.1, Math.max(0, (now - a.posAt) / 1000)) : 0;
   a.posAt = now;
-  if (a.errX || a.errY) {
-    const k = Math.exp(-fdt / ERR_TAU);
-    a.errX *= k; a.errY *= k;
-    if (Math.abs(a.errX) < 0.002) a.errX = 0;
-    if (Math.abs(a.errY) < 0.002) a.errY = 0;
-    return { x: p.x + a.errX, y: p.y + a.errY, d: p.d, seg: p.seg || Math.hypot(a.errX, a.errY) > 0.05 };
+  const path = a.path;
+  if (!path.length) {
+    // vệt cạn trong khi người kia (theo tin mới nhất) vẫn đang đi = gói đang khựng → lần sau giữ vệt dài hơn
+    if (a.lastM && !a.dryNow) { a.dryNow = true; a.lag = Math.min(LAG_MAX, a.lag + 0.2); store.net.dry++; }
+    return { x: a.rx, y: a.ry, d: a.rdir, seg: false };
   }
-  return p;
+  a.dryNow = false;
+  let backlog = 0, px = a.rx, py = a.ry;
+  for (const p of path) { backlog += Math.hypot(p.x - px, p.y - py); px = p.x; py = p.y; }
+  const k = a.lastM
+    ? clamp(1 + (0.8 * (backlog - a.lag)) / a.lag, V_MIN, V_MAX)
+    : clamp(1 + backlog / 2, 1, V_MAX);
+  if (k > 1.25) store.net.catchup++;
+  let step = SPEED * k * dt;
+  let moved = 0;
+  while (step > 1e-6 && path.length) {
+    const p = path[0];
+    const dx = p.x - a.rx, dy = p.y - a.ry, dist = Math.hypot(dx, dy);
+    a.rdir = p.d;
+    if (dist <= step) { a.rx = p.x; a.ry = p.y; step -= dist; moved += dist; path.shift(); }
+    else { a.rx += (dx / dist) * step; a.ry += (dy / dist) * step; moved += step; step = 0; }
+  }
+  return { x: a.rx, y: a.ry, d: a.rdir, seg: moved > 0.0005 || path.length > 0 };
 }
 
-/** mốc giờ máy mình (performance.now) ứng với giờ máy người kia `c` khi vẽ (đã tính bộ đệm) */
+/** mốc giờ máy mình (performance.now) ứng với giờ máy người kia `c` khi vẽ (đã tính độ trễ vệt) */
 function localTimeOf(a, c, now) {
   if (a.off === null || !Number.isFinite(c) || c <= 0) return now;
-  const t = c + a.off + store.net.buffer;
+  const t = c + a.off + Math.max(ACT_DELAY, store.net.buffer);
   return clamp(t, now - 4000, now + 1500);
 }
 
@@ -211,7 +171,9 @@ function newActor(p, now, bornAt = now) {
   const a = {
     id: p.id, name: str(p.name, 40), look: p.look || null, ghost: !!p.ghost,
     x: num(p.x, 16), y: num(p.y, 12), dir: DIRS[num(p.d, 0)] || 'down',
-    kf: [], off: null, lastCt: 0, errX: 0, errY: 0, posAt: 0,
+    off: null, lastCt: 0, posAt: 0,
+    // đi theo vệt (actorPos): vị trí đang vẽ, hướng, vệt điểm chưa tới, tin mới nhất có đang đi không, vệt cần giữ
+    rx: num(p.x, 16), ry: num(p.y, 12), rdir: DIRS[num(p.d, 0)] || 'down', path: [], lastM: 0, lag: LAG_START, dryNow: false,
     moving: false, moveAmt: 0, phase: 0, seed: (Math.random() * 1000) | 0,
     act: null, bornAt, goneAt: 0, isMe: false,
     emoAt: 0, emo: '', fxAt: 0,

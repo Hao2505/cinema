@@ -10,6 +10,8 @@ export interface BotOpts {
   room?: string;
   /** giả lập mạng xấu: mỗi gói vị trí trễ ngẫu nhiên 0..jitter ms (như qua Cloudflare / 4G) */
   jitter?: number;
+  /** giả lập đúng kiểu đo được trên production: gói dồn cục (xả mỗi 40–140 ms), thỉnh thoảng khựng 0,4–1,2 s rồi ùa tới */
+  bunch?: boolean;
 }
 const NAMES = ['Minh Anh', 'Tuấn', 'Lan Chi', 'Bảo', 'Hà My', 'Khoa', 'Ngọc', 'Phúc', 'Thảo', 'Duy', 'Quỳnh', 'Hiếu', 'Trang', 'Long', 'Vy', 'Nam', 'Linh', 'Sơn', 'Mai', 'Đạt', 'Yến', 'Toàn', 'Hạnh', 'Kiên'];
 const CHATS = ['Hay quá mọi người ơi 😍', 'Bài này đỉnh thật', 'Ai ngồi cạnh mình không?', 'Quẩy lên nào 🕺', 'Hahaha', 'Âm thanh chuẩn ghê', 'Chào cả rạp 👋', 'Cho bài tiếp đi', '10 điểm!', 'Nhảy chung không?'];
@@ -47,11 +49,23 @@ export function startBots(o: BotOpts): () => void {
     });
     // gửi gói (giả lập mạng xấu: trễ ngẫu nhiên — có thể đến lệch thứ tự, server bỏ gói cũ như thật)
     const jitter = o.jitter || 0;
+    let held: string[] = [];
     const sendMove = (m: Record<string, unknown>): void => {
       const data = JSON.stringify(m);
+      if (o.bunch) { held.push(data); return; }
       if (!jitter) { ws.send(data); return; }
       setTimeout(() => { if (ws.readyState === 1) ws.send(data); }, Math.random() * jitter);
     };
+    if (o.bunch) {
+      const flush = (): void => {
+        if (stopped) return;
+        if (ws.readyState === 1) for (const d of held) ws.send(d);
+        held = [];
+        const stall = Math.random() < 0.04;
+        setTimeout(flush, stall ? 400 + Math.random() * 800 : 40 + Math.random() * 100);
+      };
+      setTimeout(flush, 100);
+    }
     // đi: cùng nhịp với người thật (LIMITS.sendHz)
     const HZ = LIMITS.sendHz;
     const moveTimer = setInterval(() => {
@@ -122,7 +136,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const url = args.get('url') || 'ws://localhost:3399/ws';
   const n = Number(args.get('n') || 12);
   const seconds = Number(args.get('seconds') || 0);
-  startBots({ url, n, video: args.get('video') || '', seconds, room: args.get('room') || '', jitter: Number(args.get('jitter') || 0) });
+  startBots({ url, n, video: args.get('video') || '', seconds, room: args.get('room') || '', jitter: Number(args.get('jitter') || 0), bunch: args.has('bunch') });
   console.log(`${n} bot → ${url}`);
   if (seconds) setTimeout(() => process.exit(0), seconds * 1000 + 500);
 }
