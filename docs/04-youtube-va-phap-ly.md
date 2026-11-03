@@ -93,9 +93,19 @@ Thử trên máy: `NO_KEY=1 npx tsx scripts/qa-server.ts` (YouTube giả không 
 
 - Tải `https://www.youtube.com/iframe_api` (lỗi → thử lại sau 20 s, báo một lần "Không tải được trình phát YouTube
   (mạng / trình chặn quảng cáo?)"). Host `https://www.youtube-nocookie.com` khi `YT_NOCOOKIE=true` (`cfg.noCookie`).
-- `playerVars`: `autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, fs: 0, enablejsapi: 1, origin,
-  widget_referrer`. **Xem chung**: `controls: 0` + `disablekb: 1` (tham số chính thức) ẩn thanh tua / dừng — không ai tua
-  / dừng riêng được. Một trang chỉ có một trình phát.
+- `playerVars`: `autoplay: 1, controls: 1, disablekb: 1, playsinline: 1, rel: 0, fs: 0, enablejsapi: 1, origin,
+  widget_referrer`. Thanh điều khiển YouTube **hiện** (0.4.8 — chủ dự án muốn mỗi người tự bật / tắt phụ đề bằng nút CC;
+  YouTube chỉ có tham số ÉP BẬT phụ đề `cc_load_policy=1`, không có cách chính thức ép tắt). YouTube không cho ẩn riêng
+  thanh tua / nút dừng, nên **xem chung** giữ bằng cách đưa về giờ chung (chỉ hàm / sự kiện có tài liệu):
+  - bấm dừng → `onState(PAUSED)` không do mình ra lệnh → `playVideo()` ngay;
+  - kéo thanh tua → `sync()` thấy giờ video nhảy tới nhanh hơn thời gian thật > 3 s hoặc lùi > 3 s so với lần đo trước
+    (quảng cáo / mạng chậm chỉ làm video chạy chậm hơn nên không nhầm) → tua về giờ chung ngay (đo thật: ~1,7 s);
+  - đổi tốc độ (⚙ của YouTube) → `onPlaybackRateChange` → `setPlaybackRate(1)`;
+  - bấm video gợi ý ("More videos", màn hình cuối) → `getVideoUrl()` khác video của rạp (đã phát ổn định > 3 s) → nạp lại
+    video của rạp;
+  - mỗi lần như vậy nhắc nhẹ (tối đa 1 lần / 45 s): "Rạp đang xem chung — không tua, dừng hay đổi tốc độ riêng được…".
+  `disablekb: 1` tắt phím tắt trong khung; `fs: 0` ẩn nút toàn màn hình của YouTube (rạp có nút riêng). Một trang chỉ có
+  một trình phát.
 - Trình phát chỉ được bật (`player.enable()`) **sau khi** người xem bấm "Vào rạp" (có thao tác người dùng → trình duyệt
   cho phát có tiếng). Bị mời ra / phải vào lại → `player.disable()` dừng + ẩn khung **trước** khi hiện màn vào rạp (lớp
   phủ không bao giờ nằm trên video đang chạy).

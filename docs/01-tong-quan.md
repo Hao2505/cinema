@@ -132,7 +132,7 @@ Trình duyệt ──HTTPS / WSS (DNS only, thẳng VPS)──► nginx (VPS dù
 |---|---|
 | Video phát bằng **trình phát chính thức**, server chỉ giữ đồng hồ | pháp lý (không tải / phát lại), băng thông VPS bằng 0 cho video |
 | **Không chặn bấm** vào khung video; lỡ dừng thì tự chạy lại | Điều khoản YouTube cấm chặn chức năng / link / quảng cáo của trình phát |
-| Ẩn thanh điều khiển (`controls=0`, `disablekb=1`) | "xem chung" — chủ dự án yêu cầu không ai tua / dừng riêng; là tham số chính thức |
+| Hiện thanh điều khiển YouTube (`controls=1`, `disablekb=1`) nhưng tua / dừng / tốc độ riêng tự về giờ chung | "xem chung" (không ai tua / dừng riêng) + mỗi người tự bật / tắt phụ đề bằng nút CC — YouTube không có cách chính thức ẩn riêng thanh tua hay ép tắt phụ đề |
 | Client tự đi trước (dự đoán), server kiểm "ngân sách quãng đường" + va chạm | mượt ngay trên máy, vẫn chống đi xuyên tường / dịch chuyển |
 | Frame mang **giờ máy người đi** + phát lại đều theo giờ đó với đệm thích ứng phía người xem | bài học VibeCorp: giật do so le WebSocket qua Cloudflare, không phải CPU — rạp bỏ hẳn proxy Cloudflare + phát lại đều |
 | Động tác là **sự kiện** ("A bắt đầu điệu X lúc T"), hoạt ảnh là hàm thuần của thời gian | gửi ít, mọi máy 60 fps cùng nhịp |

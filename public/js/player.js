@@ -1,14 +1,18 @@
 // Trình phát YouTube CHÍNH THỨC (IFrame Player API) đặt khít vào màn hình rạp. Không che, không chặn quảng cáo:
 // mình chỉ ra lệnh tải / phát / dừng / tua theo "đồng hồ phòng" của server (videoId + giờ server ứng với giây 0).
-// XEM CHUNG: ẩn thanh điều khiển (controls=0, disablekb=1) — không ai tua / dừng riêng được; lỡ dừng (bấm vào video)
-// hay lệch > 1 s là tự chạy lại / tua về đúng giờ chung (kể cả lúc xem quảng cáo xong). Âm lượng + toàn màn hình là nút
-// riêng nằm DƯỚI màn hình. Chỉ admin dừng được cả phòng. Live thì theo đầu live. Lỗi 100/101/150 → báo server.
+// XEM CHUNG: hiện thanh điều khiển của YouTube (controls=1 — có nút CC để mỗi người tự bật / tắt phụ đề, chọn chất
+// lượng) nhưng tắt phím tắt (disablekb=1). YouTube không cho ẩn riêng thanh tua / nút dừng, nên luật xem chung giữ bằng
+// cách đưa về giờ chung: bấm dừng → chạy lại ngay; kéo thanh tua → về đúng giờ của cả rạp trong ~0,5 s; đổi tốc độ → về
+// 1×; lần đầu thử thì nhắc nhẹ. Lệch > 1 s (kể cả xem quảng cáo xong) cũng tự tua về. Âm lượng + toàn màn hình rạp là nút
+// riêng DƯỚI màn hình. Chỉ admin dừng được cả phòng. Live thì theo đầu live. Lỗi 100/101/150 → báo server.
 import { send } from './net.js';
 import { store } from './store.js';
 import { lsGet, lsSet } from './util.js';
 
 const DRIFT_MAX = 1.0; // giây
 const SEEK_GAP_MS = 2500; // không tua dồn dập (đang quảng cáo thì lệnh tua bị bỏ qua — thử lại sau, giãn dần)
+const HINT_GAP_MS = 45_000; // nhắc "rạp xem chung" tối đa 1 lần / 45 s
+const SHARED_HINT = 'Rạp đang xem chung — không tua, dừng hay đổi tốc độ riêng được: video tự về đúng giờ của cả rạp.';
 const API_RETRY_MS = 20_000; // tải IFrame API lỗi (chặn quảng cáo / mất mạng) → thử lại sau
 const YT_STATE = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 };
 
@@ -58,6 +62,16 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
   let loadedLive = false; // bài đang nạp theo kiểu live (không tua)
   let durProbe = null; // đo độ dài video "chưa rõ thời lượng": { qid, d, cur, at }
   let durSentQid = -1;
+  let hintAt = -Infinity;
+  let lastPos = null; // { cur, at } lần đo trước — nhận ra người xem tự kéo thanh tua
+
+  /** nhắc luật xem chung (thưa thôi) */
+  function hintShared() {
+    const t = performance.now();
+    if (t - hintAt < HINT_GAP_MS) return;
+    hintAt = t;
+    hooks.onHint?.(SHARED_HINT);
+  }
 
   const status = () => ({ ready, enabled, needsTap, muted, userPaused, error: errorFor && errorFor === curV, state: lastState });
   const changed = () => hooks.onStatus?.(status());
@@ -80,14 +94,20 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
         width: '100%',
         height: '100%',
         playerVars: {
-          // xem chung: ẩn thanh tua / dừng của YouTube + tắt phím tắt trong khung (tham số chính thức của IFrame API)
-          autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, fs: 0, enablejsapi: 1,
+          // thanh điều khiển YouTube hiện (nút CC phụ đề, chất lượng); tắt phím tắt trong khung; nút toàn màn hình của
+          // YouTube ẩn (rạp có nút riêng). Tua / dừng / tốc độ riêng tự về giờ chung (onState, sync, onPlaybackRateChange)
+          autoplay: 1, controls: 1, disablekb: 1, playsinline: 1, rel: 0, fs: 0, enablejsapi: 1,
           origin: location.origin, widget_referrer: location.href,
         },
         events: {
           onReady: () => { ready = true; applyVolume(); changed(); sync(true); },
           onStateChange: (e) => onState(e.data),
           onError: (e) => onError(e.data),
+          // đổi tốc độ trong nút ⚙ của YouTube → về 1× (xem chung)
+          onPlaybackRateChange: (e) => {
+            const n = store.now;
+            if (n && !n.live && e.data !== 1) { cmd(() => player.setPlaybackRate(1)); hintShared(); }
+          },
           onAutoplayBlocked: () => { needsTap = true; changed(); },
         },
       });
@@ -123,6 +143,7 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       if (n && !n.paused && !document.hidden && performance.now() - weCommanded > 400) {
         userPaused = true;
         cmd(() => player.playVideo());
+        hintShared();
       }
     }
     changed();
@@ -215,10 +236,14 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     if (!ready) return;
     if (n.qid !== curQid || n.v !== curV) { load(n); changed(); return; }
     if (errorFor === curV) return;
-    let state = YT_STATE.UNSTARTED, cur = 0;
-    try { state = player.getPlayerState(); cur = player.getCurrentTime() || 0; } catch { return; }
+    let state = YT_STATE.UNSTARTED, cur = 0, url = '';
+    try { state = player.getPlayerState(); cur = player.getCurrentTime() || 0; url = player.getVideoUrl() || ''; } catch { return; }
     const target = targetSec();
     const now = performance.now();
+    // lỡ bấm video gợi ý ("More videos" / màn hình cuối) → khung đang phát video khác → quay về video của rạp
+    // (chỉ xét khi đã phát ổn định > 3 s sau lần nạp / tua gần nhất — ngay sau loadVideoById URL có thể chưa đổi)
+    const playingId = /[?&]v=([A-Za-z0-9_-]{11})/.exec(url)?.[1];
+    if (playingId && playingId !== curV && state === YT_STATE.PLAYING && now - lastSeek > 3000) { hintShared(); load(n); changed(); return; }
     if (n.paused) {
       if (state === YT_STATE.PLAYING || state === YT_STATE.BUFFERING) cmd(() => player.pauseVideo());
       if (Math.abs(cur - target) > DRIFT_MAX) cmd(() => player.seekTo(target, true));
@@ -249,6 +274,19 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       return; // live: YouTube tự giữ đầu live
     }
     if (state === YT_STATE.PLAYING) {
+      // người xem tự kéo thanh tua: giờ video nhảy tới nhanh hơn thời gian thật > 3 s, hoặc lùi > 3 s, so với lần đo trước
+      // (không phải lệnh tua của mình). Quảng cáo / mạng tải chậm chỉ làm video chạy CHẬM hơn thời gian thật → không nhầm.
+      // → về giờ chung ngay + nhắc
+      const prev = lastPos;
+      lastPos = { cur, at: now, qid: n.qid };
+      if (prev && prev.qid === n.qid && now - lastSeek > 1500 && Math.abs(cur - target) > DRIFT_MAX) {
+        const moved = cur - prev.cur;
+        if (moved > (now - prev.at) / 1000 + 3 || moved < -3) {
+          hintShared();
+          force = true;
+          seekFails = 0;
+        }
+      }
       const drift = cur - target;
       const gap = SEEK_GAP_MS * Math.min(4, 1 + seekFails);
       if (Math.abs(drift) > DRIFT_MAX && (force || now - lastSeek > gap)) {

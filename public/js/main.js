@@ -68,6 +68,7 @@ player = createPlayer($('screen-slot'), $('yt-host'), {
     $('vol-range').value = String(player.muted ? 0 : player.volume);
   },
   onNotice: (t) => toast(t, 'warn'),
+  onHint: (t) => toast(t, 'info', 4500),
 });
 $('btn-tap-play').addEventListener('click', () => player.userPlay());
 $('btn-unmute').addEventListener('click', () => player.userPlay());

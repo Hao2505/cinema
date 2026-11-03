@@ -1,5 +1,12 @@
 # Lịch sử thay đổi
 
+## 0.4.8 — 2026-11-03 · Hiện thanh điều khiển YouTube (tự bật / tắt phụ đề)
+
+Trình phát hiện thanh điều khiển của YouTube để mỗi người tự bật / tắt **phụ đề (nút CC)** và chọn chất lượng — YouTube
+không có cách chính thức để trang nhúng ép tắt phụ đề. Luật xem chung vẫn giữ: bấm dừng thì video chạy lại ngay, kéo thanh
+tua thì ~1,7 s sau tự về đúng giờ của cả rạp, đổi tốc độ thì về 1×, lỡ bấm video gợi ý thì quay về video của rạp; lần
+đầu thử có nhắc nhẹ "Rạp đang xem chung…".
+
 ## 0.4.7 — 2026-11-03 · Video admin không bị bỏ phiếu; điện thoại thoát là đi hẳn
 
 **Video admin thêm**: người thường không bỏ phiếu bỏ qua được (nút ⏭ ẩn, hàng chờ có dấu 🛠), báo cáo cũng không tự gỡ

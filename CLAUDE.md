@@ -69,7 +69,7 @@
 ## 8. Trạng thái (cập nhật 2026-11-03)
 
 - **Đã làm** (bản 0.4.0): đủ §1–§4 — xem `README.md`, `CHANGELOG.md`, `docs/`. Khán phòng vẽ
-  phối cảnh 3D một điểm tụ (chủ dự án yêu cầu "có chiều sâu"); xem chung — không ai tua / dừng riêng (chủ dự án yêu cầu);
+  phối cảnh 3D một điểm tụ (chủ dự án yêu cầu "có chiều sâu"); xem chung — không ai tua / dừng riêng (chủ dự án yêu cầu; từ 0.4.8 thanh điều khiển YouTube hiện để tự bật / tắt phụ đề, tua / dừng / tốc độ riêng tự về giờ chung);
   nhân vật chọn Nam / Nữ (+ râu cho nam); rạp phủ cả màn hình, video to hết cỡ, nút là cụm nổi nhỏ + dock dưới, hàng chờ /
   chat là ngăn kéo (chủ dự án yêu cầu "thu gọn, thả nổi, phóng to màn hình chính").
   Thêm theo yêu cầu: 4 rạp (Nhung Đỏ / Công Viên / Đỗ Xe / Bãi Biển, `render/venues/`), góc xem 3 chế độ (mặc định Màn
