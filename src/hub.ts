@@ -15,7 +15,7 @@ import type { Config } from './config.js';
 import {
   BanList, Bucket, WindowCounter, checkChat, checkName, cleanText, nameKey, readJson, writeJsonAtomic,
 } from './moderation.js';
-import { VideoCache, checkMeta, fmtDuration, parseVideoId } from './youtube.js';
+import { VideoCache, checkMeta, fmtDuration, parseVideoId, type OEmbedResult } from './youtube.js';
 import type { FetchResult, YouTubeClient } from './youtube.js';
 import type {
   AdminOp, ChatInfo, ClientMsg, FrameEntry, NowInfo, PlayerInfo, PublicSettings, QueueItemInfo, RoomInfo, RoomSnapshot,
@@ -40,6 +40,7 @@ const MAX_CONNS = 1500;
 const BUDGET_CAP = SPEED * 2.0; // ô: được "dồn" tối đa 2 s đi bộ (4G / Cloudflare có lúc khựng >1 s rồi ùa tới cả loạt)
 const BUDGET_RATE = SPEED * 1.3; // ô / giây: chấp nhận nhanh hơn 30 % (lệch đồng hồ, khung hình)
 const EMBED_FAIL_MS = 24 * 3600_000;
+const OEMBED_TTL_MS = 30 * 60_000;
 const YT_ERR_SKIP = new Set([2, 100, 101, 150]);
 
 export interface Sock {
@@ -104,6 +105,10 @@ interface QueueItem {
   byId: number;
   byCk: string;
   addedAt: number;
+  /** chưa rõ độ dài (kiểm cơ bản bằng oEmbed — không có / không dùng được YT_API_KEY) */
+  unk?: boolean;
+  /** giây chiếu tối đa cho lượt này (video `unk`; video biết độ dài đã bị chặn > giới hạn lúc thêm) */
+  cap?: number;
 }
 
 interface NowPlaying extends QueueItem {
@@ -148,6 +153,7 @@ export class Room {
   votes = new Set<number>();
   reports = new Set<string>(); // người đã báo cáo video đang chiếu
   errReports = new Set<string>(); // máy báo trình phát lỗi với video đang chiếu
+  durReports = new Map<string, { d: number; live: boolean }>(); // máy báo độ dài thật của video `unk` đang chiếu
   chat: ChatInfo[] = [];
   emptySince: number;
 
@@ -209,7 +215,7 @@ export class Room {
   }
 
   itemInfo(q: QueueItem): QueueItemInfo {
-    return { qid: q.qid, v: q.v, title: q.title, ch: q.ch, dur: q.dur, live: q.live, by: q.by, byId: q.byId };
+    return { qid: q.qid, v: q.v, title: q.title, ch: q.ch, dur: q.dur, live: q.live, by: q.by, byId: q.byId, ...(q.unk ? { unk: true } : {}) };
   }
 
   nowInfo(): NowInfo | null {
@@ -288,18 +294,26 @@ export class Room {
   }
 
   // ---------------------------------------------------------- video
+  /** thời gian chiếu một lượt (ms): live = LIVE_MAX_MINUTES; chưa rõ độ dài = giới hạn `cap`; còn lại = độ dài (≤ cap) */
+  playMs(q: QueueItem): number {
+    if (q.live) return this.hub.cfg.liveMaxMinutes * 60_000;
+    const cap = q.cap && q.cap > 0 ? q.cap : Infinity;
+    if (q.unk) return (Number.isFinite(cap) ? cap : this.hub.cfg.maxVideoMinutes * 60) * 1000;
+    return Math.min(q.dur, cap) * 1000;
+  }
+
   /** chiếu bài kế (hoặc dừng nếu hết hàng chờ) */
   next(now: number): void {
     const item = this.queue.shift() ?? null;
     this.votes.clear();
     this.reports.clear();
     this.errReports.clear();
+    this.durReports.clear();
     if (!item) {
       this.now = null;
     } else {
       const at = now + PRELOAD_MS;
-      const durMs = item.live ? this.hub.cfg.liveMaxMinutes * 60_000 : item.dur * 1000;
-      this.now = { ...item, at, paused: false, pos: 0, ends: at + durMs + END_GRACE_MS };
+      this.now = { ...item, at, paused: false, pos: 0, ends: at + this.playMs(item) + END_GRACE_MS };
     }
     this.sendNow();
     this.sendQueue();
@@ -315,6 +329,7 @@ export class Room {
     this.votes.clear();
     this.reports.clear();
     this.errReports.clear();
+    this.durReports.clear();
     this.now = {
       qid: 0, v: m.v, title: m.title, ch: m.ch, dur: 0, live: true, by: 'Rạp', byId: 0, byCk: '', addedAt: now,
       at: now + PRELOAD_MS, paused: false, pos: 0, ends: Number.MAX_SAFE_INTEGER, filler: true,
@@ -339,7 +354,7 @@ export class Room {
     const n = this.now;
     if (!n || !n.paused) return false;
     n.at = now - n.pos * 1000;
-    n.ends = n.at + n.dur * 1000 + END_GRACE_MS;
+    n.ends = n.at + this.playMs(n) + END_GRACE_MS;
     n.paused = false;
     this.sendNow();
     this.hub.dirty = true;
@@ -390,6 +405,9 @@ export class Hub {
   private embedFail = new Map<string, number>();
   private cache = new VideoCache();
   private inflight = new Map<string, Promise<FetchResult>>();
+  /** kết quả oEmbed (kiểm cơ bản khi không dùng được Data API): giữ 30 phút, tối đa 2000 */
+  private oembedCache = new Map<string, { at: number; r: OEmbedResult }>();
+  private noKeyWarned = false;
   private apiWindow = new WindowCounter(60_000, 120);
   private apiIpWindow: WindowCounter;
   private reportSeen = new Map<string, number>();
@@ -727,6 +745,7 @@ export class Hub {
       case 'vote': return this.onVote(room, p, msg.on);
       case 'report': return this.onReport(room, p, msg);
       case 'vid_err': return this.onVideoError(room, p, msg.v, msg.code, now);
+      case 'vid_dur': return this.onVideoDuration(room, p, msg.v, msg.d, msg.live, now);
       default: return;
     }
   }
@@ -1000,6 +1019,21 @@ export class Hub {
     return pr;
   }
 
+  /** oEmbed (kiểm cơ bản): có video + cho nhúng; nhớ 30 phút (lỗi mạng thì không nhớ) */
+  private async lookupOEmbed(id: string): Promise<OEmbedResult> {
+    const now = Date.now();
+    const hit = this.oembedCache.get(id);
+    if (hit && now - hit.at < OEMBED_TTL_MS) return hit.r;
+    let r: OEmbedResult;
+    try { r = await this.deps.youtube.fetchOEmbed(id); } catch { r = { ok: false, code: 'network' }; }
+    if (r.ok || r.code !== 'network') {
+      this.oembedCache.delete(id);
+      this.oembedCache.set(id, { at: now, r });
+      while (this.oembedCache.size > 2000) this.oembedCache.delete(this.oembedCache.keys().next().value as string);
+    }
+    return r;
+  }
+
   private queueCountBy(room: Room, p: Player): number {
     return room.queue.filter((q) => q.byId === p.id || (q.byCk && q.byCk === p.ck)).length;
   }
@@ -1023,27 +1057,43 @@ export class Hub {
     }
     if (room.queue.length >= this.cfg.maxQueue) return res(false, 'Hàng chờ đã đầy, đợi bớt rồi thêm nhé.');
     if (!admin && !p.addBucket.take(1, now)) return res(false, `Thêm chậm thôi — thử lại sau ${Math.ceil(p.addBucket.waitMs(now) / 1000)} giây.`);
-    if (!this.cache.get(id)) {
+    if (!this.cache.get(id) && !this.oembedCache.has(id)) {
       if (!admin && !this.apiIpWindow.hit(p.ipHash, now)) return res(false, 'Bạn kiểm tra nhiều link quá, thử lại sau 1 phút nhé.');
       if (!this.apiWindow.hit('all', now)) return res(false, 'Rạp đang kiểm tra nhiều video quá, thử lại sau 1 phút nhé.');
     }
-    const r = await this.lookup(id);
-    if (!r.ok) return res(false, r.text);
-    const check = checkMeta(r.meta, {
-      region: this.cfg.ytRegion,
-      maxSeconds: (admin ? this.cfg.adminMaxVideoMinutes : this.cfg.maxVideoMinutes) * 60,
-      allowLive: this.cfg.allowLive,
-    });
-    if (!check.ok) return res(false, check.reason);
+    const capSec = (admin ? this.cfg.adminMaxVideoMinutes : this.cfg.maxVideoMinutes) * 60;
+    // 1) có YT_API_KEY: Data API kiểm đủ luật (công khai, cho nhúng, không 18+, xem được ở VN, độ dài).
+    // 2) không có key / key hỏng / hết quota / API trục trặc → KIỂM CƠ BẢN bằng oEmbed (miễn phí, không cần key): có video
+    //    + cho nhúng. Video 18+ / chặn VN thì chính trình phát YouTube từ chối lúc tới lượt (vid_err → tự chuyển bài);
+    //    độ dài chưa rõ → chiếu tối đa capSec, máy người xem báo độ dài thật khi bắt đầu phát (onVideoDuration).
+    let info: { title: string; ch: string; dur: number; live: boolean; unk: boolean };
+    const r = this.deps.youtube.configured ? await this.lookup(id) : null;
+    if (r && r.ok) {
+      const check = checkMeta(r.meta, { region: this.cfg.ytRegion, maxSeconds: capSec, allowLive: this.cfg.allowLive });
+      if (!check.ok) return res(false, check.reason);
+      const m = check.meta;
+      info = { title: m.title, ch: m.channel, dur: m.live ? 0 : m.durationSec, live: m.live, unk: false };
+    } else {
+      if (r && !r.ok && !this.noKeyWarned) {
+        this.noKeyWarned = true;
+        this.log(`⚠️  YouTube Data API không dùng được (${r.code}) — tạm kiểm video cơ bản bằng oEmbed`);
+      }
+      const o = await this.lookupOEmbed(id);
+      if (!o.ok) {
+        return res(false, o.code === 'not_embeddable' ? 'Video riêng tư hoặc chủ kênh không cho phát trên trang khác.'
+          : o.code === 'missing' ? 'Không tìm thấy video — có thể đã bị xoá hoặc để riêng tư.' : 'Không kiểm tra được video lúc này, thử lại sau nhé.');
+      }
+      info = { title: o.title, ch: o.channel, dur: 0, live: false, unk: true };
+    }
     // kiểm tra lại sau khi chờ mạng (người có thể đã rời phòng / hàng chờ đã đổi)
     if (p.conn !== c || !room.players.has(p.id)) return;
     if (room.now?.v === id || room.queue.some((q) => q.v === id)) return res(false, 'Video này vừa được người khác thêm rồi.');
     if (!admin && this.queueCountBy(room, p) >= this.cfg.maxQueuePerUser) return res(false, `Mỗi người chỉ được chờ ${this.cfg.maxQueuePerUser} video.`);
     if (room.queue.length >= this.cfg.maxQueue) return res(false, 'Hàng chờ đã đầy.');
-    const meta = check.meta;
     const item: QueueItem = {
-      qid: ++this.qid, v: id, title: cleanText(meta.title, 200) || 'Video không tên', ch: cleanText(meta.channel, 100),
-      dur: meta.live ? 0 : meta.durationSec, live: meta.live, by: p.name, byId: p.id, byCk: p.ck, addedAt: Date.now(),
+      qid: ++this.qid, v: id, title: cleanText(info.title, 200) || 'Video không tên', ch: cleanText(info.ch, 100),
+      dur: info.dur, live: info.live, by: p.name, byId: p.id, byCk: p.ck, addedAt: Date.now(),
+      ...(info.unk ? { unk: true, cap: capSec } : {}),
     };
     room.queue.push(item);
     this.dirty = true;
@@ -1051,7 +1101,7 @@ export class Hub {
     res(true, room.now && !room.now.filler ? `Đã thêm "${item.title}" — thứ ${pos} trong hàng chờ.` : `Đã thêm "${item.title}" — chiếu ngay!`);
     if (!room.now) room.next(Date.now());
     else room.sendQueue();
-    room.broadcast({ t: 'notice', kind: 'info', text: `${p.name} vừa thêm "${item.title}"${item.live ? ' (trực tiếp)' : ` · ${fmtDuration(item.dur)}`}` }, c);
+    room.broadcast({ t: 'notice', kind: 'info', text: `${p.name} vừa thêm "${item.title}"${item.live ? ' (trực tiếp)' : item.unk ? '' : ` · ${fmtDuration(item.dur)}`}` }, c);
   }
 
   private onQueueDel(room: Room, p: Player, qid: number): void {
@@ -1165,6 +1215,50 @@ export class Hub {
       text: code === 101 || code === 150 ? `"${n.title}" không cho phát trên trang khác — chuyển bài.` : `"${n.title}" không phát được — chuyển bài.`,
     });
     room.next(now);
+  }
+
+  /**
+   * Máy người xem báo độ dài thật của video `unk` đang chiếu (rạp kiểm cơ bản, chưa biết độ dài). Người thêm video báo là
+   * nhận ngay (họ vốn bỏ qua được video của mình); người khác cần đủ số mạng (IP) khác nhau như báo lỗi trình phát, lấy
+   * trung vị (một người nhiều tab không đủ, báo bừa không cắt / kéo dài được bài của người khác).
+   */
+  private onVideoDuration(room: Room, p: Player, v: string, d: number, live: boolean, now: number): void {
+    const n = room.now;
+    if (!n || n.v !== v || !n.unk || n.filler || now < n.at - PRELOAD_MS) return;
+    if (!live && !(d >= 1 && d <= 86_400)) return;
+    let pick: { d: number; live: boolean };
+    if (p.id === n.byId || (!!n.byCk && n.byCk === p.ck)) pick = { d, live };
+    else {
+      room.durReports.set(`ip:${p.ipHash}`, { d, live });
+      const ips = room.presentIps();
+      const need = Math.max(1, Math.min(ips, Math.max(2, Math.ceil(ips * 0.3))));
+      const reps = [...room.durReports.values()];
+      if (reps.length < need) return;
+      if (reps.filter((x) => x.live).length * 2 > reps.length) pick = { d: 0, live: true };
+      else {
+        const ds = reps.filter((x) => !x.live).map((x) => x.d).sort((a, b) => a - b);
+        pick = { d: ds[(ds.length - 1) >> 1], live: false };
+      }
+    }
+    n.unk = false;
+    if (pick.live) {
+      if (!this.cfg.allowLive) {
+        room.broadcast({ t: 'notice', kind: 'warn', text: `"${n.title}" là phát trực tiếp — rạp đang không nhận, chuyển bài.` });
+        room.next(now);
+        return;
+      }
+      n.live = true;
+      n.dur = 0;
+    } else {
+      n.dur = Math.round(pick.d);
+      if (n.cap && n.dur > n.cap + 2) {
+        room.broadcast({ t: 'notice', kind: 'info', text: `"${n.title}" dài ${fmtDuration(n.dur)} — rạp chiếu tối đa ${fmtDuration(n.cap)} rồi chuyển bài.` });
+      }
+    }
+    if (!n.paused) n.ends = n.at + room.playMs(n) + END_GRACE_MS;
+    this.log(`⏱️  ${room.id}: "${n.title}" ${n.live ? 'là phát trực tiếp' : `dài ${fmtDuration(n.dur)}`} (máy người xem báo)`);
+    room.sendNow();
+    this.dirty = true;
   }
 
   // ---------------------------------------------------------- admin

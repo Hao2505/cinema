@@ -86,6 +86,7 @@ Vị trí luôn tính **bằng ô** (tile), là **điểm chân**: `x` ngang (0 
 | `vote` | `on` boolean | bỏ phiếu bỏ qua / rút phiếu; người thêm bài → bỏ ngay |
 | `report` | `kind` `'video'` \| `'user'`; `target` ≤ 40 (video: id video; user: id người dạng chuỗi); `reason` ≤ 40 bắt buộc (`copyright`, `inappropriate`, `spam`, `harass`, `other` — lạ → `other`); `note` ≤ 600 (server cắt 300) | ghi báo cáo, báo admin, có thể tự gỡ |
 | `vid_err` | `v` id 11 ký tự; `code` nguyên 0–10000 | đếm máy báo lỗi 2/100/101/150 → chuyển bài |
+| `vid_dur` | `v` id 11 ký tự; `d` số 0–1e8 (giây); `live` true/1 | độ dài thật của video `unk` đang chiếu (rạp kiểm cơ bản, không key) → người thêm báo là nhận, người khác cần đủ số mạng; cập nhật `dur` / `ends` / `live` rồi phát `now` |
 | `adm` | `op` + tham số (§6) | chỉ socket admin; người thường → bỏ im lặng |
 
 Mọi lệnh trừ `ping`, `spec`, `join`, `adm` cần đã có nhân vật **và** socket này đang giữ nhân vật đó.
@@ -137,7 +138,7 @@ Mọi lệnh trừ `ping`, `spec`, `join`, `adm` cần đã có nhân vật **v�
 ```ts
 PlayerInfo   { id, name, look: Look, x, y, d, a: ActionId | '', ae, ghost }
 FrameEntry   [id, x, y, d, ct, m: 0 | 1]
-QueueItemInfo{ qid, v, title, ch, dur /* giây, 0 = live */, live, by, byId }
+QueueItemInfo{ qid, v, title, ch, dur /* giây, 0 = live hoặc chưa rõ */, live, by, byId, unk?: true /* chưa rõ độ dài — kiểm cơ bản, xem docs/04 §3.1 */ }
 NowInfo      = QueueItemInfo & { at, paused, pos, ends, filler?: true /* video mặc định */ }
 ChatInfo     { mid, pid, name, text, at }
 RoomInfo     { id, name, venue, now /* tên video đang chiếu, '' = màn hình trống */, count /* gồm người đang nối lại */, cap }

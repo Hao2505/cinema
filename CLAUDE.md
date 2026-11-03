@@ -22,6 +22,7 @@
 
 - **Chỉ nhúng video cho phép nhúng.** Khi thêm vào hàng chờ, server hỏi YouTube Data API v3 `videos.list` (`part=status,contentDetails,snippet`): phải `embeddable = true`, `privacyStatus = public`, không giới hạn tuổi (`contentRating.ytRating`), xem được ở VN (`regionRestriction`), giới hạn độ dài (đề xuất mặc định, chủ dự án duyệt). Không đạt → từ chối, báo rõ lý do. Lúc phát, trình phát báo lỗi 101/150 (chủ kênh tắt nhúng giữa chừng) → tự sang bài kế.
 - Cần `YT_API_KEY` (chủ dự án tạo trên Google Cloud Console — hướng dẫn họ; quota miễn phí 10.000 đơn vị/ngày, `videos.list` = 1). Key chỉ ở `.env`, **không bao giờ commit / in ra / ghi vào docs**.
+  *Chủ dự án quyết thêm (2026-11-03): key không bắt buộc — chưa có key / key lỗi / hết quota thì kiểm cơ bản bằng oEmbed (có video + cho nhúng); video 18+ / chặn VN do chính trình phát YouTube từ chối lúc tới lượt (lỗi 101/150 → tự chuyển bài); độ dài chưa rõ thì chiếu tối đa giới hạn phút và máy người xem đo độ dài thật. Có key thì kiểm đủ như trên.*
 - Dùng đúng trình phát chính thức: **không chỉnh, không che** (nhân vật / UI không đè lên video), **không chặn quảng cáo**, không tải video về server, trình phát ≥ 200×200 px. Có trang chính sách quyền riêng tư nói rõ dùng dịch vụ YouTube. Có nút "báo cáo"; có khiếu nại thì gỡ ngay. Không gắn affiliate / quảng cáo sát trình phát (chưa có trong kế hoạch).
 - **Không bao giờ** tải luồng của người khác về rồi tự phát lại (vi phạm bản quyền). Video phát trên YouTube, server chỉ đồng bộ trạng thái.
 - Đồng bộ: server giữ "đồng hồ phòng" (videoId, lúc bắt đầu, đang dừng / chạy); máy lệch > 1–2 s thì tự tua; xem quảng cáo xong thì tua về đúng chỗ. Live: theo đầu live, không cần tua.
@@ -84,10 +85,11 @@
   khiển ảo + chạm sàn + nút 🎭 + chụm phóng to.
 - **Đã deploy** 2026-11-03: https://cinema.vibe-coder.fun (pm2 `vibecinema`, cổng 3300, HTTPS Let's Encrypt, DNS only —
   thẳng VPS). Netcode người khác: phát lại đều theo đồng hồ người gửi + đệm thích ứng (`docs/03` §11, bản 0.4.3).
+  Repo `Hao2505/cinema` (chủ dự án cho push). Cập nhật: `bash deploy/deploy.sh` (chỉ khi chủ dự án bảo).
 - **SEO / chia sẻ link** (0.4.4): thẻ đủ bộ + ảnh chia sẻ vẽ bằng code (`npm run share-images`), kiểm bằng
-  `npm run seo-check -- --url https://cinema.vibe-coder.fun` (docs/06 §8). Ảnh chia sẻ không bao giờ chứa khung hình YouTube. Repo
-  `Hao2505/cinema` (chủ dự án cho push). Cập nhật: `bash deploy/deploy.sh` (chỉ khi chủ dự án bảo).
-- **Chờ chủ dự án**: tạo `YT_API_KEY` (README) → điền `.env` + `deploy/.env.production` rồi deploy lại — chưa có key thì
-  chưa ai thêm được video.
+  `npm run seo-check -- --url https://cinema.vibe-coder.fun` (docs/06 §8). Ảnh chia sẻ không bao giờ chứa khung hình YouTube.
+- **`YT_API_KEY` không bắt buộc** (chủ dự án quyết 2026-11-03, bản 0.4.6): thiếu key / key hỏng / hết quota → rạp **kiểm
+  cơ bản** bằng oEmbed (`docs/04` §3.1) — vẫn thêm được video. Vẫn nên tạo key (README) để kiểm đủ luật ngay lúc dán link:
+  điền `.env` + `deploy/.env.production` rồi deploy lại.
 - `ADMIN_TOKEN` đã sinh ngẫu nhiên trong `.env` (máy nhà) và `deploy/.env.production` (production) — mở file để xem, không in ra.
 - `deploy/vps.env` đã chép từ VibeCorp (DOMAIN đã đổi), nằm trong `.gitignore`.

@@ -93,6 +93,7 @@ npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 20 --video aqz-KE-bpKQ 
   sàn nhảy / lối đi, ngẫu nhiên làm động tác, thả emoji, chat; bot 0 thêm `--video`. `--seconds 0` = chạy mãi, rớt thì
   tự vào lại sau 3 s.
 - Chạy bản thật với key: `cp .env.example .env`, điền `ADMIN_TOKEN`, `YT_API_KEY`, rồi `npm run dev` (port 3300).
+- Thử chế độ không key (kiểm cơ bản, trình phát thật đo độ dài): `NO_KEY=1 npx tsx scripts/qa-server.ts`.
   **Sửa file client xong phải khởi động lại server** (phiên bản tài nguyên).
 - Thử trên điện thoại cùng wifi: `HOST=0.0.0.0` rồi mở `http://<IP máy dev>:3300`.
 

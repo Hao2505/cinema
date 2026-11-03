@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 [ -f deploy/vps.env ] || { echo "Thiếu deploy/vps.env"; exit 1; }
-[ -f deploy/.env.production ] || { echo "Thiếu deploy/.env.production (chép .env.example, đặt PORT=3300, ADMIN_TOKEN, YT_API_KEY)"; exit 1; }
+[ -f deploy/.env.production ] || { echo "Thiếu deploy/.env.production (chép .env.example, đặt PORT=3300, ADMIN_TOKEN, nên có YT_API_KEY)"; exit 1; }
 set -a; . ./deploy/vps.env; set +a
 export SSHPASS="$VPS_PASS"
 SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $VPS_PORT $VPS_USER@$VPS_HOST"
@@ -24,7 +24,7 @@ SETUP=0; [ "${1:-}" = "--setup" ] && SETUP=1
 
 grep -q "^PORT=$APP_PORT\$" deploy/.env.production || { echo "PORT trong deploy/.env.production phải là $APP_PORT"; exit 1; }
 grep -q '^ADMIN_TOKEN=.\{12,\}' deploy/.env.production || echo "⚠️  deploy/.env.production chưa có ADMIN_TOKEN (≥ 12 ký tự) — admin sẽ tắt"
-grep -q '^YT_API_KEY=.\+' deploy/.env.production || echo "⚠️  deploy/.env.production chưa có YT_API_KEY — chưa ai thêm được video"
+grep -q '^YT_API_KEY=.\+' deploy/.env.production || echo "ℹ️  deploy/.env.production chưa có YT_API_KEY — rạp kiểm video cơ bản (oEmbed), vẫn thêm được video"
 
 echo "▶ Kiểm tra kết nối VPS"
 $SSH 'echo "  OK: $(hostname) · $(. /etc/os-release && echo $PRETTY_NAME) · node $(node -v)"'

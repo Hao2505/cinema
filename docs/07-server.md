@@ -231,8 +231,10 @@ q_add {url}
  ├─ hàng chờ ≥ MAX_QUEUE                 → lỗi
  ├─ người thường: addBucket (dồn 2, 1 / QUEUE_ADD_SECONDS) → "thử lại sau N giây"
  ├─ link chưa có trong cache: người thường ≤ LOOKUPS_PER_IP_MINUTE / IP / phút; cả server ≤ 120 / phút
- ├─ lookup(id): cache 6 h → inflight (gộp) → youtube.fetchVideo  (lỗi mạng / quota / key → q_res với lý do tiếng Việt)
- ├─ checkMeta(meta, {region, maxSeconds: (admin ? ADMIN_MAX : MAX)_VIDEO_MINUTES × 60, allowLive})
+ ├─ có key: lookup(id): cache 6 h → inflight (gộp) → youtube.fetchVideo
+ │    ├─ được → checkMeta(meta, {region, maxSeconds: (admin ? ADMIN_MAX : MAX)_VIDEO_MINUTES × 60, allowLive}) → lỗi thì q_res
+ │    └─ không được (no_key / quota / bad_key / api / network) → kiểm cơ bản ↓
+ ├─ không key / API hỏng: lookupOEmbed(id) (nhớ 30 phút) → 401/403, 404, mạng → q_res lỗi; được → item unk + cap (docs/04 §3.1)
  ├─ kiểm lại sau khi chờ mạng (người đã rời? video vừa được thêm? hết chỗ?)
  └─ push QueueItem (title / channel qua cleanText) → q_res ok → chưa có bài: next() ngay; có: phát queue
     + notice "X vừa thêm …" cho người khác
@@ -256,6 +258,9 @@ q_add {url}
   - Video: phải đúng video đang chiếu; đếm theo **IP khác nhau** (`room.reports` có cả `ck:` và `ip:`) — đủ
     `REPORT_AUTOSKIP` → `blockVideo` (gỡ khỏi mọi hàng chờ, dừng ở mọi phòng đang chiếu, lưu ngay) + `next`.
   - Người: `target` = id người trong cùng phòng, không tự báo cáo mình.
+- `onVideoDuration` (`vid_dur {v, d, live}`, chỉ video `unk` đang chiếu): người thêm báo là nhận; người khác vào
+  `room.durReports` theo IP, đủ `need` như `vid_err` thì lấy trung vị (đa số báo live → live). Cập nhật `dur`, `live`,
+  `ends = at + playMs` (`playMs`: live → `LIVE_MAX_MINUTES`; `unk` → `cap`; còn lại `min(dur, cap)`), `sendNow`.
 - `onVideoError` (`vid_err {v, code}` với code 2/100/101/150, đúng video đang chiếu, gửi sau lúc bài được chọn —
   `now ≥ at − PRELOAD_MS`): cần đủ **mạng (IP)
   khác nhau** cùng báo — `need = max(1, min(số IP có mặt, max(2, ⌈30 % × số IP⌉)))` → 101/150 thì ghi `embedFail` 24 h;

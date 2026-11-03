@@ -141,6 +141,12 @@ test('parseClientMsg: id phòng bản sao dài (congvien-2) không bị bỏ', (
   assert.equal(parseClientMsg('{"t":"spec","room":"congvien-1"}'), null);
   assert.deepEqual(parseClientMsg('{"t":"switch","room":"bien-2"}'), { t: 'switch', room: 'bien-2' });
   assert.equal(parseClientMsg('{"t":"switch","room":"../x"}'), null);
+  // vid_dur: máy người xem báo độ dài thật của video chưa rõ thời lượng (rạp không có API key)
+  assert.deepEqual(parseClientMsg('{"t":"vid_dur","v":"jNQXAC9IVRw","d":19,"live":false}'), { t: 'vid_dur', v: 'jNQXAC9IVRw', d: 19, live: false });
+  assert.deepEqual(parseClientMsg('{"t":"vid_dur","v":"jNQXAC9IVRw","d":3600,"live":true}'), { t: 'vid_dur', v: 'jNQXAC9IVRw', d: 3600, live: true });
+  assert.equal(parseClientMsg('{"t":"vid_dur","v":"bad","d":19}'), null);
+  assert.equal(parseClientMsg('{"t":"vid_dur","v":"jNQXAC9IVRw","d":-1}'), null);
+  assert.equal(parseClientMsg('{"t":"vid_dur","v":"jNQXAC9IVRw","d":"19"}'), null);
 });
 test('parseClientMsg: nhận đúng dạng, bỏ rác', () => {
   assert.deepEqual(parseClientMsg('{"t":"move","x":3.2,"y":5,"d":1,"c":1234.6,"m":1}'), { t: 'move', x: 3.2, y: 5, d: 1, c: 1235, m: 1 });

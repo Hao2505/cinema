@@ -44,15 +44,41 @@ Server gọi `GET https://www.googleapis.com/youtube/v3/videos?part=status,conte
 | không live: đọc được độ dài > 0 | "Không đọc được độ dài video." |
 | độ dài ≤ `MAX_VIDEO_MINUTES` (admin: `ADMIN_MAX_VIDEO_MINUTES`) | "Video dài … — rạp chỉ nhận video tối đa …" |
 
-Lỗi gọi API → không cho vào hàng chờ, báo rõ:
+Không gọi được Data API (bảng dưới) → **không chặn người xem nữa** (0.4.6): chuyển sang kiểm cơ bản §3.1. Log server
+ghi một lần `⚠️ YouTube Data API không dùng được (<code>) — tạm kiểm video cơ bản bằng oEmbed`.
 
-| Trường hợp | `code` | Người xem thấy |
-|---|---|---|
-| chưa có `YT_API_KEY` | `no_key` | "Rạp chưa cấu hình kiểm tra video (thiếu YT_API_KEY) — báo admin nhé." |
-| 403 quota / rateLimit | `quota` | "Hôm nay rạp đã dùng hết lượt kiểm tra video của YouTube — thử lại vào ngày mai nhé." |
-| 400, 403 key / accessNotConfigured / ipRefererBlocked | `bad_key` | "Rạp đang lỗi cấu hình kiểm tra video — báo admin nhé." (log server ghi lý do, không ghi key) |
-| HTTP lỗi khác | `api` | "YouTube đang trục trặc, thử lại sau ít phút nhé." |
-| mạng / timeout | `network` | "Không kiểm tra được video lúc này, thử lại sau nhé." |
+| Trường hợp | `code` |
+|---|---|
+| chưa có `YT_API_KEY` (không gọi API) | `no_key` |
+| 403 quota / rateLimit | `quota` |
+| 400, 403 key / accessNotConfigured / ipRefererBlocked (log ghi lý do, không ghi key) | `bad_key` |
+| HTTP lỗi khác | `api` |
+| mạng / timeout | `network` |
+
+### 3.1. Kiểm cơ bản — không có / không dùng được `YT_API_KEY` (chủ dự án quyết 2026-11-03)
+
+oEmbed công khai `https://www.youtube.com/oembed?url=…` (miễn phí, không key, không quota; `hub.lookupOEmbed` nhớ 30 phút):
+
+| oEmbed | Người xem thấy |
+|---|---|
+| 200 (tên + kênh) | nhận, item `unk: true` (chưa rõ độ dài), `cap` = `MAX_VIDEO_MINUTES` (admin `ADMIN_MAX_VIDEO_MINUTES`) × 60 |
+| 401 / 403 (chặn nhúng / riêng tư) | "Video riêng tư hoặc chủ kênh không cho phát trên trang khác." |
+| 400 / 404 | "Không tìm thấy video — có thể đã bị xoá hoặc để riêng tư." |
+| mạng / lỗi khác | "Không kiểm tra được video lúc này, thử lại sau nhé." |
+
+Phần oEmbed không biết thì giữ luật theo cách khác:
+- **18+ / chặn ở VN**: chính trình phát nhúng của YouTube từ chối phát trên trang khác → lỗi 101/150/100 → `vid_err`
+  → tự chuyển bài (§7) — rạp không bao giờ chiếu được, chỉ mất vài giây lượt đó.
+- **Độ dài**: lượt chiếu đặt hết giờ = `cap` (`Room.playMs`). Khi phát, mỗi máy đo bằng hàm có tài liệu `getDuration()` /
+  `getCurrentTime()` — 2 lần cách ≥ 4 s, chỉ khi nội dung đang chạy (giờ video tăng ≥ 2 s, không phải quảng cáo) — rồi
+  gửi `vid_dur {v, d, live}` một lần mỗi bài (`player.js probeDuration`). Server (`onVideoDuration`): người thêm video báo
+  là nhận (họ vốn tự bỏ qua được bài mình); người khác cần đủ số mạng như `vid_err`, lấy trung vị. Nhận xong: `unk` bỏ,
+  `dur` = độ dài thật, `ends` = `at + min(dur, cap)`; dài hơn `cap` thì báo "chiếu tối đa … rồi chuyển bài".
+- **Live**: độ dài tăng dần giữa 2 lần đo (live: `getDuration` = thời gian đã phát của luồng) → `live: true` → chiếu
+  tối đa `LIVE_MAX_MINUTES`, máy người xem nạp lại theo đầu live (`loadedLive`); `ALLOW_LIVE=false` thì chuyển bài.
+- Còn hở: video **không công khai** (unlisted) vẫn vào được (oEmbed trả 200 như video công khai) — vẫn hợp lệ với YouTube
+  (cho nhúng), chỉ chặt hơn được khi có key. Hàng chờ hiện "chưa rõ thời lượng" tới khi đo xong.
+Thử trên máy: `NO_KEY=1 npx tsx scripts/qa-server.ts` (YouTube giả không key, trình phát thật đo độ dài).
 
 ## 4. Bộ đệm & quota
 

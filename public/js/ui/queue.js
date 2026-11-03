@@ -66,6 +66,8 @@ function tick() {
   if (!n) { setText($('now-time'), ''); $('now-fill').style.width = '0%'; return; }
   if (n.live) { setText($('now-time'), '● TRỰC TIẾP'); $('now-fill').style.width = '100%'; return; }
   const { pos, dur } = progress();
+  // chưa rõ thời lượng (rạp kiểm cơ bản, không có API key): chỉ hiện đã chiếu bao lâu tới khi trình phát đo xong
+  if (n.unk || !dur) { setText($('now-time'), fmtTime(pos)); $('now-fill').style.width = '0%'; return; }
   const p = Math.min(pos, dur);
   setText($('now-time'), `${fmtTime(p)} / ${fmtTime(dur)}`);
   $('now-fill').style.width = `${dur ? Math.min(100, (p / dur) * 100) : 0}%`;
@@ -99,7 +101,7 @@ function renderQueue() {
       el('span', { class: 'q-pos', text: String(i + 1) }),
       el('div', { style: { minWidth: '0' } },
         el('div', { class: 'q-title', text: it.title, title: it.title }),
-        el('div', { class: 'q-meta', text: `${it.live ? 'Trực tiếp' : fmtTime(it.dur)} · ${it.by}${it.ch ? ` · ${it.ch}` : ''}` }),
+        el('div', { class: 'q-meta', text: `${it.live ? 'Trực tiếp' : it.unk ? 'chưa rõ thời lượng' : fmtTime(it.dur)} · ${it.by}${it.ch ? ` · ${it.ch}` : ''}` }),
       ),
       el('div', { class: 'q-tools' }, tools),
     );

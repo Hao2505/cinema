@@ -165,7 +165,8 @@ nhất trong bộ nhớ). Chi tiết định dạng: [07](07-server.md) §14.
 - Log có: banner khởi động (luật video, số phòng, nơi lưu, admin bật / tắt — không in mã), video mặc định (đã kiểm / bị
   tắt), báo cáo (`🚩 …`), admin gỡ video, video lỗi trình phát, lỗi YouTube API (lý do, không có key), lỗi ghi dữ liệu,
   đăng nhập admin sai mã (không ghi mã), lỗi không bắt được.
-- `GET /api/health` → `{ ok, rooms, viewers, players, playing, yt }` — `yt: false` = thiếu `YT_API_KEY`.
+- `GET /api/health` → `{ ok, rooms, viewers, players, playing, yt }` — `yt: false` = chưa có `YT_API_KEY` (rạp kiểm video
+  cơ bản bằng oEmbed — vẫn thêm được video, docs/04 §3.1).
 
 ## 12. Admin trên production
 
@@ -179,7 +180,7 @@ dạng cũ `?admin=` vẫn chạy và nginx tắt access log cho nó). Trình du
 |---|---|
 | 502 Bad Gateway | `bash deploy/logs.sh`; pm2 `errored`?; `PORT` trong `.env.production` ≠ 3300 |
 | https chuyển sang site khác (tokivietnam.com) | site chưa nghe 443 (chưa có chứng chỉ) → `bash deploy/deploy.sh --setup` |
-| "Rạp chưa cấu hình kiểm tra video" | thiếu `YT_API_KEY` trong `.env.production` → thêm rồi deploy |
+| Log `⚠️ YouTube Data API không dùng được (…)` | thiếu / sai `YT_API_KEY`, hoặc hết quota ngày — rạp vẫn chạy (kiểm cơ bản); thêm / sửa key trong `.env.production` rồi deploy |
 | "Rạp đang lỗi cấu hình kiểm tra video" | key sai / giới hạn IP khác IP VPS / chưa Enable YouTube Data API v3 (log ghi lý do) |
 | "hết lượt kiểm tra video" | quota 10.000 / ngày đã hết (reset 0 giờ giờ Thái Bình Dương) |
 | Kênh mặc định không phát | log "Video mặc định … không phát được / không đạt luật" → đổi `DEFAULT_VIDEO`; hoặc bị admin gỡ (bỏ chặn trong 🛠) |

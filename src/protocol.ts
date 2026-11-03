@@ -131,6 +131,11 @@ export function parseClientMsg(text: string): ClientMsg | null {
       const code = int(m.code, 0, 10000);
       return v && /^[A-Za-z0-9_-]{11}$/.test(v) && code !== null ? { t: 'vid_err', v, code } : null;
     }
+    case 'vid_dur': {
+      const v = typeof m.v === 'string' ? m.v : '';
+      if (!/^[A-Za-z0-9_-]{11}$/.test(v) || !fin(m.d) || m.d < 0 || m.d > 1e8) return null;
+      return { t: 'vid_dur', v, d: m.d, live: m.live === true || m.live === 1 };
+    }
     case 'adm': {
       const op = parseAdmin(m);
       return op ? { t: 'adm', ...op } : null;

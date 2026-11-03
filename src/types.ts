@@ -29,11 +29,16 @@ export interface QueueItemInfo {
   v: string;
   title: string;
   ch: string;
-  /** giây (0 = live) */
+  /** giây (0 = live, hoặc chưa rõ khi `unk`) */
   dur: number;
   live: boolean;
   by: string;
   byId: number;
+  /**
+   * chưa rõ độ dài: rạp không có / không dùng được YT_API_KEY nên chỉ kiểm cơ bản bằng oEmbed lúc thêm; chiếu tối đa
+   * `maxVideoMin` phút, máy người xem báo độ dài thật (`vid_dur`) khi bắt đầu phát rồi server tự chỉnh giờ hết bài
+   */
+  unk?: boolean;
 }
 
 export interface NowInfo extends QueueItemInfo {
@@ -150,4 +155,6 @@ export type ClientMsg =
   | { t: 'vote'; on: boolean }
   | { t: 'report'; kind: 'video' | 'user'; target: string; reason: string; note: string }
   | { t: 'vid_err'; v: string; code: number }
+  /** độ dài thật của video `unk` đang chiếu (giây) đo bằng trình phát; live = độ dài tăng dần theo thời gian */
+  | { t: 'vid_dur'; v: string; d: number; live: boolean }
   | ({ t: 'adm' } & AdminOp);

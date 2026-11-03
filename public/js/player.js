@@ -55,6 +55,9 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
   let volume = Math.max(0, Math.min(100, Number(lsGet('vc.vol', '100')) || 0));
   let wantMuted = lsGet('vc.muted', '0') === '1';
   let firstPlay = false; // vừa tải bài: lần PLAYING đầu tiên tua lại cho thật khớp (bù thời gian tải ~0,5–1,5 s)
+  let loadedLive = false; // bài đang nạp theo kiểu live (không tua)
+  let durProbe = null; // đo độ dài video "chưa rõ thời lượng": { qid, d, cur, at }
+  let durSentQid = -1;
 
   const status = () => ({ ready, enabled, needsTap, muted, userPaused, error: errorFor && errorFor === curV, state: lastState });
   const changed = () => hooks.onStatus?.(status());
@@ -141,6 +144,27 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     changed();
   }
 
+  /**
+   * Đo độ dài video `unk` bằng hàm có tài liệu của IFrame API (getDuration / getCurrentTime): 2 lần cách ≥ 4 s, chỉ khi
+   * nội dung thật sự đang chạy (giờ video tăng ≥ 2 s — không phải quảng cáo / đứng hình). Độ dài tăng dần = phát trực
+   * tiếp (với live, getDuration trả thời gian đã phát từ lúc bắt đầu luồng). Báo server một lần mỗi bài.
+   */
+  function probeDuration(n, cur, now) {
+    if (durSentQid === n.qid) return;
+    let d = 0;
+    try { d = player.getDuration() || 0; } catch { return; }
+    if (!(d > 0) || !(cur > 1)) return;
+    const m = durProbe;
+    if (!m || m.qid !== n.qid) { durProbe = { qid: n.qid, d, cur, at: now }; return; }
+    if (now - m.at < 4000) return;
+    durProbe = { qid: n.qid, d, cur, at: now };
+    if (cur - m.cur < 2) return;
+    const live = d - m.d > 1.5;
+    if (!live && Math.abs(d - m.d) > 1) return;
+    durSentQid = n.qid;
+    send({ t: 'vid_dur', v: n.v, d: Math.round(d), live });
+  }
+
   function cmd(fn) {
     weCommanded = performance.now();
     try { fn(); } catch { /* trình phát chưa sẵn sàng */ }
@@ -154,6 +178,8 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     seekFails = 0;
     lastSeek = performance.now();
     firstPlay = !n.live;
+    loadedLive = !!n.live;
+    durProbe = null;
     clearTimeout(startTimer);
     const t = targetSec();
     if (document.hidden) {
@@ -215,7 +241,13 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       if (!n.live && target < n.dur - 2) cmd(() => { player.seekTo(target, true); player.playVideo(); });
       return;
     }
-    if (n.live) return; // live: YouTube tự giữ đầu live
+    // video "chưa rõ thời lượng" (rạp kiểm cơ bản, không có API key): đo độ dài thật bằng trình phát rồi báo server
+    if (n.unk && state === YT_STATE.PLAYING) probeDuration(n, cur, now);
+    if (n.live) {
+      // server vừa xác định bài này là phát trực tiếp (máy người xem báo) → nạp lại để theo đầu live, thôi tua
+      if (!loadedLive) { load(n); changed(); }
+      return; // live: YouTube tự giữ đầu live
+    }
     if (state === YT_STATE.PLAYING) {
       const drift = cur - target;
       const gap = SEEK_GAP_MS * Math.min(4, 1 + seekFails);

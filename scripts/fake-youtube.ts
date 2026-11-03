@@ -27,19 +27,28 @@ export const FIXTURES: Record<string, VideoMeta | null> = {
   missing0001: null,
 };
 
-export function createFakeYouTube(opts: { delayMs?: number; fail?: FetchResult } = {}): YouTubeClient & { calls: string[] } {
+/**
+ * noKey: như rạp chưa có YT_API_KEY (configured = false, Data API trả no_key) → hub kiểm cơ bản bằng oEmbed.
+ * oEmbed giả giống thật: video không có → 'missing', chặn nhúng / riêng tư → 'not_embeddable' (401), còn lại (kể cả 18+,
+ * chặn VN, không công khai, live, dài) → có tên + kênh — oEmbed không biết những thứ đó.
+ */
+export function createFakeYouTube(opts: { delayMs?: number; fail?: FetchResult; noKey?: boolean } = {}): YouTubeClient & { calls: string[]; oembedCalls: string[] } {
   const calls: string[] = [];
+  const oembedCalls: string[] = [];
   return {
-    configured: true,
+    configured: !opts.noKey,
     calls,
+    oembedCalls,
     async fetchOEmbed(id: string): Promise<OEmbedResult> {
+      oembedCalls.push(id);
       const m = id in FIXTURES ? FIXTURES[id] : base(id, `Video thử nghiệm ${id}`, 200);
       if (!m) return { ok: false, code: 'missing' };
-      if (!m.embeddable) return { ok: false, code: 'not_embeddable' };
+      if (!m.embeddable || m.privacy === 'private') return { ok: false, code: 'not_embeddable' };
       return { ok: true, title: m.title, channel: m.channel };
     },
     async fetchVideo(id: string): Promise<FetchResult> {
       calls.push(id);
+      if (opts.noKey) return { ok: false, code: 'no_key', text: 'Rạp chưa cấu hình kiểm tra video (thiếu YT_API_KEY) — báo admin nhé.' };
       if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
       if (opts.fail) return opts.fail;
       if (id in FIXTURES) return { ok: true, meta: FIXTURES[id] };

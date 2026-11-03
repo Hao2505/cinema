@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## 0.4.6 — 2026-11-03 · Thêm video không cần YouTube API key
+
+Chưa có `YT_API_KEY` (hoặc key hỏng / hết lượt trong ngày) rạp **vẫn thêm được video**: server kiểm cơ bản bằng oEmbed
+của YouTube (miễn phí, không cần key) — video không có / riêng tư / chủ kênh chặn nhúng bị từ chối ngay. Video 18+ hay
+bị chặn ở VN thì chính trình phát YouTube không cho phát → rạp tự chuyển bài sau vài giây. Độ dài chưa biết trước: hàng
+chờ hiện "chưa rõ thời lượng", khi bắt đầu chiếu trình phát của người xem tự đo độ dài thật (~8 giây, không đo lúc đang
+quảng cáo) rồi rạp chỉnh giờ hết bài; video dài hơn giới hạn thì chiếu tới giới hạn rồi chuyển; phát trực tiếp được nhận
+ra (độ dài tăng dần) và chiếu theo đầu live. Có key thì vẫn kiểm đủ như cũ. Thử thật với trình phát YouTube: Big Buck
+Bunny đo ra 10:35 sau 7,7 s; kênh Lofi Girl nhận ra trực tiếp sau 8,1 s.
+
 ## 0.4.5 — 2026-11-03 · 📋 và 💬 tách riêng
 
 Trên máy tính 2 nút 📋 (hàng chờ) và 💬 (trò chuyện) trước đây cùng mở một ngăn chung và sáng cả hai — trông như trùng

@@ -79,7 +79,7 @@ function renderSheet() {
     ));
     list = items.length ? el('ul', { class: 'adm-list' }, items) : el('p', { class: 'adm-empty', text: 'Chưa gỡ video nào.' });
   }
-  const warn = s && !s.ytReady ? el('p', { style: { color: 'var(--warn)' }, text: '⚠️ Server chưa có YT_API_KEY — chưa ai thêm được video. Xem README mục "Tạo YouTube API key".' }) : null;
+  const warn = s && !s.ytReady ? el('p', { style: { color: 'var(--warn)' }, text: '⚠️ Chưa có YT_API_KEY — rạp đang kiểm video cơ bản (oEmbed): vẫn thêm được video, nhưng video 18+ / chặn ở VN chỉ bị bỏ qua lúc tới lượt và chưa biết trước độ dài (chiếu tối đa giới hạn phút). Xem README mục "Tạo YouTube API key".' }) : null;
   setKids($('sheet-body'), warn, controls, head, list,
     el('h3', { text: 'Phiên admin' }),
     el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn btn-ghost', text: '🚪 Thoát admin trên máy này', onclick: () => adminLogout() })),

@@ -636,6 +636,84 @@ async function main(): Promise<void> {
     }
   });
 
+  // ------------------------------------------------------------ không có YT_API_KEY (server riêng)
+  await step('không có YT_API_KEY: kiểm cơ bản bằng oEmbed → vẫn thêm được video (chưa rõ độ dài, chiếu tối đa giới hạn); người thêm báo độ dài thật → chỉnh giờ hết bài; người khác báo một mình không đủ; nhận ra live; API hết quota cũng tự kiểm cơ bản', async () => {
+    type NowMsg = { v: string; unk?: boolean; dur: number; live: boolean; at: number; ends: number; qid: number };
+    const ytNoKey = createFakeYouTube({ noKey: true });
+    const app3 = createApp(makeCfg({ persist: false, defaultVideo: '' }), { youtube: ytNoKey, dataDir: null, log: () => {} });
+    const port3 = await app3.listen(0, '127.0.0.1');
+    const a = new Client(`ws://127.0.0.1:${port3}/ws`, { 'x-real-ip': '10.9.1.1' });
+    const b = new Client(`ws://127.0.0.1:${port3}/ws`, { 'x-real-ip': '10.9.1.2' });
+    try {
+      await a.open(); await b.open();
+      await a.wait((m) => m.t === 'hello', 2000, true); await b.wait((m) => m.t === 'hello', 2000, true);
+      assert.equal((await a.join('Người Thêm', 'nhung')).t, 'welcome');
+      assert.equal((await b.join('Người Xem', 'nhung')).t, 'welcome');
+      const add = async (c: Client, id: string): Promise<{ ok: boolean; text: string }> => {
+        await new Promise((res) => setTimeout(res, 40)); // giới hạn "thêm chậm thôi" (2 lần dồn, hồi 10 ms / lượt ở cấu hình test)
+        const r = c.waitT('q_res', 3000);
+        c.send({ t: 'q_add', url: `https://youtu.be/${id}` });
+        const m = await r;
+        return { ok: m.ok === true, text: String(m.text) };
+      };
+      const r1 = await add(a, 'noEmbed0001');
+      assert.equal(r1.ok, false); assert.match(r1.text, /không cho phát trên trang khác/);
+      const r2 = await add(a, 'missing0001');
+      assert.equal(r2.ok, false); assert.match(r2.text, /Không tìm thấy video/);
+      assert.equal(ytNoKey.calls.length, 0, 'không có key thì không gọi Data API');
+      // video thường: nhận ngay, chưa rõ độ dài, giờ hết bài = giới hạn 15 phút
+      const playing = b.wait((m) => m.t === 'now' && (m.n as NowMsg | null)?.v === 'jNQXAC9IVRw', 3000);
+      const r3 = await add(a, 'jNQXAC9IVRw');
+      assert.equal(r3.ok, true, r3.text);
+      const n1 = (await playing).n as NowMsg;
+      assert.equal(n1.unk, true); assert.equal(n1.dur, 0); assert.equal(n1.live, false);
+      assert.ok(Math.abs(n1.ends - n1.at - 15 * 60_000) < 5000, `chiếu tối đa 15 phút, được ${n1.ends - n1.at} ms`);
+      // người khác báo một mình (2 mạng đang có mặt → cần 2) → chưa đổi; người thêm báo → nhận ngay
+      b.send({ t: 'vid_dur', v: 'jNQXAC9IVRw', d: 5, live: false });
+      const fixed = b.wait((m) => m.t === 'now' && (m.n as NowMsg | null)?.v === 'jNQXAC9IVRw' && !(m.n as NowMsg).unk, 3000);
+      await new Promise((r) => setTimeout(r, 150));
+      a.send({ t: 'vid_dur', v: 'jNQXAC9IVRw', d: 19, live: false });
+      const n2 = (await fixed).n as NowMsg;
+      assert.equal(n2.dur, 19, 'lấy độ dài người thêm báo, không phải số người khác báo bừa');
+      assert.ok(Math.abs(n2.ends - n2.at - 19_000) < 3000, `giờ hết bài theo độ dài thật, được ${n2.ends - n2.at} ms`);
+      // live: người thêm (b) bỏ qua bài đang chiếu của a không được, nên a tự bỏ qua bài mình → tới bài live của b
+      const r4 = await add(b, 'liveNow0001');
+      assert.equal(r4.ok, true, r4.text);
+      const liveNow = a.wait((m) => m.t === 'now' && (m.n as NowMsg | null)?.v === 'liveNow0001', 3000);
+      a.send({ t: 'vote', on: true });
+      const n3 = (await liveNow).n as NowMsg;
+      assert.equal(n3.unk, true);
+      const isLive = a.wait((m) => m.t === 'now' && (m.n as NowMsg | null)?.v === 'liveNow0001' && (m.n as NowMsg).live, 3000);
+      b.send({ t: 'vid_dur', v: 'liveNow0001', d: 36_000, live: true });
+      const n4 = (await isLive).n as NowMsg;
+      assert.equal(n4.unk, undefined); assert.equal(n4.dur, 0);
+      assert.ok(Math.abs(n4.ends - n4.at - 30 * 60_000) < 5000, 'live chiếu tối đa LIVE_MAX_MINUTES');
+    } finally {
+      a.close(); b.close();
+      await app3.close();
+    }
+    // có key nhưng Data API hết quota → không chặn ai, tự kiểm cơ bản
+    const ytQuota = createFakeYouTube({ fail: { ok: false, code: 'quota', text: 'hết quota' } });
+    const app4 = createApp(makeCfg({ persist: false, defaultVideo: '' }), { youtube: ytQuota, dataDir: null, log: () => {} });
+    const port4 = await app4.listen(0, '127.0.0.1');
+    const c = new Client(`ws://127.0.0.1:${port4}/ws`, { 'x-real-ip': '10.9.2.1' });
+    try {
+      await c.open();
+      await c.wait((m) => m.t === 'hello', 2000, true);
+      assert.equal((await c.join('Người Xem', 'nhung')).t, 'welcome');
+      const playing = c.wait((m) => m.t === 'now' && (m.n as NowMsg | null)?.v === 'eRsGyueVLvQ', 3000);
+      const r = c.waitT('q_res', 3000);
+      c.send({ t: 'q_add', url: 'https://youtu.be/eRsGyueVLvQ' });
+      assert.equal((await r).ok, true);
+      assert.equal(((await playing).n as NowMsg).unk, true);
+      assert.deepEqual(ytQuota.calls, ['eRsGyueVLvQ']);
+      assert.deepEqual(ytQuota.oembedCalls, ['eRsGyueVLvQ']);
+    } finally {
+      c.close();
+      await app4.close();
+    }
+  });
+
   for (const c of all) c.close();
   await app.close();
   for (const t of timers) clearTimeout(t);

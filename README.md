@@ -69,7 +69,12 @@ npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 10 --video aqz-KE-bpKQ 
 
 (Bản QA nhận mọi link và tính dài 3:20 — chỉ để thử giao diện. Mã admin của bản QA: `#admin=qa-local-admin`.)
 
-## Tạo YouTube API key (5 phút, miễn phí)
+## Tạo YouTube API key (5 phút, miễn phí — không bắt buộc nhưng nên có)
+
+Chưa có key rạp vẫn chạy: dán link vẫn thêm được video, server kiểm cơ bản (có video + chủ kênh cho nhúng). Có key thì
+kiểm đủ ngay lúc dán link (công khai, không 18+, xem được ở VN, giới hạn độ dài) và hàng chờ hiện thời lượng; không có
+thì video 18+ / chặn VN chỉ bị bỏ qua lúc tới lượt, video dài bị cắt ở giới hạn phút. Chi tiết: docs/04 §3.1.
+
 
 1. Vào https://console.cloud.google.com/ → đăng nhập Gmail → **Select a project → New project** → đặt tên `vibe-cinema` → **Create**.
 2. Menu ☰ → **APIs & Services → Library** → tìm **YouTube Data API v3** → **Enable**.
