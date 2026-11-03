@@ -2,12 +2,18 @@
 
 **Xem trực tiếp: https://cinema.vibe-coder.fun** · Mã nguồn: https://github.com/Hao2505/cinema
 
-Phía trên là màn hình lớn — trình phát YouTube chính thức đặt khít vào khung màn hình trên tường cuối rạp. Phía dưới là
-khán phòng vẽ phối cảnh 3D (sàn hẹp dần về màn hình, tường chụm vào, hàng ghế nhung): **mỗi người xem điều khiển một nhân
-vật**, đi lại, ngồi ghế, nhảy, vỗ tay, thả tim, chat bong bóng trên đầu. Ai cũng dán được link YouTube vào hàng chờ; **cả
-rạp xem cùng một chỗ trong video — không ai tua / dừng riêng được**. Vào rạp chỉ cần đặt tên + chọn nhân vật (nam / nữ,
-da, tóc, áo, quần, phụ kiện, râu), không cần đăng nhập. Rạp phủ cả màn hình, video to hết cỡ; nút bấm là các cụm nổi nhỏ ở
-góc và dock dưới đáy, không bao giờ che video.
+Phía trên là màn hình lớn — trình phát YouTube chính thức đặt khít vào khung màn hình. Phía dưới là khán phòng vẽ phối cảnh
+3D: **mỗi người xem điều khiển một nhân vật**, đi lại, ngồi ghế, nhảy, vỗ tay, thả tim, chat bong bóng trên đầu. Ai cũng dán
+được link YouTube vào hàng chờ; **cả rạp xem cùng một chỗ trong video — không ai tua / dừng riêng được**. Vào rạp chỉ cần
+đặt tên + chọn nhân vật (nam / nữ, da, tóc, áo, quần, phụ kiện, râu), không cần đăng nhập.
+
+- **4 rạp**, mỗi rạp một khung cảnh + màn hình + hàng chờ riêng: 🎭 **Rạp Nhung Đỏ** (trong nhà, ghế nhung), 🌳 **Rạp Công
+  Viên** (ngoài trời, gối lười trên cỏ), 🚗 **Rạp Đỗ Xe** (kiểu Mỹ, ngồi xe mui trần), 🏖️ **Rạp Bãi Biển** (ghế xếp trên cát).
+- **Kênh mặc định**: rạp trống video quá 30 giây thì tự phát một kênh trực tiếp 24/7; ai dán link là nhường ngay.
+- Rạp phủ cả màn hình, nút bấm là các cụm nổi nhỏ không bao giờ che video; **đang chiếu thì xung quanh tối lại** cho video
+  nổi bật, đứng yên vài giây các nút tự mờ đi.
+- **⚙️ Tùy chọn** cho từng người xem: mức tối, ẩn chat / bong bóng / emoji / động tác / tên / người khác, ẩn riêng từng
+  người (bấm vào nhân vật), đèn hiệu ứng, chất lượng hình.
 
 ![Rạp VibeCinema](public/og-image.jpg)
 
@@ -18,7 +24,10 @@ góc và dock dưới đáy, không bao giờ che video.
 | Đi lại | `W A S D` hoặc phím mũi tên · bấm sàn để đi tới | kéo cần điều khiển góc trái · chạm sàn |
 | Ngồi ghế | đi tới sát ghế rồi dừng (tự ngồi) · bấm vào ghế | chạm vào ghế |
 | Âm lượng / toàn màn hình | 🔊 + thanh trượt, ⛶ dưới màn hình (riêng video) · ⛶ góc trên phải (cả rạp) | như máy tính |
-| Video to nhất | 📺 góc trên phải (mặc định chia cân video + khán phòng; bật 📺 = video to nhất) | — |
+| Chọn rạp | bảng chọn rạp ở màn vào rạp · bấm ô tên rạp góc trên trái | như máy tính |
+| Vào lại lần sau | máy nhớ tên + nhân vật: mở trang là thấy thẻ "Chào mừng quay lại", bấm một rạp là vào | như máy tính |
+| Góc xem | 📺 góc trên phải: Cân (khán phòng rộng) · **Màn lớn** (mặc định) · Màn rộng (video to nhất) | — |
+| Tùy chọn | ⚙️ góc trên phải (làm tối khi chiếu, ẩn chat / động tác / người khác…) · bấm vào một nhân vật để ẩn riêng người đó | như máy tính |
 | Động tác | `E` mở vòng chọn · phím `1`–`8` · 🎭 trên dock | 🎭 trên dock |
 | Chat | `Enter` · ô nhắn trên dock | ô nhắn trên dock |
 | Thả cảm xúc | 😀 trên dock | như máy tính |
@@ -34,8 +43,10 @@ góc và dock dưới đáy, không bao giờ che video.
 - Mỗi người chờ tối đa **2 video**. Bỏ qua khi **≥ 50 %** người trong phòng bỏ phiếu (ít nhất 2 phiếu); người thêm bài
   bỏ qua bài của mình ngay.
 - **Xem chung**: thanh tua / dừng của YouTube bị ẩn; lỡ dừng là tự chạy lại đúng giờ chung. Chỉ admin dừng được cả phòng.
-- **60 người / phòng** — rạp rộng 130 ghế (5 hàng) + sàn nhảy lớn, đầy phòng vẫn thoáng; đầy thì tự mở Phòng 2 (tối đa 3
-  phòng), mỗi phòng màn hình + hàng chờ riêng.
+- **4 rạp × 60 người** — mỗi rạp 130 ghế (5 hàng) + sàn nhảy lớn, đầy phòng vẫn thoáng; rạp đầy thì tự mở thêm phòng của
+  chính rạp đó (tối đa 3 phòng / rạp), mỗi phòng màn hình + hàng chờ riêng.
+- **Kênh mặc định** (`DEFAULT_VIDEO`): phòng trống video + hàng chờ trống quá 30 giây thì tự phát kênh trực tiếp; có video
+  mới là nhường ngay; không bỏ phiếu bỏ qua được (admin bỏ qua thì phòng đó nghỉ 10 phút).
 - Chat: không link, từ bậy bị che `***`, gửi dồn dập bị tắt tiếng 2 phút.
 - Nút **🚩 Báo cáo** dưới màn hình: admin được báo ngay; **3 người** báo cáo cùng video thì rạp tự gỡ + chặn video đó.
 

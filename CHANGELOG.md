@@ -1,6 +1,39 @@
 # Lịch sử thay đổi
 
-## 0.3.0 — 2026-11-03 · Nhân vật nam / nữ + rạp tràn màn hình + rạp lớn (chưa deploy)
+## 0.4.0 — 2026-11-03 · 4 rạp + kênh mặc định + làm tối khi chiếu + tùy chọn
+
+**4 rạp, mỗi rạp một khung cảnh** — 🎭 Rạp Nhung Đỏ (trong nhà), 🌳 Rạp Công Viên (ngoài trời: bãi cỏ, gối lười), 🚗 Rạp
+Đỗ Xe (kiểu Mỹ: xe mui trần, màn hình khổng lồ), 🏖️ Rạp Bãi Biển (ghế xếp trên cát, hàng dừa). Chung sơ đồ đi lại / ghế,
+khác cách vẽ (`public/js/render/venues/`, nạp khi cần — file một rạp lỗi thì rạp đó tạm vẽ như Rạp Nhung Đỏ). Mỗi rạp một
+phòng cố định, màn hình + hàng chờ riêng; rạp đầy thì tự mở bản sao "<rạp> 2", "<rạp> 3" (`MAX_ROOMS` mỗi rạp), bỏ trống
+lâu thì đóng. Chọn rạp ở màn vào rạp (xem trước ngay phía sau) hoặc bấm ô tên rạp góc trên. Link thẳng: `/?phong=bien`.
+
+**Góc xem 3 chế độ** (📺): Cân (khán phòng rộng) · Màn lớn (mặc định) · Màn rộng (video to nhất, ~1020×574 trên
+1440×900). Mỗi người tự chọn, máy nhớ.
+
+**Kênh mặc định** — phòng trống video + hàng chờ trống quá `DEFAULT_IDLE_SECONDS` (30 s) thì tự phát `DEFAULT_VIDEO`
+(kênh trực tiếp 24/7 chủ rạp chọn), phát liên tục; có người dán link là nhường ngay; không bỏ phiếu bỏ qua được (admin bỏ
+qua → phòng đó nghỉ 10 phút; trình phát lỗi → tắt 30 phút). Server kiểm qua oEmbed (không cần key) + đủ luật khi có
+`YT_API_KEY`. Màn hình trống ghi rõ "trống quá 30 giây rạp tự phát kênh trực tiếp".
+
+**Vào lại không cần đặt tên** — máy nhớ tên + nhân vật + rạp đã vào. Lần sau mở trang thấy ngay thẻ "Chào mừng quay
+lại" (hình nhân vật, 4 rạp kèm số người + đang chiếu gì, rạp lần trước lên đầu): bấm một rạp là vào luôn. Mở bằng link
+thẳng tới một rạp (`/?phong=bien`) hoặc vừa chuyển rạp thì vào thẳng. Tên đã nhớ bị trùng / không hợp lệ thì tự về màn đặt
+tên, báo rõ lý do. Có nút "✏️ Đổi tên / nhân vật".
+
+**Xem phim dễ chịu hơn**
+- Đang chiếu thì mọi thứ quanh video tối lại (chuyển dần), tên + bong bóng chat vẫn rõ.
+- Đang xem mà không động chuột / chạm 4 giây → các nút mờ đi, động là hiện lại.
+- **⚙️ Tùy chọn** (chỉ trên máy mình): mức tối (tắt / nhẹ / vừa / đậm), tự làm mờ nút, chat của mọi người, bong bóng,
+  khung chat nổi, hiện người khác, tên trên đầu (tất cả / tự động / chỉ mình), động tác người khác, emoji cảm xúc, emoji
+  theo động tác, đèn & hiệu ứng, chất lượng hình (tự động / cao / nhẹ máy), danh sách người đang ẩn + khôi phục mặc định.
+- Bấm vào một nhân vật: **ẩn tin nhắn / ẩn động tác & emoji / ẩn hẳn người đó** (chỉ trên máy mình, nhớ theo tên).
+
+**Vận hành** — đã lên mạng: https://cinema.vibe-coder.fun (HTTPS Let's Encrypt; Cloudflare thực tế ở chế độ SSL Full, không
+phải Flexible như ghi chú cũ — `deploy.sh --setup` tự lấy chứng chỉ). Mã nguồn: https://github.com/Hao2505/cinema.
+Tài liệu viết lại chi tiết cho người mới + AI agent: `AGENTS.md`, `docs/00` (bản đồ mã nguồn) … `docs/08` (cách mở rộng).
+
+## 0.3.0 — 2026-11-03 · Nhân vật nam / nữ + rạp tràn màn hình + rạp lớn
 
 **Rạp lớn gấp đôi** — trước 22 × 12 ô, 64 ghế: đủ 60 người là chật. Giờ 32 × 16 ô, **130 ghế** (5 hàng × 26, 3 dãy
 8 + 10 + 8), sàn nhảy 26 × 4,3 ô (gấp đôi), 2 biển LỐI RA mỗi bên, vào rạp xuất hiện ở lối đi cuối rạp. Đầy phòng (60) vẫn

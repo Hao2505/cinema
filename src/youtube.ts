@@ -23,9 +23,15 @@ export type FetchResult =
   | { ok: true; meta: VideoMeta | null } // null = không tìm thấy (đã xoá / riêng tư)
   | { ok: false; code: 'quota' | 'network' | 'no_key' | 'bad_key' | 'api'; text: string };
 
+export type OEmbedResult =
+  | { ok: true; title: string; channel: string }
+  | { ok: false; code: 'not_embeddable' | 'missing' | 'network' };
+
 export interface YouTubeClient {
   /** hỏi YouTube thông tin 1 video (không cache) */
   fetchVideo(id: string): Promise<FetchResult>;
+  /** oEmbed công khai (không cần key, không tốn quota): tên + kênh; 401/403 = chủ kênh chặn nhúng */
+  fetchOEmbed(id: string): Promise<OEmbedResult>;
   readonly configured: boolean;
 }
 
@@ -142,6 +148,26 @@ export function fmtDuration(sec: number): string {
 export function createYouTubeClient(apiKey: string, fetchImpl: typeof fetch = fetch): YouTubeClient {
   return {
     configured: !!apiKey,
+    async fetchOEmbed(id: string): Promise<OEmbedResult> {
+      if (!ID_RE.test(id)) return { ok: false, code: 'missing' };
+      const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`;
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 6000);
+      try {
+        const res = await fetchImpl(url, { signal: ac.signal, headers: { accept: 'application/json' } });
+        if (res.status === 401 || res.status === 403) return { ok: false, code: 'not_embeddable' };
+        if (res.status === 400 || res.status === 404) return { ok: false, code: 'missing' };
+        if (!res.ok) return { ok: false, code: 'network' };
+        const body: unknown = await res.json().catch(() => null);
+        const title = isRecord(body) && typeof body.title === 'string' ? body.title.slice(0, 200) : '';
+        const channel = isRecord(body) && typeof body.author_name === 'string' ? body.author_name.slice(0, 100) : '';
+        return title ? { ok: true, title, channel } : { ok: false, code: 'network' };
+      } catch {
+        return { ok: false, code: 'network' };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     async fetchVideo(id: string): Promise<FetchResult> {
       if (!apiKey) return { ok: false, code: 'no_key', text: 'Rạp chưa cấu hình kiểm tra video (thiếu YT_API_KEY) — báo admin nhé.' };
       if (!ID_RE.test(id)) return { ok: true, meta: null };

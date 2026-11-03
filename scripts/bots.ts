@@ -1,10 +1,10 @@
 // Bot giả người xem (QA / thử tải): vào rạp, đi lại, ngồi ghế, nhảy, chat, thả emoji.
-//   npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 20 [--video aqz-KE-bpKQ] [--seconds 0 (= chạy mãi)]
+//   npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 20 [--video aqz-KE-bpKQ] [--seconds 0 (= chạy mãi)] [--room bien]
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { ACTIONS, HALL, HOME, REACTIONS, SEATS, SPEED, moveWithCollision, randomLook, spawnPoint } from '../public/js/shared/hall.js';
 
-export interface BotOpts { url: string; n: number; video?: string; seconds?: number }
+export interface BotOpts { url: string; n: number; video?: string; seconds?: number; /** id phòng / rạp (vd 'bien'); rỗng = server tự xếp */ room?: string }
 const NAMES = ['Minh Anh', 'Tuấn', 'Lan Chi', 'Bảo', 'Hà My', 'Khoa', 'Ngọc', 'Phúc', 'Thảo', 'Duy', 'Quỳnh', 'Hiếu', 'Trang', 'Long', 'Vy', 'Nam', 'Linh', 'Sơn', 'Mai', 'Đạt', 'Yến', 'Toàn', 'Hạnh', 'Kiên'];
 const CHATS = ['Hay quá mọi người ơi 😍', 'Bài này đỉnh thật', 'Ai ngồi cạnh mình không?', 'Quẩy lên nào 🕺', 'Hahaha', 'Âm thanh chuẩn ghê', 'Chào cả rạp 👋', 'Cho bài tiếp đi', '10 điểm!', 'Nhảy chung không?'];
 const rand = Math.random;
@@ -26,7 +26,7 @@ export function startBots(o: BotOpts): () => void {
     const t0 = Date.now();
     const now = () => Date.now() - t0 + 1000;
     ws.on('open', () => {
-      ws.send(JSON.stringify({ t: 'join', name: `${NAMES[i % NAMES.length]}${i >= NAMES.length ? ` ${Math.floor(i / NAMES.length) + 1}` : ''}`, look: randomLook(), room: '', token: '', ck: '' }));
+      ws.send(JSON.stringify({ t: 'join', name: `${NAMES[i % NAMES.length]}${i >= NAMES.length ? ` ${Math.floor(i / NAMES.length) + 1}` : ''}`, look: randomLook(), room: o.room || '', token: '', ck: '' }));
     });
     ws.on('message', (raw) => {
       let m: { t?: string; you?: number; snap?: { players?: { id: number; x: number; y: number }[] }; x?: number; y?: number; text?: string };
@@ -108,7 +108,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const url = args.get('url') || 'ws://localhost:3399/ws';
   const n = Number(args.get('n') || 12);
   const seconds = Number(args.get('seconds') || 0);
-  startBots({ url, n, video: args.get('video') || '', seconds });
+  startBots({ url, n, video: args.get('video') || '', seconds, room: args.get('room') || '' });
   console.log(`${n} bot → ${url}`);
   if (seconds) setTimeout(() => process.exit(0), seconds * 1000 + 500);
 }

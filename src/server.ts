@@ -1,5 +1,6 @@
 // Điểm vào production / dev: nạp .env, dựng app thật (gọi YouTube Data API thật), lắng nghe cổng, tắt êm khi nhận tín hiệu.
 import { config as loadDotenv } from 'dotenv';
+import { VENUES } from '../public/js/shared/hall.js';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { setExtraBadWords } from './moderation.js';
@@ -32,7 +33,7 @@ app.listen(cfg.port, cfg.host).then((port) => {
   console.log(cfg.ytApiKey
     ? `▶️  Kiểm tra video: YouTube Data API (vùng ${cfg.ytRegion}, tối đa ${cfg.maxVideoMinutes} phút / video${cfg.allowLive ? `, live ${cfg.liveMaxMinutes} phút` : ', không nhận live'})`
     : '⚠️  Chưa có YT_API_KEY trong .env — chưa ai thêm được video (xem README mục "Tạo YouTube API key")');
-  console.log(`👥 ${cfg.roomCapacity} người / phòng, tối đa ${cfg.maxRooms} phòng · mỗi người chờ ${cfg.maxQueuePerUser} video · bỏ qua khi ≥ ${Math.round(cfg.skipVoteRatio * 100)}% phiếu`);
+  console.log(`👥 ${cfg.roomCapacity} người / phòng, ${VENUES.length} rạp × tối đa ${cfg.maxRooms} phòng · mỗi người chờ ${cfg.maxQueuePerUser} video · bỏ qua khi ≥ ${Math.round(cfg.skipVoteRatio * 100)}% phiếu`);
   console.log(cfg.persist ? `💾 Lưu hàng chờ / lệnh cấm / báo cáo: ${cfg.dataDir}` : '💾 Không lưu gì ra đĩa (PERSIST=false)');
   // không bao giờ in ADMIN_TOKEN
   console.log(cfg.adminToken ? '🛠️  Admin: mở trang kèm #admin=<ADMIN_TOKEN> một lần (mã không in ra đây)' : '🛠️  Admin: tắt (chưa đặt ADMIN_TOKEN)');

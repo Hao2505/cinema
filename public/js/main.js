@@ -3,18 +3,21 @@
 import { store } from './store.js';
 import { adminLoginFromUrl, connect, isOpen, send } from './net.js';
 import { applyCorrection, me, placeMe, tickMe, walkTo } from './me.js';
-import { DIRS } from './shared/hall.js';
+import { DIRS, ROOM_ID_RE, VENUES, parseRoomId, venueById } from './shared/hall.js';
 import { createStage } from './render/stage.js';
 import { createPlayer } from './player.js';
 import { initInput } from './input.js';
-import { initJoin, lookEditor, saveLook, setJoinBusy, showJoinError } from './ui/join.js';
+import {
+  initJoin, isReturning, lookEditor, rememberJoin, saveLook, savedLook, savedName, setJoinBusy, showJoinError,
+} from './ui/join.js';
 import { initChat, systemLine } from './ui/chat.js';
 import { initQueue } from './ui/queue.js';
 import { initWheel } from './ui/wheel.js';
 import { initUserCard } from './ui/usercard.js';
 import { initSheet, openSheet, closeSheet, sheetOpen, onSheetChange } from './ui/sheet.js';
 import { initToasts, toast } from './ui/toasts.js';
-import { el, isTouch, lsGet, lsSet, randomHex, setText, ssGet, ssSet } from './util.js';
+import { hiddenList, onPrefs, prefs, resetPrefs, setPref, unhidePerson } from './prefs.js';
+import { el, isTouch, lsGet, lsSet, randomHex, setKids, setText, ssGet, ssSet } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -37,10 +40,18 @@ const stage = createStage($('hall'), $('screen-slot'), {
     if (!store.joined) {
       return { show: true, title: n ? `Đang chiếu: ${n.title}` : 'Chưa có video nào đang chiếu', sub: 'Đặt tên rồi vào rạp để xem cùng mọi người 🍿' };
     }
-    if (!n) return { show: true, title: 'Màn hình đang trống', sub: 'Dán link YouTube vào Hàng chờ để chiếu cho cả rạp' };
+    if (!n) {
+      const idle = Number(store.cfg.defaultIdleSec) || 0;
+      return {
+        show: true, title: 'Màn hình đang trống',
+        sub: idle ? `Dán link YouTube vào Hàng chờ — trống quá ${Math.round(idle)} giây rạp tự phát kênh trực tiếp` : 'Dán link YouTube vào Hàng chờ để chiếu cho cả rạp',
+      };
+    }
     return { show: false };
   },
   onPick: (id, cx, cy) => userCard.open(id, cx, cy),
+  // đang xem video cùng cả rạp (không phải đứng ngoài màn vào rạp) → làm tối xung quanh (⚙️)
+  watching: () => store.joined && !!store.now && !store.now.paused,
   onFloorTap: (x, y) => { if (!wheel.open) walkTo(x, y); },
 });
 player = createPlayer($('screen-slot'), $('yt-host'), {
@@ -191,20 +202,38 @@ initInput({
     if (userCard.isOpen) { userCard.close(); return true; }
     if (sheetOpen()) { closeSheet(); return true; }
     if (!reactPop.hidden) { setReactPop(false); return true; }
+    if (!viewPop.hidden) { setViewPop(false); return true; }
     if (sideOpen()) { closeSide(); return true; }
     return false;
   },
 });
 
-// màn hình lớn: bật = video to nhất (khán phòng gọn lại); mặc định tắt = chia cân video và khán phòng
-let theater = lsGet('vc.bigscreen', '0') === '1';
-stage.setTheater(theater);
-$('btn-theater').classList.toggle('on', theater);
-$('btn-theater').addEventListener('click', () => {
-  theater = !theater;
-  lsSet('vc.bigscreen', theater ? '1' : '0');
-  stage.setTheater(theater);
-  $('btn-theater').classList.toggle('on', theater);
+// góc xem (nút 📺): cân = khán phòng rộng · lớn (mặc định) = video to · rộng = video to nhất, khán phòng mỏng
+const VIEWS = [
+  { id: 'can', icon: '🎦', label: 'Cân', sub: 'Video vừa, khán phòng rộng' },
+  { id: 'lon', icon: '📺', label: 'Màn lớn', sub: 'Video to, khán phòng gọn' },
+  { id: 'rong', icon: '🖥️', label: 'Màn rộng', sub: 'Video to nhất, khán phòng mỏng' },
+];
+let view = lsGet('vc.view', 'lon');
+if (!VIEWS.some((v) => v.id === view)) view = 'lon';
+const viewPop = $('view-pop');
+function setViewPop(open) {
+  viewPop.hidden = !open;
+  $('btn-theater').setAttribute('aria-expanded', open ? 'true' : 'false');
+  $('btn-theater').classList.toggle('on', open);
+}
+function renderViewPop() {
+  setKids(viewPop, VIEWS.map((v) => el('button', {
+    type: 'button', class: `view-opt${v.id === view ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': v.id === view ? 'true' : 'false',
+    dataset: { view: v.id },
+    onclick: () => { view = v.id; lsSet('vc.view', view); stage.setView(view); renderViewPop(); setViewPop(false); },
+  }, el('span', { class: 'vo-icon', text: v.icon }), el('span', { class: 'vo-text' }, el('b', { text: v.label }), el('small', { text: v.sub })))));
+}
+renderViewPop();
+stage.setView(view);
+$('btn-theater').addEventListener('click', () => setViewPop(viewPop.hidden));
+document.addEventListener('pointerdown', (e) => {
+  if (!viewPop.hidden && !viewPop.contains(e.target) && !$('btn-theater').contains(e.target)) setViewPop(false);
 });
 
 // toàn màn hình cả rạp (ẩn thanh trình duyệt); iPhone không hỗ trợ → ẩn nút
@@ -217,6 +246,81 @@ if (document.fullscreenEnabled) {
   });
   document.addEventListener('fullscreenchange', () => fb.classList.toggle('on', document.fullscreenElement === document.documentElement));
 }
+
+// ---------------------------------------------------------------- ⚙️ tùy chọn (chỉ trên máy này — prefs.js)
+function prefToggle(key, label, sub) {
+  return el('label', { class: 'pref-row' },
+    el('span', { class: 'pref-text' }, el('b', { text: label }), sub ? el('small', { text: sub }) : null),
+    el('span', { class: 'switch' },
+      el('input', { type: 'checkbox', checked: !!prefs[key], 'aria-label': label, onchange: (e) => setPref(key, e.target.checked) }),
+      el('span', { class: 'switch-ui', 'aria-hidden': 'true' })));
+}
+function prefChoice(key, label, opts, sub) {
+  const btns = opts.map(([v, t]) => el('button', {
+    type: 'button', class: `chip${prefs[key] === v ? ' on' : ''}`, text: t, dataset: { v }, 'aria-pressed': prefs[key] === v ? 'true' : 'false',
+    onclick: () => {
+      setPref(key, v);
+      for (const b of btns) { b.classList.toggle('on', b.dataset.v === v); b.setAttribute('aria-pressed', b.dataset.v === v ? 'true' : 'false'); }
+    },
+  }));
+  return el('div', { class: 'pref-row pref-choice' },
+    el('span', { class: 'pref-text' }, el('b', { text: label }), sub ? el('small', { text: sub }) : null),
+    el('div', { class: 'pref-chips', role: 'group', 'aria-label': label }, btns));
+}
+function hiddenBox() {
+  const list = hiddenList();
+  if (!list.length) return el('p', { class: 'pref-note', text: 'Chưa ẩn riêng ai. Bấm vào một nhân vật để ẩn tin nhắn, động tác hoặc cả người đó.' });
+  return el('ul', { class: 'pref-hidden' }, list.map((h) => el('li', null,
+    el('span', null, el('b', { text: h.name }), el('small', { text: [h.all && 'ẩn cả người', h.chat && 'ẩn tin nhắn', h.acts && 'ẩn động tác'].filter(Boolean).join(' · ') })),
+    el('button', { type: 'button', class: 'btn', text: 'Bỏ ẩn', onclick: () => unhidePerson(h.key) }))));
+}
+function prefsContent() {
+  return [
+    el('p', { class: 'pref-note', text: 'Chỉ áp dụng trên máy này, không ảnh hưởng người khác.' }),
+    el('h3', { text: '🎬 Khi đang chiếu' }),
+    prefChoice('dim', 'Làm tối xung quanh', [['tat', 'Tắt'], ['nhe', 'Nhẹ'], ['vua', 'Vừa'], ['dam', 'Đậm']], 'Video nổi bật hơn'),
+    prefToggle('autoHide', 'Tự làm mờ các nút', 'Khi đang xem và không động chuột / chạm vài giây'),
+    el('h3', { text: '💬 Trò chuyện' }),
+    prefToggle('chat', 'Chat của mọi người', 'Tắt = không thấy tin nhắn của ai (tin của bạn vẫn gửi được)'),
+    prefToggle('bubbles', 'Bong bóng chat trên đầu'),
+    prefToggle('feed', 'Khung chat nổi góc dưới', 'Máy tính, khi ngăn kéo hàng chờ / chat đang đóng'),
+    el('h3', { text: '👥 Người khác' }),
+    prefToggle('people', 'Hiện người khác', 'Tắt = chỉ thấy nhân vật của bạn, xem phim yên tĩnh'),
+    prefChoice('names', 'Tên trên đầu', [['all', 'Tất cả'], ['auto', 'Tự động'], ['off', 'Chỉ tên mình']], 'Tự động: rạp đông thì chỉ hiện người đang nói / mới vào'),
+    prefToggle('othersActs', 'Động tác của người khác', 'Nhảy, vỗ tay, cười lăn…'),
+    prefToggle('emoji', 'Emoji cảm xúc người khác thả'),
+    prefToggle('actFx', 'Emoji bay theo động tác', '🎵 khi nhảy, ❤️ khi thả tim…'),
+    el('h3', { text: '✨ Hình ảnh' }),
+    prefToggle('lights', 'Đèn & hiệu ứng', 'Đèn sàn nhảy, chùm máy chiếu, sao, đom đóm…'),
+    prefChoice('quality', 'Chất lượng hình', [['auto', 'Tự động'], ['high', 'Cao'], ['low', 'Nhẹ máy']]),
+    el('h3', { text: '🙈 Đang ẩn riêng' }),
+    el('div', { id: 'pref-hidden-box' }, hiddenBox()),
+    el('div', { class: 'row', style: { marginTop: '14px' } },
+      el('button', { type: 'button', class: 'btn btn-ghost', text: '↺ Khôi phục mặc định', onclick: () => { resetPrefs(); openPrefs(); } })),
+  ];
+}
+function openPrefs() {
+  openSheet('prefs', '⚙️ Tùy chọn', prefsContent());
+  // đặt con trỏ vào nút đóng (đặt vào chip đầu trông như đang được chọn)
+  setTimeout(() => $('sheet-close').focus({ preventScroll: true }), 40);
+}
+$('btn-prefs').addEventListener('click', () => (sheetOpen('prefs') ? closeSheet() : openPrefs()));
+onPrefs((k) => {
+  if (k === 'hidden' && sheetOpen('prefs')) { const box = document.getElementById('pref-hidden-box'); if (box) setKids(box, hiddenBox()); }
+});
+
+// đang chiếu + không động chuột / chạm vài giây → làm mờ các nút (⚙️ "Tự làm mờ các nút")
+let lastActive = performance.now();
+const wake = () => { lastActive = performance.now(); document.body.classList.remove('ui-quiet'); };
+for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart']) window.addEventListener(ev, wake, { passive: true });
+setInterval(() => {
+  const watching = store.joined && !!store.now && !store.now.paused;
+  document.body.classList.toggle('watching', watching);
+  const a = document.activeElement;
+  const busy = !reactPop.hidden || !viewPop.hidden || sheetOpen() || sideOpen() || wheel.open || userCard.isOpen
+    || (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+  document.body.classList.toggle('ui-quiet', watching && prefs.autoHide && !busy && performance.now() - lastActive > 4000);
+}, 400);
 
 // hướng dẫn
 $('btn-help').addEventListener('click', () => {
@@ -232,7 +336,7 @@ $('btn-help').addEventListener('click', () => {
       row(kb('Esc'), 'Đóng bảng đang mở'),
     ),
     el('h3', { text: 'Các nút' }),
-    el('p', { text: 'Dưới đáy: 😀 thả cảm xúc · 🎭 động tác · ô chat · 📋 hàng chờ (dán link YouTube) · 💬 trò chuyện. Góc trên: 📺 màn hình lớn · ⛶ toàn màn hình · 🎨 đổi ngoại hình · 🛠 quản trị (admin).' }),
+    el('p', { text: 'Dưới đáy: 😀 thả cảm xúc · 🎭 động tác · ô chat · 📋 hàng chờ (dán link YouTube) · 💬 trò chuyện. Góc trên: 📺 góc xem (cân / màn lớn / màn rộng) · ⛶ toàn màn hình · 🎨 đổi ngoại hình · ⚙️ tùy chọn (làm tối khi chiếu, ẩn chat / động tác / người khác…) · 🛠 quản trị (admin). Bấm vào một nhân vật để ẩn riêng người đó.' }),
     el('h3', { text: 'Trên điện thoại' }),
     el('p', { text: 'Kéo cần điều khiển góc trái để đi, chạm sàn để đi tới, nút 🎭 để làm động tác, chụm hai ngón để phóng to / thu nhỏ.' }),
     el('h3', { text: 'Luật rạp' }),
@@ -254,23 +358,29 @@ $('btn-look').addEventListener('click', () => {
   ]);
 });
 
-// chọn phòng
+// chọn rạp (bấm ô phòng góc trên): mỗi rạp một khung cảnh, màn hình + hàng chờ riêng
 $('room-pill').addEventListener('click', () => {
-  const items = store.rooms.map((r) => el('div', { class: `room-item${r.id === store.roomId ? ' cur' : ''}` },
-    el('div', null, el('b', { text: r.name }), el('div', { class: 'now-meta', text: `${r.count}/${r.cap} người` })),
-    r.id === store.roomId
-      ? el('span', { class: 'badge badge-live', text: 'ĐANG Ở ĐÂY' })
-      : el('button', {
-        type: 'button', class: 'btn', text: store.joined ? 'Chuyển sang' : 'Xem phòng này',
-        disabled: r.count >= r.cap,
-        onclick: () => {
-          if (!store.joined) { send({ t: 'spec', room: r.id }); closeSheet(); return; }
-          ssSet('vc.autojoin', '1');
-          location.href = `/?phong=${encodeURIComponent(r.id)}`;
-        },
-      })));
-  openSheet('rooms', '🎬 Các phòng chiếu', [
-    el('p', { text: `Mỗi phòng tối đa ${store.cfg.capacity} người, có màn hình và hàng chờ riêng. Phòng đầy thì rạp tự mở phòng mới.` }),
+  const items = store.rooms.map((r) => {
+    const v = venueById(r.venue) || parseRoomId(r.id)?.venue;
+    return el('div', { class: `room-item${r.id === store.roomId ? ' cur' : ''}` },
+      el('span', { class: 'ri-emoji', 'aria-hidden': 'true', text: v?.emoji || '🎬' }),
+      el('div', { class: 'ri-body' },
+        el('b', { text: r.name }),
+        el('div', { class: 'now-meta', text: `${r.count}/${r.cap} người${v ? ` · ${v.desc}` : ''}` })),
+      r.id === store.roomId
+        ? el('span', { class: 'badge badge-live', text: 'ĐANG Ở ĐÂY' })
+        : el('button', {
+          type: 'button', class: 'btn', text: store.joined ? 'Chuyển sang' : 'Xem rạp này',
+          disabled: r.count >= r.cap,
+          onclick: () => {
+            if (!store.joined) { send({ t: 'spec', room: r.id }); closeSheet(); return; }
+            ssSet('vc.autojoin', '1');
+            location.href = `/?phong=${encodeURIComponent(r.id)}`;
+          },
+        }));
+  });
+  openSheet('rooms', '🎬 Chọn rạp', [
+    el('p', { text: `Mỗi rạp một khung cảnh, có màn hình và hàng chờ riêng, tối đa ${store.cfg.capacity} người. Rạp đầy thì tự mở thêm phòng của rạp đó.` }),
     el('div', { class: 'room-list' }, items),
   ]);
 });
@@ -279,17 +389,29 @@ $('room-pill').addEventListener('click', () => {
 let wantJoin = false;
 let joinName = '';
 let joinLook = null;
+let joinRoom = ''; // phòng muốn vào ('' = phòng đang đứng xem)
 const join = initJoin((name, look) => {
   wantJoin = true;
   joinName = name;
   joinLook = look;
+  joinRoom = '';
   sendJoin();
-});
+}, (roomId) => quickJoin(roomId));
+
+/** vào bằng tên + nhân vật đã nhớ (người quay lại / vừa chuyển phòng) */
+function quickJoin(roomId) {
+  wantJoin = true;
+  joinName = savedName();
+  joinLook = savedLook();
+  joinRoom = roomId || '';
+  join.setQuickBusy(roomId || store.roomId);
+  sendJoin();
+}
 
 function sendJoin() {
   if (!wantJoin || !store.ready) return;
   const token = ssGet('vc.token', '') || '';
-  send({ t: 'join', name: joinName, look: joinLook, room: store.roomId, token, ck });
+  send({ t: 'join', name: joinName, look: joinLook, room: joinRoom || store.roomId, token, ck });
 }
 
 store.on('hello', () => {
@@ -303,6 +425,8 @@ store.on('hello', () => {
 
 store.on('welcome', (msg) => {
   ssSet('vc.token', store.token);
+  rememberJoin(store.roomId); // lần sau mở trang: vào thẳng, khỏi đặt tên / tạo nhân vật lại
+  joinRoom = store.roomId; // rớt mạng quá lâu phải vào lại thì về đúng phòng này
   join.hide();
   const mine = msg.snap?.players?.find((p) => p.id === store.myId);
   if (mine) placeMe(mine.x, mine.y, DIRS[mine.d] || 'up');
@@ -316,8 +440,8 @@ store.on('welcome', (msg) => {
   updateAddPill();
 });
 
-/** nút "Dán link YouTube để chiếu" dưới màn hình khi rạp chưa chiếu gì */
-function updateAddPill() { $('btn-add-video').hidden = !(store.joined && !store.now); }
+/** nút "Dán link YouTube để chiếu" dưới màn hình khi rạp chưa chiếu gì / đang phát kênh mặc định */
+function updateAddPill() { $('btn-add-video').hidden = !(store.joined && (!store.now || store.now.filler)); }
 store.on('now', updateAddPill);
 
 /** về màn vào rạp: tắt trình phát TRƯỚC (lớp phủ màn vào rạp không được nằm trên video đang chạy) */
@@ -335,6 +459,12 @@ function backToJoin(text, busy = false) {
 }
 
 store.on('joinError', (e) => {
+  // tên đã nhớ bị trùng / không hợp lệ → về màn đặt tên; lỗi khác giữ thẻ chào lại, báo ngay trên thẻ
+  if (join.isQuick && !['name', 'name_taken', 'banned', 'kicked'].includes(e.code)) {
+    wantJoin = false;
+    join.quickError(e.text);
+    return;
+  }
   if (!$('join').hidden) showJoinError(e.text);
   else toast(e.text, 'err', 6000);
   if (['banned', 'kicked', 'name', 'name_taken', 'full', 'rate'].includes(e.code)) backToJoin(e.text);
@@ -364,12 +494,15 @@ store.on('now', () => player.sync());
 
 function updateRoomPill() {
   const r = store.rooms.find((x) => x.id === store.roomId);
-  setText($('room-name'), store.roomName);
+  setText($('room-name'), `${venueById(store.venue)?.emoji || '🎬'} ${store.roomName}`);
   setText($('room-count'), String(r ? r.count : store.present()));
   setText($('room-cap'), String(r ? r.cap : store.cfg.capacity));
 }
 store.on('rooms', updateRoomPill);
 store.on('players', updateRoomPill);
+// rạp đổi (xem rạp khác trước khi vào, hoặc vào rạp) → đổi khung cảnh
+stage.setVenue(store.venue);
+store.on('venue', (v) => { stage.setVenue(v); updateRoomPill(); });
 
 store.on('conn', (state) => {
   const banner = $('conn');
@@ -378,14 +511,19 @@ store.on('conn', (state) => {
   if (state === 'closed') { banner.hidden = false; setText(banner, 'Mất kết nối — đang nối lại…'); }
 });
 
-// chuyển phòng xong (trang tải lại): tự vào lại với tên cũ
-if (ssGet('vc.autojoin') === '1') {
-  ssSet('vc.autojoin', null);
-  ssSet('vc.token', null);
-  const off = store.on('hello', () => {
-    off();
-    if (!wantJoin && $('join-name').value.trim().length >= 2) $('join-form').requestSubmit();
-  });
+// mở trang: vừa chuyển phòng / link thẳng tới một rạp (?phong=…) → vào luôn; đã từng vào rạp → thẻ "Chào mừng quay lại"
+// (bấm một rạp là vào, khỏi đặt tên / tạo nhân vật lại); lần đầu → màn đặt tên + chọn nhân vật
+{
+  const urlRoom = new URLSearchParams(location.search).get('phong') || '';
+  const switching = ssGet('vc.autojoin') === '1';
+  if (switching) { ssSet('vc.autojoin', null); ssSet('vc.token', null); }
+  if (isReturning()) {
+    join.showQuick();
+    if (switching || ROOM_ID_RE.test(urlRoom)) {
+      join.setQuickBusy(urlRoom || 'auto');
+      const off = store.on('hello', () => { off(); if (!wantJoin) quickJoin(store.roomId); });
+    }
+  }
 }
 
 connect();

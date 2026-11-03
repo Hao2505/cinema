@@ -124,6 +124,38 @@ export function spawnPoint(rand = Math.random) {
   return { x: HOME.x, y: HOME.y };
 }
 
+// ---------------------------------------------------------------- rạp (mỗi rạp = một phòng: chủ đề vẽ + màn hình + hàng chờ riêng)
+// Cùng sơ đồ HALL (đi lại, ghế, va chạm giống hệt) — chỉ khác cách vẽ (render/venues/*.js). Rạp đầy thì server mở bản
+// sao "<rạp>-2", "<rạp>-3"… (tối đa MAX_ROOMS mỗi rạp), bỏ trống lâu thì đóng; bản chính không bao giờ đóng.
+export const VENUES = Object.freeze([
+  Object.freeze({ id: 'nhung', name: 'Rạp Nhung Đỏ', emoji: '🎭', desc: 'Trong nhà: ghế nhung đỏ, màn nhung, sàn nhảy LED' }),
+  Object.freeze({ id: 'congvien', name: 'Rạp Công Viên', emoji: '🌳', desc: 'Ngoài trời: bãi cỏ, gối lười, đèn dây, đom đóm' }),
+  Object.freeze({ id: 'doxe', name: 'Rạp Đỗ Xe', emoji: '🚗', desc: 'Kiểu Mỹ: ngồi xe mui trần xem màn hình khổng lồ' }),
+  Object.freeze({ id: 'bien', name: 'Rạp Bãi Biển', emoji: '🏖️', desc: 'Ghế xếp trên cát, hàng dừa, đuốc tiki, trăng trên biển' }),
+]);
+export const DEFAULT_VENUE = 'nhung';
+/** id phòng: "<rạp>" (bản chính) hoặc "<rạp>-2" … "<rạp>-9" (bản sao khi rạp đầy) */
+export const ROOM_ID_RE = /^[a-z]{3,10}(?:-[2-9])?$/;
+
+export function venueById(id) {
+  return VENUES.find((v) => v.id === id) || null;
+}
+
+/** "bien-2" → { venue: <Rạp Bãi Biển>, n: 2 } · id sai / rạp không có → null */
+export function parseRoomId(id) {
+  if (typeof id !== 'string' || !ROOM_ID_RE.test(id)) return null;
+  const [v, n] = id.split('-');
+  const venue = venueById(v);
+  return venue ? { venue, n: n ? Number(n) : 1 } : null;
+}
+
+/** tên hiển thị của phòng: "Rạp Bãi Biển", "Rạp Bãi Biển 2" */
+export function roomName(id) {
+  const r = parseRoomId(id);
+  if (!r) return 'Rạp';
+  return r.n > 1 ? `${r.venue.name} ${r.n}` : r.venue.name;
+}
+
 // ---------------------------------------------------------------- hướng
 export const DIRS = Object.freeze(['down', 'up', 'left', 'right']);
 export function dirIndex(d) {

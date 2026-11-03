@@ -11,7 +11,7 @@ import WebSocket from 'ws';
 import { loadConfig, type Config } from '../src/config.js';
 import { createApp, type App } from '../src/app.js';
 import { createFakeYouTube } from './fake-youtube.js';
-import { randomLook } from '../public/js/shared/hall.js';
+import { VENUES, randomLook } from '../public/js/shared/hall.js';
 
 type Msg = Record<string, unknown> & { t: string };
 
@@ -24,7 +24,7 @@ function makeCfg(over: Partial<Config> = {}): Config {
   return loadConfig({
     port: 0, host: '127.0.0.1', adminToken: ADMIN, ytApiKey: 'fake', persist: true, dataDir, roomCapacity: 8, maxRooms: 2, queueAddSeconds: 0.01, lookupsPerIpMinute: 1000,
     skipVoteRatio: 0.5, skipVoteMin: 2, reportAutoskip: 3, maxQueuePerUser: 2, maxVideoMinutes: 15, tickHz: 20,
-    maxConnPerIp: 1000, joinsPerMinute: 1000, siteUrl: '', ...over,
+    maxConnPerIp: 1000, joinsPerMinute: 1000, siteUrl: '', defaultVideo: '', ...over,
   });
 }
 
@@ -88,8 +88,8 @@ async function main(): Promise<void> {
   const all: Client[] = [];
   let ipN = 0;
   // mỗi client một IP giả (như người xem khác nhau, qua header X-Real-IP mà nginx ghi ở production)
-  const connect = async (headers: Record<string, string> = {}): Promise<Client> => {
-    const c = new Client(wsUrl, { 'x-real-ip': `10.0.${Math.floor(++ipN / 250)}.${ipN % 250}`, ...headers });
+  const connect = async (headers: Record<string, string> = {}, query = ''): Promise<Client> => {
+    const c = new Client(wsUrl + query, { 'x-real-ip': `10.0.${Math.floor(++ipN / 250)}.${ipN % 250}`, ...headers });
     all.push(c);
     await c.open();
     await c.wait((m) => m.t === 'hello', 2000, true);
@@ -152,7 +152,8 @@ async function main(): Promise<void> {
   await step('hello: người đứng xem nhận phòng + cài đặt, không phải admin', async () => {
     const h = a.msgs.find((m) => m.t === 'hello')!;
     assert.equal(h.admin, false);
-    assert.equal((h.rooms as unknown[]).length, 1);
+    assert.equal((h.rooms as unknown[]).length, VENUES.length, 'mỗi rạp một phòng chính');
+    assert.equal(h.room, 'nhung');
     assert.equal((h.cfg as { maxVideoMin: number }).maxVideoMin, 15);
   });
   await step('vào rạp: tên sai bị từ chối, tên đúng nhận welcome, người khác thấy pj', async () => {
@@ -424,20 +425,38 @@ async function main(): Promise<void> {
     assert.ok((s.reports as unknown[]).length >= 3);
   });
 
-  // ------------------------------------------------------------ nhiều phòng + rớt mạng
-  await step('phòng đầy (8 người, tính cả người đang kết nối lại) → tự mở Phòng 2', async () => {
+  // ------------------------------------------------------------ nhiều rạp + nhiều phòng + rớt mạng
+  await step('rạp: link ?phong=bien → xem Rạp Bãi Biển; đổi sang xem rạp khác; vào đúng rạp đã chọn', async () => {
+    const c = await connect({}, '?room=bien');
+    const h = c.msgs.find((m) => m.t === 'hello')!;
+    assert.equal(h.room, 'bien');
+    assert.equal((h.snap as { venue: string }).venue, 'bien');
+    const h2 = c.wait((m) => m.t === 'hello' && m.room === 'congvien', 2000);
+    c.send({ t: 'spec', room: 'congvien' });
+    assert.equal(((await h2).snap as { name: string }).name, 'Rạp Công Viên');
+    const w = await c.join('Khách Biển', 'doxe');
+    assert.equal(w.t, 'welcome');
+    assert.equal(w.room, 'doxe');
+    assert.equal((w.snap as { venue: string }).venue, 'doxe');
+    const c2 = await connect({}, '?room=bien-7'); // bản sao không có → về phòng chính của rạp
+    assert.equal(c2.msgs.find((m) => m.t === 'hello')!.room, 'bien');
+    c.close();
+    c2.close();
+  });
+  await step('rạp đầy (8 người, tính cả người đang kết nối lại) → tự mở bản sao cùng rạp (nhung-2)', async () => {
     // đang có: a, b, adm (+ người vào / ra); thêm tới khi tràn
     const extra: Client[] = [];
     let room2 = false;
     for (let i = 0; i < 9 && !room2; i++) {
       const c = await connect();
-      const w = await c.join(`Khách ${i + 1}`);
+      // chọn đúng Rạp Nhung Đỏ (không chọn thì server xếp sang rạp khác còn chỗ)
+      const w = await c.join(`Khách ${i + 1}`, 'nhung');
       assert.equal(w.t, 'welcome');
-      if (w.room === '2') room2 = true;
+      if (w.room === 'nhung-2') room2 = true;
       extra.push(c);
     }
-    assert.ok(room2, 'phải có người được xếp sang Phòng 2');
-    const rooms = await a.wait((m) => m.t === 'rooms' && (m.rooms as unknown[]).length === 2, 2500, true);
+    assert.ok(room2, 'phải có người được xếp sang Rạp Nhung Đỏ 2');
+    const rooms = await a.wait((m) => m.t === 'rooms' && (m.rooms as unknown[]).length === VENUES.length + 1, 2500, true);
     assert.ok(rooms);
     for (const c of extra) c.close();
   });
@@ -493,7 +512,7 @@ async function main(): Promise<void> {
     for (const c of all) c.close();
     await app.close();
     const saved = JSON.parse(readFileSync(join(dataDir, 'rooms.json'), 'utf8')) as { rooms: { id: string; queue: { v: string }[] }[] };
-    assert.ok(saved.rooms.find((r) => r.id === '1')!.queue.length >= 1);
+    assert.ok(saved.rooms.find((r) => r.id === 'nhung')!.queue.length >= 1);
     app = createApp(makeCfg(), { youtube, dataDir, log: () => {} });
     port = await app.listen(0, '127.0.0.1');
     http = `http://127.0.0.1:${port}`;
@@ -513,6 +532,32 @@ async function main(): Promise<void> {
     const wo = await owner.join('Chủ Rạp');
     assert.ok((wo.snap as { queue: { byId: number }[] }).queue.some((q) => q.byId === wo.you), 'chủ video nhận lại quyền theo khoá máy');
     c.close(); stranger.close(); owner.close();
+  });
+
+  // ------------------------------------------------------------ video mặc định (server riêng, không đụng các bước trên)
+  await step('video mặc định: phòng trống → tự phát kênh trực tiếp; không bỏ phiếu được; có video mới → nhường ngay', async () => {
+    const app2 = createApp(makeCfg({ persist: false, defaultVideo: 'liveNow0001', defaultIdleSeconds: 0.4 }), { youtube, dataDir: null, log: () => {} });
+    const port2 = await app2.listen(0, '127.0.0.1');
+    const c = new Client(`ws://127.0.0.1:${port2}/ws?room=bien`, { 'x-real-ip': '10.9.0.1' });
+    try {
+      await c.open();
+      await c.wait((m) => m.t === 'hello', 2000, true);
+      const f = await c.wait((m) => m.t === 'now' && !!(m.n as { filler?: boolean } | null)?.filler, 4000, true);
+      const n = f.n as { v: string; live: boolean; title: string };
+      assert.equal(n.v, 'liveNow0001');
+      assert.equal(n.live, true);
+      assert.equal(n.title, 'Đang phát trực tiếp');
+      assert.equal((await c.join('Người Xem', 'bien')).t, 'welcome');
+      const note = c.waitT('notice', 2000);
+      c.send({ t: 'vote', on: true });
+      assert.match((await note).text as string, /kênh mặc định/);
+      const played = c.wait((m) => m.t === 'now' && (m.n as { v?: string } | null)?.v === 'jNQXAC9IVRw', 3000);
+      c.send({ t: 'q_add', url: 'https://youtu.be/jNQXAC9IVRw' });
+      assert.ok(!((await played).n as { filler?: boolean }).filler, 'video người xem thêm phải phát ngay, không phải video mặc định');
+    } finally {
+      c.close();
+      await app2.close();
+    }
   });
 
   for (const c of all) c.close();

@@ -42,12 +42,20 @@ export interface Config {
   queueAddSeconds: number;
   /** số link MỚI (chưa có trong bộ nhớ) một IP được nhờ YouTube kiểm tra mỗi phút — chống đốt quota */
   lookupsPerIpMinute: number;
+  /** video mặc định (thường là kênh trực tiếp 24/7): phát khi phòng trống video quá defaultIdleSeconds; rỗng = tắt */
+  defaultVideo: string;
+  defaultIdleSeconds: number;
 }
 
 function str(name: string, def = ''): string {
   const v = process.env[name];
   return v === undefined ? def : v.trim();
 }
+/** id video YouTube 11 ký tự; sai dạng / rỗng / "off" = tắt */
+function videoId(v: string): string {
+  return /^[A-Za-z0-9_-]{11}$/.test(v) ? v : '';
+}
+
 function int(name: string, def: number, min: number, max: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === '') return def;
@@ -95,7 +103,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     skipVoteRatio: float('SKIP_VOTE_RATIO', 0.5, 0.05, 1),
     skipVoteMin: int('SKIP_VOTE_MIN', 2, 1, 100),
     roomCapacity: int('ROOM_CAPACITY', 60, 2, 200),
-    maxRooms: int('MAX_ROOMS', 3, 1, 20),
+    maxRooms: int('MAX_ROOMS', 3, 1, 9), // số phòng tối đa MỖI rạp (bản chính + bản sao khi đầy)
     reportAutoskip: int('REPORT_AUTOSKIP', 3, 1, 100),
     tickHz: int('TICK_HZ', 15, 5, 30),
     persist: bool('PERSIST', true),
@@ -107,6 +115,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     joinsPerMinute: int('JOINS_PER_MINUTE', 20, 1, 100000),
     queueAddSeconds: float('QUEUE_ADD_SECONDS', 8, 0.01, 3600),
     lookupsPerIpMinute: int('LOOKUPS_PER_IP_MINUTE', 6, 1, 100000),
+    defaultVideo: videoId(str('DEFAULT_VIDEO', 'rFZHOHl-L8A')),
+    defaultIdleSeconds: float('DEFAULT_IDLE_SECONDS', 30, 1, 3600),
     ...overrides,
   };
   if (cfg.adminToken && cfg.adminToken.length < 12) {

@@ -1,6 +1,6 @@
 // Kiểm tra từng thông điệp client gửi lên: đúng dạng ClientMsg hoặc null (bỏ qua). Không tin gì từ client.
 import type { RawData } from 'ws';
-import { ACTION_IDS, REACTIONS } from '../public/js/shared/hall.js';
+import { ACTION_IDS, REACTIONS, ROOM_ID_RE } from '../public/js/shared/hall.js';
 import type { ActionId } from '../public/js/shared/hall.js';
 import type { AdminOp, ClientMsg } from './types.js';
 
@@ -68,7 +68,7 @@ export function parseClientMsg(text: string): ClientMsg | null {
     }
     case 'spec': {
       const room = str(m.room, 8);
-      return room && /^[0-9]{1,3}$/.test(room) ? { t: 'spec', room } : null;
+      return room && ROOM_ID_RE.test(room) ? { t: 'spec', room } : null;
     }
     case 'join': {
       const name = str(m.name, 80);
@@ -78,7 +78,7 @@ export function parseClientMsg(text: string): ClientMsg | null {
       const ck = str(m.ck, 64) ?? '';
       return {
         t: 'join', name, look: m.look,
-        room: /^[0-9]{1,3}$/.test(room) ? room : '',
+        room: ROOM_ID_RE.test(room) ? room : '',
         token: /^[a-f0-9]{32}$/.test(token) ? token : '',
         ck: /^[a-f0-9]{16,64}$/.test(ck) ? ck : '',
       };

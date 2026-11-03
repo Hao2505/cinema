@@ -30,11 +30,13 @@ function isMine(q) {
 function renderNow() {
   const n = store.now;
   const votes = store.votes;
-  setText($('now-badge'), n ? (n.paused ? 'TẠM DỪNG' : n.live ? 'TRỰC TIẾP' : 'ĐANG CHIẾU') : 'MÀN HÌNH TRỐNG');
+  setText($('now-badge'), n ? (n.paused ? 'TẠM DỪNG' : n.filler ? 'KÊNH MẶC ĐỊNH' : n.live ? 'TRỰC TIẾP' : 'ĐANG CHIẾU') : 'MÀN HÌNH TRỐNG');
   setText($('now-title'), n ? n.title : 'Chưa có video');
-  setText($('now-meta'), n ? [n.ch, `thêm bởi ${n.by}`].filter(Boolean).join(' · ') : 'Dán link YouTube bên dưới để chiếu cho cả rạp.');
+  setText($('now-meta'), !n ? 'Dán link YouTube bên dưới để chiếu cho cả rạp.'
+    : n.filler ? `${n.ch ? `${n.ch} · ` : ''}phát khi hàng chờ trống — dán link để chiếu video của bạn, kênh này nhường ngay.`
+      : [n.ch, `thêm bởi ${n.by}`].filter(Boolean).join(' · '));
   const acts = [];
-  if (n && store.joined) {
+  if (n && store.joined && !n.filler) {
     const mine = isMine(n);
     acts.push(el('button', {
       type: 'button', class: `btn${votes.mine ? ' on' : ''}`, onclick: () => vote(),
@@ -45,9 +47,12 @@ function renderNow() {
   }
   if (admin && n) acts.push(...admin.nowActions(n));
   setKids($('now-actions'), acts);
-  // nút dưới màn hình
+  if (n && store.joined && n.filler) {
+    acts.push(el('button', { type: 'button', class: 'btn btn-ghost', text: '🚩 Báo cáo', onclick: () => openReport(), title: 'Báo cáo video vi phạm' }));
+  }
+  // nút dưới màn hình (kênh mặc định: không bỏ phiếu — có video mới là tự nhường)
   const showTools = !!n && store.joined;
-  $('btn-vote').hidden = !showTools;
+  $('btn-vote').hidden = !showTools || !!n?.filler;
   $('btn-report').hidden = !showTools;
   $('btn-vote').classList.toggle('on', !!votes.mine);
   setText($('vote-count'), n && isMine(n) ? '' : `${votes.n}/${votes.need}`);

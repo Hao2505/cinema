@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import {
   LIMITS, PROTOCOL, REACTIONS, SPEED, actionById, clampToWalkable, isWalkable, moveWithCollision,
   normalizeLook, spawnPoint,
+  DEFAULT_VENUE, VENUES, parseRoomId, roomName,
 } from '../public/js/shared/hall.js';
 import type { ActionId, Look } from '../public/js/shared/hall.js';
 import type { Config } from './config.js';
@@ -29,6 +30,11 @@ const CHAT_KEEP = 50;
 const CHAT_SEND = 30;
 const KICK_BLOCK_MS = 2 * 60_000;
 const ROOM_IDLE_CLOSE_MS = 10 * 60_000;
+/** video mặc định lỗi trình phát → tạm tắt; admin bỏ qua → phòng đó tạm không phát lại */
+const DEFAULT_OFF_MS = 30 * 60_000;
+const FILLER_SKIP_MS = 10 * 60_000;
+/** kiểm lại video mặc định (còn cho nhúng? đổi tên?) mỗi 6 giờ */
+const DEFAULT_REFRESH_MS = 6 * 3600_000;
 const SAVE_EVERY_MS = 30_000;
 const MAX_CONNS = 1500;
 const BUDGET_CAP = SPEED * 1.2; // ô: được "dồn" tối đa 1,2 s đi bộ (gói tới dồn sau khi mạng nghẽn)
@@ -105,6 +111,8 @@ interface NowPlaying extends QueueItem {
   paused: boolean;
   pos: number;
   ends: number;
+  /** video mặc định (kênh trực tiếp) — không phải ai thêm, nhường ngay khi hàng chờ có video */
+  filler?: boolean;
 }
 
 interface BlockedVideo { v: string; title: string; at: number; reason: string }
@@ -141,11 +149,24 @@ export class Room {
   chat: ChatInfo[] = [];
   emptySince: number;
 
+  /** rạp (chủ đề vẽ) + số thứ tự bản sao (1 = bản chính, không bao giờ đóng) */
+  readonly venue: string;
+  readonly n: number;
+
+  /** từ lúc phòng hết video + hàng chờ trống (0 = đang có video) — quá DEFAULT_IDLE_SECONDS thì phát video mặc định */
+  idleSince = 0;
+  /** admin bỏ qua video mặc định → tạm không phát lại ở phòng này */
+  fillerOffUntil = 0;
+
   constructor(readonly hub: Hub, readonly id: string) {
+    const r = parseRoomId(id);
+    if (!r) throw new Error(`id phòng sai: ${id}`);
+    this.venue = r.venue.id;
+    this.n = r.n;
     this.emptySince = Date.now();
   }
 
-  get name(): string { return `Phòng ${this.id}`; }
+  get name(): string { return roomName(this.id); }
 
   /** người đang ở trong phòng (tính cả người đang kết nối lại) */
   count(): number { return this.players.size; }
@@ -162,7 +183,7 @@ export class Room {
   }
 
   info(): RoomInfo {
-    return { id: this.id, name: this.name, count: this.count(), cap: this.hub.cfg.roomCapacity };
+    return { id: this.id, name: this.name, venue: this.venue, now: this.now?.title ?? '', count: this.count(), cap: this.hub.cfg.roomCapacity };
   }
 
   // ---------------------------------------------------------- gửi
@@ -192,13 +213,14 @@ export class Room {
   nowInfo(): NowInfo | null {
     const n = this.now;
     if (!n) return null;
-    return { ...this.itemInfo(n), at: n.at, paused: n.paused, pos: n.pos, ends: n.ends };
+    return { ...this.itemInfo(n), at: n.at, paused: n.paused, pos: n.pos, ends: n.ends, ...(n.filler ? { filler: true } : {}) };
   }
 
   snapshot(now: number): RoomSnapshot {
     return {
       id: this.id,
       name: this.name,
+      venue: this.venue,
       players: [...this.players.values()].map((p) => this.playerInfo(p, now)),
       queue: this.queue.map((q) => this.itemInfo(q)),
       locked: this.locked,
@@ -281,6 +303,24 @@ export class Room {
     this.sendQueue();
     this.votesChanged();
     this.hub.dirty = true;
+    this.hub.roomsChanged(); // bảng chọn rạp hiện "đang chiếu gì"
+  }
+
+  /** phát video mặc định (kênh trực tiếp của rạp) — phát liên tục tới khi có người thêm video */
+  playDefault(now: number): boolean {
+    const m = this.hub.defaultVideoFor(now);
+    if (!m || now < this.fillerOffUntil) return false;
+    this.votes.clear();
+    this.reports.clear();
+    this.errReports.clear();
+    this.now = {
+      qid: 0, v: m.v, title: m.title, ch: m.ch, dur: 0, live: true, by: 'Rạp', byId: 0, byCk: '', addedAt: now,
+      at: now + PRELOAD_MS, paused: false, pos: 0, ends: Number.MAX_SAFE_INTEGER, filler: true,
+    };
+    this.sendNow();
+    this.votesChanged();
+    this.hub.roomsChanged();
+    return true;
   }
 
   pause(now: number): boolean {
@@ -306,9 +346,17 @@ export class Room {
 
   // ---------------------------------------------------------- nhịp
   tick(now: number): void {
-    // hết bài → bài kế
+    // hết bài → bài kế; đang phát video mặc định mà có người thêm video → nhường ngay
     if (this.now && !this.now.paused && now >= this.now.ends) this.next(now);
     else if (!this.now && this.queue.length) this.next(now);
+    else if (this.now?.filler && this.queue.length) this.next(now);
+    // trống video quá DEFAULT_IDLE_SECONDS → phát video mặc định
+    if (!this.now && !this.queue.length) {
+      if (!this.idleSince) this.idleSince = now;
+      else if (now - this.idleSince >= this.hub.cfg.defaultIdleSeconds * 1000 && this.playDefault(now)) this.idleSince = 0;
+    } else {
+      this.idleSince = 0;
+    }
     // người mất kết nối quá lâu
     for (const p of this.players.values()) {
       if (!p.conn && now - p.ghostSince > GHOST_MS) this.removePlayer(p);
@@ -349,6 +397,10 @@ export class Hub {
   private timer: NodeJS.Timeout | null = null;
   private saveTimer: NodeJS.Timeout | null = null;
   private roomsTimer: NodeJS.Timeout | null = null;
+  private defaultTimer: NodeJS.Timeout | null = null;
+  /** video mặc định đã kiểm (tên + kênh); null = tắt / chưa kiểm / không phát được */
+  private defaultMeta: { v: string; title: string; ch: string } | null = null;
+  private defaultOffUntil = 0;
   dirty = false;
   private log: (...a: unknown[]) => void;
 
@@ -358,7 +410,8 @@ export class Hub {
     this.joinWindow = new WindowCounter(60_000, cfg.joinsPerMinute);
     this.apiIpWindow = new WindowCounter(60_000, cfg.lookupsPerIpMinute);
     this.load();
-    if (!this.rooms.has('1')) this.rooms.set('1', new Room(this, '1'));
+    // mỗi rạp luôn có một phòng chính
+    for (const v of VENUES) if (!this.rooms.has(v.id)) this.rooms.set(v.id, new Room(this, v.id));
   }
 
   settings(): PublicSettings {
@@ -366,6 +419,7 @@ export class Hub {
     return {
       maxVideoMin: c.maxVideoMinutes, maxPerUser: c.maxQueuePerUser, capacity: c.roomCapacity, liveMaxMin: c.liveMaxMinutes,
       allowLive: c.allowLive, skipRatio: c.skipVoteRatio, noCookie: c.ytNoCookie, ytReady: this.deps.youtube.configured,
+      defaultIdleSec: c.defaultVideo ? c.defaultIdleSeconds : 0,
     };
   }
 
@@ -374,6 +428,11 @@ export class Hub {
     if (this.timer) return;
     this.timer = setInterval(() => this.tick(), Math.round(1000 / this.cfg.tickHz));
     this.timer.unref?.();
+    if (this.cfg.defaultVideo) {
+      void this.refreshDefault();
+      this.defaultTimer = setInterval(() => void this.refreshDefault(), DEFAULT_REFRESH_MS);
+      this.defaultTimer.unref?.();
+    }
     if (this.deps.dataDir && this.cfg.persist) {
       this.saveTimer = setInterval(() => { if (this.dirty) this.save(); }, SAVE_EVERY_MS);
       this.saveTimer.unref?.();
@@ -384,8 +443,48 @@ export class Hub {
     if (this.timer) clearInterval(this.timer);
     if (this.saveTimer) clearInterval(this.saveTimer);
     if (this.roomsTimer) clearTimeout(this.roomsTimer);
-    this.timer = this.saveTimer = this.roomsTimer = null;
+    if (this.defaultTimer) clearInterval(this.defaultTimer);
+    this.timer = this.saveTimer = this.roomsTimer = this.defaultTimer = null;
     this.save();
+  }
+
+  // ---------------------------------------------------------- video mặc định (kênh trực tiếp phát khi phòng trống)
+  /**
+   * Kiểm video mặc định: oEmbed (không cần key) lấy tên + kênh, 401/403 = chặn nhúng → tắt. Có YT_API_KEY thì kiểm thêm
+   * đủ luật như video người xem thêm (công khai, không giới hạn tuổi, xem được ở VN) — trừ giới hạn độ dài (kênh 24/7).
+   * Mạng lỗi lúc khởi động: vẫn phát với tên tạm (trình phát báo lỗi thì tự tắt 30 phút).
+   */
+  private async refreshDefault(): Promise<void> {
+    const v = this.cfg.defaultVideo;
+    if (!v) return;
+    const o = await this.deps.youtube.fetchOEmbed(v);
+    if (!o.ok && o.code !== 'network') {
+      this.defaultMeta = null;
+      this.log(`⚠️  Video mặc định ${v} không phát được (${o.code === 'not_embeddable' ? 'chủ kênh chặn nhúng' : 'không tìm thấy'}) — tắt phát mặc định`);
+      return;
+    }
+    let meta = o.ok ? { v, title: o.title, ch: o.channel } : (this.defaultMeta ?? { v, title: 'Kênh trực tiếp của rạp', ch: '' });
+    if (this.deps.youtube.configured) {
+      const r = await this.deps.youtube.fetchVideo(v);
+      if (r.ok) {
+        const chk = checkMeta(r.meta, { region: this.cfg.ytRegion, maxSeconds: Number.MAX_SAFE_INTEGER, allowLive: true });
+        if (!chk.ok) {
+          this.defaultMeta = null;
+          this.log(`⚠️  Video mặc định ${v} không đạt luật rạp (${chk.reason}) — tắt phát mặc định`);
+          return;
+        }
+        meta = { v, title: chk.meta.title || meta.title, ch: chk.meta.channel || meta.ch };
+      }
+    }
+    if (!this.defaultMeta) this.log(`📺 Video mặc định: "${meta.title}" (${v}) — phát khi phòng trống video quá ${this.cfg.defaultIdleSeconds} giây`);
+    this.defaultMeta = meta;
+  }
+
+  /** video mặc định dùng được lúc này (chưa bị gỡ / chặn, không đang tạm tắt) */
+  defaultVideoFor(now: number): { v: string; title: string; ch: string } | null {
+    const m = this.defaultMeta;
+    if (!m || now < this.defaultOffUntil || this.blocked.has(m.v)) return null;
+    return m;
   }
 
   tick(now = Date.now()): void {
@@ -398,10 +497,10 @@ export class Hub {
     for (const room of this.rooms.values()) {
       try { room.tick(now); } catch (e) { console.error(`[room ${room.id}] tick lỗi:`, e); }
     }
-    // đóng phòng phụ bỏ trống lâu (phòng 1 luôn mở)
+    // đóng bản sao bỏ trống lâu (phòng chính của mỗi rạp luôn mở); người đang đứng xem chuyển về phòng chính
     for (const room of this.rooms.values()) {
-      if (room.id === '1' || room.players.size > 0 || now - room.emptySince < ROOM_IDLE_CLOSE_MS) continue;
-      const main = this.rooms.get('1');
+      if (room.n === 1 || room.players.size > 0 || now - room.emptySince < ROOM_IDLE_CLOSE_MS) continue;
+      const main = this.rooms.get(room.venue);
       this.rooms.delete(room.id);
       for (const c of room.spectators) if (main && !c.player) { c.room = main; main.spectators.add(c); this.sendHello(c); }
       this.roomsChanged();
@@ -421,7 +520,8 @@ export class Hub {
     try {
       writeJsonAtomic(f, {
         savedAt: Date.now(), qid: this.qid, pid: this.pid,
-        rooms: [...this.rooms.values()].map((r) => ({ id: r.id, queue: r.queue, now: r.now, locked: r.locked })),
+        // video mặc định không lưu (khởi động lại thì tự phát lại sau DEFAULT_IDLE_SECONDS)
+        rooms: [...this.rooms.values()].map((r) => ({ id: r.id, queue: r.queue, now: r.now?.filler ? null : r.now, locked: r.locked })),
         blocked: [...this.blocked.values()],
       });
     } catch (e) {
@@ -447,8 +547,12 @@ export class Hub {
     if (Array.isArray(o.rooms)) {
       for (const r of o.rooms) {
         if (!r || typeof r !== 'object' || typeof (r as { id?: unknown }).id !== 'string') continue;
-        const id = (r as { id: string }).id;
-        if (!/^[0-9]{1,3}$/.test(id) || Number(id) > this.cfg.maxRooms) continue;
+        const raw = (r as { id: string }).id;
+        // dữ liệu bản cũ (phòng đánh số): "1" → rạp mặc định, các phòng số khác bỏ
+        const pr = parseRoomId(raw === '1' ? DEFAULT_VENUE : raw);
+        if (!pr || pr.n > this.cfg.maxRooms) continue;
+        const id = pr.n > 1 ? `${pr.venue.id}-${pr.n}` : pr.venue.id;
+        if (this.rooms.has(id)) continue;
         const room = new Room(this, id);
         const rr = r as { queue?: unknown; now?: unknown; locked?: unknown };
         room.queue = Array.isArray(rr.queue) ? rr.queue.filter(okItem).filter((q) => !this.blocked.has(q.v)).slice(0, this.cfg.maxQueue) : [];
@@ -501,24 +605,39 @@ export class Hub {
     this.roomsTimer.unref?.();
   }
 
-  roomList(): RoomInfo[] {
-    return [...this.rooms.values()].sort((a, b) => Number(a.id) - Number(b.id)).map((r) => r.info());
+  /** phòng theo thứ tự rạp (VENUES) rồi số bản sao */
+  private sortedRooms(): Room[] {
+    const order = (r: Room): number => VENUES.findIndex((v) => v.id === r.venue) * 100 + r.n;
+    return [...this.rooms.values()].sort((a, b) => order(a) - order(b));
   }
 
-  /** phòng còn chỗ (ưu tiên `preferred`), đầy hết thì mở phòng mới (tới MAX_ROOMS) */
+  roomList(): RoomInfo[] {
+    return this.sortedRooms().map((r) => r.info());
+  }
+
+  /**
+   * Phòng cho người sắp vào: `preferred` còn chỗ → nó; đầy → bản sao còn chỗ của cùng rạp, chưa có thì mở bản sao mới
+   * (tối đa MAX_ROOMS bản mỗi rạp); hết cách → phòng còn chỗ bất kỳ (theo thứ tự rạp); đầy hết → null.
+   */
   pickRoom(preferred?: string): Room | null {
     const cap = this.cfg.roomCapacity;
     const pref = preferred ? this.rooms.get(preferred) : undefined;
     if (pref && pref.count() < cap) return pref;
-    const sorted = [...this.rooms.values()].sort((a, b) => Number(a.id) - Number(b.id));
+    const sorted = this.sortedRooms();
+    const venue = parseRoomId(preferred ?? '')?.venue.id;
+    if (venue) {
+      for (const r of sorted) if (r.venue === venue && r.count() < cap) return r;
+      for (let n = 2; n <= this.cfg.maxRooms; n++) {
+        const id = `${venue}-${n}`;
+        if (this.rooms.has(id)) continue;
+        const room = new Room(this, id);
+        this.rooms.set(id, room);
+        this.roomsChanged();
+        return room;
+      }
+    }
     for (const r of sorted) if (r.count() < cap) return r;
-    if (this.rooms.size >= this.cfg.maxRooms) return null;
-    let id = 1;
-    while (this.rooms.has(String(id))) id++;
-    const room = new Room(this, String(id));
-    this.rooms.set(room.id, room);
-    this.roomsChanged();
-    return room;
+    return null;
   }
 
   // ---------------------------------------------------------- kết nối
@@ -532,7 +651,9 @@ export class Hub {
       bucket: new Bucket(80, 45), strikes: 0, closed: false,
     };
     this.conns.add(c);
-    const room = (meta.room && this.rooms.get(meta.room)) || this.pickRoom() || this.rooms.get('1')!;
+    // link ?phong=<id>: đúng phòng đó, bản sao đã đóng thì về phòng chính của rạp
+    const asked = meta.room ? this.rooms.get(meta.room) ?? this.rooms.get(parseRoomId(meta.room)?.venue.id ?? '') : undefined;
+    const room = asked || this.pickRoom() || this.rooms.get(DEFAULT_VENUE)!;
     c.room = room;
     room.spectators.add(c);
     this.sendHello(c);
@@ -861,6 +982,10 @@ export class Hub {
   private onVote(room: Room, p: Player, on: boolean): void {
     const n = room.now;
     if (!n) return;
+    if (n.filler) {
+      if (on && p.conn) this.notice(p.conn, 'Đây là kênh mặc định của rạp, tự nhường khi có video — dán link YouTube để chiếu video của bạn nhé.', 'info');
+      return;
+    }
     // người thêm bài bỏ qua bài của chính mình: bỏ ngay
     if (on && (n.byId === p.id || (n.byCk && n.byCk === p.ck))) {
       room.broadcast({ t: 'notice', kind: 'info', text: `${p.name} bỏ qua video của mình.` });
@@ -947,6 +1072,7 @@ export class Hub {
     const need = Math.max(1, Math.min(ips, Math.max(2, Math.ceil(ips * 0.3))));
     if (room.errReports.size < need) return;
     if (code === 101 || code === 150) this.embedFail.set(v, now + EMBED_FAIL_MS);
+    if (n.filler) this.defaultOffUntil = now + DEFAULT_OFF_MS; // video mặc định hỏng: tạm tắt, thử lại sau
     this.cache.delete(v);
     this.log(`⚠️  Video ${v} lỗi trình phát (mã ${code}) trên ${room.errReports.size} máy — chuyển bài`);
     room.broadcast({
@@ -978,6 +1104,7 @@ export class Hub {
       case 'skip':
         if (!room.now) return;
         room.broadcast({ t: 'notice', kind: 'info', text: `Admin đã bỏ qua "${room.now.title}".` });
+        if (room.now.filler) room.fillerOffUntil = now + FILLER_SKIP_MS; // tạm không phát lại video mặc định ở phòng này
         room.next(now);
         return done('Đã bỏ qua video.');
       case 'pause': if (room.pause(now)) done('Đã tạm dừng phòng.'); return;

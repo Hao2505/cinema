@@ -1,5 +1,6 @@
 // Trạng thái phía client + xử lý thông điệp server (ServerMsg trong src/types.ts) + nội suy người khác chống giật.
-import { actionById } from './shared/hall.js';
+import { DEFAULT_VENUE, ROOM_ID_RE, actionById, parseRoomId, roomName } from './shared/hall.js';
+import { showEmojiFrom } from './prefs.js';
 import { clamp, num, str, arr, warnOnce } from './util.js';
 
 const listeners = new Map();
@@ -13,8 +14,9 @@ export const store = {
   admin: false,
   cfg: { maxVideoMin: 15, maxPerUser: 2, capacity: 60, liveMaxMin: 30, allowLive: true, skipRatio: 0.5, noCookie: true, ytReady: true },
   rooms: [],
-  roomId: '1',
-  roomName: 'Phòng 1',
+  roomId: DEFAULT_VENUE,
+  roomName: roomName(DEFAULT_VENUE),
+  venue: DEFAULT_VENUE, // chủ đề vẽ của phòng đang xem (render/venues)
   players: new Map(), // id -> actor
   queue: [],
   locked: false,
@@ -196,8 +198,11 @@ function setPlayers(list, now) {
 
 function setSnapshot(snap, now) {
   if (!snap || typeof snap !== 'object') return;
-  store.roomId = str(snap.id, 8) || '1';
-  store.roomName = str(snap.name, 40) || `Phòng ${store.roomId}`;
+  const id = str(snap.id, 16);
+  store.roomId = ROOM_ID_RE.test(id) ? id : DEFAULT_VENUE;
+  store.roomName = str(snap.name, 40) || roomName(store.roomId);
+  const venue = parseRoomId(store.roomId)?.venue.id || DEFAULT_VENUE;
+  if (venue !== store.venue) { store.venue = venue; store.emit('venue', venue); }
   setPlayers(snap.players, now);
   store.queue = arr(snap.queue).filter((q) => q && typeof q.v === 'string');
   store.locked = !!snap.locked;
@@ -321,7 +326,7 @@ export function handleMessage(msg) {
       case 'chat_clear': store.chat = []; store.bubbles = []; store.emit('chatReset', store.chat); break;
       case 'emo': {
         const a = store.players.get(msg.id);
-        if (a && !a.isMe && typeof msg.e === 'string') {
+        if (a && !a.isMe && typeof msg.e === 'string' && showEmojiFrom(a.name, false)) {
           spawnFx(a.id, msg.e, now, { spread: 0.5, size: 1.15 });
           a.emo = msg.e; a.emoAt = now;
         }

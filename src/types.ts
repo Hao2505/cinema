@@ -44,6 +44,8 @@ export interface NowInfo extends QueueItemInfo {
   pos: number;
   /** giờ server (ms) dự kiến hết bài */
   ends: number;
+  /** video mặc định của rạp (phát khi hàng chờ trống, có video mới là nhường ngay, không bỏ phiếu bỏ qua) */
+  filler?: boolean;
 }
 
 export interface ChatInfo {
@@ -57,6 +59,10 @@ export interface ChatInfo {
 export interface RoomInfo {
   id: string;
   name: string;
+  /** rạp (chủ đề vẽ): VENUES trong shared/hall.js */
+  venue: string;
+  /** tên video đang chiếu ('' = màn hình trống) — cho bảng chọn rạp */
+  now: string;
   count: number;
   cap: number;
 }
@@ -64,6 +70,7 @@ export interface RoomInfo {
 export interface RoomSnapshot {
   id: string;
   name: string;
+  venue: string;
   players: PlayerInfo[];
   queue: QueueItemInfo[];
   locked: boolean;
@@ -81,6 +88,8 @@ export interface PublicSettings {
   skipRatio: number;
   noCookie: boolean;
   ytReady: boolean;
+  /** giây trống video trước khi rạp tự phát kênh mặc định (0 = tắt) */
+  defaultIdleSec: number;
 }
 
 export type ServerMsg =

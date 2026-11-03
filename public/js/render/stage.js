@@ -12,10 +12,9 @@ import { clamp, lerp, safeColor, easeOutCubic } from '../util.js';
 import { drawCharacter, U, headTop, headCenter, HEAD_RADIUS, moodOf } from './character.js';
 import { actionPose, ACTION_FX } from './anims.js';
 import { drawBubbles, drawNamePill, measureNamePill, spreadPills, clearTextCache } from './bubbles.js';
-import {
-  floorTexture, drawRoom, renderRow, drawSpeaker, drawCounter, renderScreenBand, drawDanceLights, drawBeam, drawHallLight,
-  drawIdleScreen, STAGE_H, C,
-} from './hall.js';
+import { drawIdleScreen, STAGE_H } from './hall.js';
+import { defaultTheme, loadTheme } from './venues/index.js';
+import { DIM_LEVELS, prefs, showActsFrom, showChatFrom, showPerson } from '../prefs.js';
 import { projection } from './persp.js';
 import { drawEmoji, makeCanvas } from './draw.js';
 
@@ -29,7 +28,10 @@ export function createStage(canvas, slot, hooks = {}) {
   let dprCap = 2.5;
   let cssW = 1, cssH = 1;
   let L = null; // bố cục
-  let theater = false;
+  let view = 'lon'; // góc xem: 'can' | 'lon' | 'rong'
+  let V = defaultTheme; // chủ đề vẽ của rạp đang xem (render/venues)
+  let wantVenue = V.id;
+  let props = V.props(); // cây, cột đèn… sắp theo độ sâu cùng người
   let tex = null;
   let band = null, bandKey = '';
   let roomCv = null, roomKey = '';
@@ -46,6 +48,7 @@ export function createStage(canvas, slot, hooks = {}) {
   let calmUntil = performance.now() + 6000; // bỏ qua lúc mới mở trang / vừa đổi bố cục (tải YouTube, vẽ lại cache)
   let dprDrops = 0;
   let crowd = false; // rạp đông: người đứng / ngồi yên vẽ từ sprite cache
+  let dimA = 0; // độ tối phủ quanh video khi đang chiếu (chuyển dần)
   const spriteCache = new Map();
   const pointers = new Map();
   let pinch = null;
@@ -63,7 +66,10 @@ export function createStage(canvas, slot, hooks = {}) {
     const valance = narrow ? 12 : clamp(cssH * 0.03, 14, 26);
     const frame = narrow ? 4 : 6;
     // mặc định: chia cân video và khán phòng (rạp đông vẫn thoáng); 📺 Màn hình lớn: khán phòng gọn lại cho video to nhất
-    const audMin = theater ? (narrow ? 210 : clamp(Yn * 0.3, 200, 260)) : narrow ? Math.max(300, Yn * 0.5) : clamp(Yn * 0.38, 240, 340);
+    // góc xem: cân = khán phòng rộng · lớn = video to · rộng = video to nhất, khán phòng mỏng
+    const audMin = view === 'rong' ? (narrow ? 180 : clamp(Yn * 0.2, 150, 190))
+      : view === 'lon' ? (narrow ? 210 : clamp(Yn * 0.3, 200, 260))
+        : narrow ? Math.max(300, Yn * 0.5) : clamp(Yn * 0.38, 240, 340);
     const maxW = narrow ? availW - 16 : (availW - 70) / 1.2;
     const base = narrow ? 6 : 10;
 
@@ -166,9 +172,9 @@ export function createStage(canvas, slot, hooks = {}) {
   }
 
   function ensureCaches() {
-    if (!tex) tex = floorTexture(48);
-    const lk = `${cssW}x${cssH}|${dpr}|${theater}`;
-    if (lk !== bandKey || !band) { band = renderScreenBand(L, dpr); bandKey = lk; }
+    if (!tex) tex = V.floorTexture(48);
+    const lk = `${cssW}x${cssH}|${dpr}|${view}|${V.id}`;
+    if (lk !== bandKey || !band) { band = V.renderBand(L, dpr); bandKey = lk; }
     const zoom = L.narrow ? cam.zoom : 1;
     const rk = `${lk}|${P.xcam}|${zoom.toFixed(3)}`;
     if (rk !== roomKey || !roomCv) {
@@ -177,13 +183,13 @@ export function createStage(canvas, slot, hooks = {}) {
       rc.setTransform(1, 0, 0, 1, 0, 0);
       rc.clearRect(0, 0, roomCv.width, roomCv.height);
       rc.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawRoom(rc, P, tex, L, dpr, Math.max(2, Math.round(dpr * (L.narrow ? 1.2 : 1))));
+      V.drawRoom(rc, P, tex, L, dpr, Math.max(2, Math.round(dpr * (L.narrow ? 1.2 : 1))));
       roomKey = rk;
     }
     const wk = `${lk}|${zoom.toFixed(3)}`;
     if (wk !== rowsKey) {
       const Pref = projection({ Xc: P.Xc, Yf: P.Yf, Yn: P.Yn, s0: P.s0, s1: P.s1, H, xcam: W / 2 });
-      rows = HALL.rows.map((_, i) => renderRow(Pref, i, dpr));
+      rows = HALL.rows.flatMap((_, i) => V.renderRow(Pref, i, dpr));
       rowsKey = wk;
     }
   }
@@ -235,7 +241,8 @@ export function createStage(canvas, slot, hooks = {}) {
     let dir = a.dir || 'down';
     if (a.seated) { pose = 'sit'; dir = 'up'; }
     let anim = null, hold = null;
-    const act = a.act && now >= a.act.start ? a.act : null;
+    // tùy chọn "ẩn động tác" (của mọi người / riêng người này): đứng yên như không làm gì
+    const act = a.act && now >= a.act.start && showActsFrom(a.name, a.isMe) ? a.act : null;
     if (act) {
       const seated = a.seated && act.def.seat;
       if (a.seated && !act.def.seat) pose = 'stand';
@@ -293,7 +300,7 @@ export function createStage(canvas, slot, hooks = {}) {
     const act = a.act;
     if (!act || now < act.start) return;
     const fx = ACTION_FX[act.id];
-    if (!fx) return;
+    if (!fx || !prefs.actFx || !showActsFrom(a.name, a.isMe)) return;
     const el = now - act.start;
     if (!act.fxStarted) {
       act.fxStarted = true;
@@ -329,6 +336,13 @@ export function createStage(canvas, slot, hooks = {}) {
   /** máy yếu tự giảm chi tiết: 1 = sprite cho người đứng yên, bớt bụi / emoji; 2 = thêm DPR ≤ 1,25, tắt chùm sáng + đèn sàn */
   function measure(ms, now) {
     drawMs = drawMs * 0.92 + ms * 0.08;
+    // người xem tự chọn chất lượng (⚙️): không tự đổi nữa
+    if (prefs.quality !== 'auto') {
+      const q = prefs.quality === 'low' ? 2 : 0, cap = q === 2 ? 1.25 : 2.5;
+      quality = q;
+      if (dprCap !== cap) { dprCap = cap; resize(); }
+      return;
+    }
     // chậm = JS vẽ lâu, hoặc khung hình thật < ~48 / s kéo dài (máy yếu tô điểm ảnh không kịp)
     const slow = drawMs > 11 || (now > calmUntil && frameMs > 21);
     if (slow) { slowFrames++; fastFrames = 0; } else if (drawMs < 4.5 && frameMs < 18.5) { fastFrames++; slowFrames = 0; }
@@ -354,13 +368,23 @@ export function createStage(canvas, slot, hooks = {}) {
     updateCamera(myPos);
     ensureCaches();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = C.void;
+    ctx.fillStyle = V.void;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     // ---- dải màn hình + phòng (sàn, tường, sân khấu)
     ctx.drawImage(band.canvas, 0, 0, band.canvas.width, band.canvas.height);
     ctx.drawImage(roomCv, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const si = hooks.screenInfo?.() || null;
+    if (V.skyFx && quality < 2 && prefs.lights) {
+      // hiệu ứng trên dải trời: cắt bỏ khung video
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, cssW, L.vb);
+      ctx.rect(L.screen.x - L.frame, L.screen.y - L.frame, L.screen.w + L.frame * 2, L.screen.h + L.frame * 2);
+      ctx.clip('evenodd');
+      V.skyFx(ctx, L, now);
+      ctx.restore();
+    }
     if (si && si.show) drawIdleScreen(ctx, L.screen, si.title, si.sub, now);
 
     // ---- mọi thứ của khán phòng bị cắt dưới mép màn hình: không gì được đè lên video
@@ -369,15 +393,20 @@ export function createStage(canvas, slot, hooks = {}) {
     ctx.beginPath();
     ctx.rect(0, clipTop, cssW, cssH - clipTop);
     ctx.clip();
-    const acts = prepareActors(now);
+    // tùy chọn: ẩn người khác / ẩn riêng vài người (vẫn cập nhật vị trí, chỉ không vẽ, không bấm trúng)
+    const acts = prepareActors(now).filter((a) => showPerson(a.name, a.isMe));
     crowd = acts.length > 24;
     const dancers = acts.filter((a) => a.act && ['hiphop', 'headbang', 'bounce'].includes(a.act.id) && now >= a.act.start);
-    if (quality < 2) drawDanceLights(ctx, P, dancers, now);
+    if (quality < 2 && prefs.lights) V.drawDanceLights(ctx, P, dancers, now);
     // ---- sắp theo độ sâu: hàng ghế, loa, quầy bar, người
     const items = [];
     for (const r of rows) items.push(r);
     for (const sp of HALL.speakers) items.push({ kind: 'speaker', key: sp.y + sp.h, sp });
     items.push({ kind: 'counter', key: HALL.counter.y + HALL.counter.h });
+    for (const pr of props) {
+      const px = P.sx(pr.x, pr.z);
+      if (px > -260 && px < cssW + 260) items.push({ kind: 'prop', key: pr.key, pr });
+    }
     hits = [];
     const figs = new Map();
     for (const a of acts) {
@@ -391,15 +420,30 @@ export function createStage(canvas, slot, hooks = {}) {
       if (it.kind === 'row') {
         const dx = (it.xcam - P.xcam) * P.s(it.z + 0.2);
         ctx.drawImage(it.canvas, it.x0 + dx, it.y0, it.w, it.h);
-      } else if (it.kind === 'speaker') drawSpeaker(ctx, P, it.sp);
-      else if (it.kind === 'counter') drawCounter(ctx, P, HALL.counter, now);
+      } else if (it.kind === 'speaker') V.drawSpeaker(ctx, P, it.sp, now);
+      else if (it.kind === 'counter') V.drawCounter(ctx, P, HALL.counter, now);
+      else if (it.kind === 'prop') it.pr.draw(ctx, P, now);
       else drawActor(it.a, now, figs.get(it.a.id));
     }
     // ---- ánh sáng
     const playing = !!store.now && !store.now.paused;
-    if (quality < 2 && playing) drawBeam(ctx, L, now, quality === 0);
-    drawHallLight(ctx, P, L, playing);
-    // ---- chữ / bong bóng / emoji (px CSS)
+    if (V.fx && quality < 2 && prefs.lights) V.fx(ctx, P, L, now);
+    if (quality < 2 && playing && prefs.lights) V.drawBeam(ctx, L, now, quality === 0);
+    V.drawHallLight(ctx, P, L, playing);
+    ctx.restore();
+    // ---- đang chiếu: làm tối mọi thứ xung quanh cho video nổi bật (chuyển dần ~0,5 s); chữ / bong bóng vẽ sau nên vẫn rõ
+    const dimTarget = playing && hooks.watching?.() ? DIM_LEVELS[prefs.dim] || 0 : 0;
+    dimA += (dimTarget - dimA) * Math.min(1, dt * 2.5);
+    if (Math.abs(dimTarget - dimA) < 0.003) dimA = dimTarget;
+    if (dimA > 0.003) {
+      ctx.fillStyle = `rgba(4,2,8,${dimA.toFixed(3)})`;
+      ctx.fillRect(0, 0, cssW, cssH);
+    }
+    // ---- chữ / bong bóng / emoji (px CSS) — vẫn cắt dưới mép màn hình
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, clipTop, cssW, cssH - clipTop);
+    ctx.clip();
     drawOverlays(acts, figs, now, clipTop);
     ctx.restore();
   }
@@ -423,8 +467,10 @@ export function createStage(canvas, slot, hooks = {}) {
       const headY = p.y + headTop(f.pose) * sc;
       anchors.set(a.id, { x: p.x, headY, headC: p.y + headCenter(f.pose) * sc, hr: HEAD_RADIUS * sc, feet: p.y });
       hits.push({ id: a.id, z: a.y, x0: p.x - 0.5 * p.s * L.cs, x1: p.x + 0.5 * p.s * L.cs, y0: headY, y1: p.y + 3 });
-      const show = a.isMe || !many || a.id === hoverId || now - a.bornAt < 6000
-        || store.bubbles.some((b) => b.pid === a.id && now - b.t0 < b.dur);
+      // tên trên đầu (⚙️): tất cả · tự động (đông người thì chỉ người mới vào / đang nói) · chỉ mình
+      const nm = prefs.names;
+      const show = a.isMe || a.id === hoverId || nm === 'all' || (nm === 'auto' && (!many || now - a.bornAt < 6000
+        || (prefs.bubbles && store.bubbles.some((b) => b.pid === a.id && now - b.t0 < b.dur))));
       if (show && a.alpha > 0.05) {
         const m = measureNamePill(ctx, a.name, pillOpts(a));
         pills.push({ a, x: p.x, y: headY - 3 - m.h, w: m.w, h: m.h, up: true });
@@ -460,10 +506,10 @@ export function createStage(canvas, slot, hooks = {}) {
     // bong bóng chat (neo trên bảng tên)
     const items = [];
     for (const b of store.bubbles) {
-      if (now - b.t0 > b.dur) continue;
+      if (now - b.t0 > b.dur || !prefs.bubbles) continue;
       const an = anchors.get(b.pid);
       const a = store.players.get(b.pid);
-      if (!an || !a) continue;
+      if (!an || !a || !showChatFrom(a.name, a.isMe)) continue;
       items.push({
         kind: 'speech', key: b.key, ax: an.x, ay: (pillTop.get(b.pid) ?? an.headY) - 2, hy: an.headC, hr: an.hr, fy: an.feet,
         text: b.text, name: b.name, color: safeColor(a.look?.shirt, '#ffc14d'), t0: b.t0, dur: b.dur,
@@ -583,15 +629,27 @@ export function createStage(canvas, slot, hooks = {}) {
 
   // thông tin chỉ-đọc cho script QA headless
   canvas.__view = () => ({
-    s0: P?.s0, s1: P?.s1, xcam: P?.xcam, zoom: cam.zoom, dpr, quality, drawMs: Math.round(drawMs * 100) / 100, frameMs: Math.round(frameMs * 10) / 10, crowd, follow: cam.follow, theater,
+    s0: P?.s0, s1: P?.s1, xcam: P?.xcam, zoom: cam.zoom, dpr, quality, drawMs: Math.round(drawMs * 100) / 100, frameMs: Math.round(frameMs * 10) / 10, crowd, follow: cam.follow, view, venue: V.id,
     layout: L && { screen: { ...L.screen }, audTop: L.audTop, Yf: Math.round(L.Yf), Yn: Math.round(L.Yn), availW: L.availW, narrow: L.narrow },
     insets: { ...insets }, actors: store.players.size,
     net: { ...store.net },
   });
 
   return {
-    setTheater(on) { theater = !!on; relayout(); },
-    get theater() { return theater; },
+    setView(v) { if (v === view) return; view = v; relayout(); },
+    get view() { return view; },
+    /** đổi khung cảnh rạp: vẽ lại sàn, dải trời / tường, hàng ghế, vật trang trí */
+    setVenue(id) {
+      wantVenue = id;
+      loadTheme(id).then((t) => {
+        if (wantVenue !== id || t === V) return;
+        V = t;
+        props = V.props();
+        tex = null; bandKey = ''; roomKey = ''; rowsKey = '';
+        spriteCache.clear();
+      });
+    },
+    get venue() { return V.id; },
     get layout() { return L; },
     /** giao diện nổi đổi chỗ chiếm (mở / đóng ngăn kéo, dock đổi cỡ…) → tính lại bố cục nếu khác */
     setInsets(next) {

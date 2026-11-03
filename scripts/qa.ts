@@ -19,6 +19,8 @@ const outDir = resolve(args.get('out') || 'qa-shots');
 const nBots = Number(args.get('bots') ?? 14);
 const video = args.get('video') ?? 'aqz-KE-bpKQ';
 const only = args.get('only') || ''; // 'desktop' | 'mobile'
+const room = args.get('room') || ''; // rạp cần chụp (vd 'bien'): người xem giả + trang QA vào đúng rạp đó
+const roomQs = room ? `?phong=${encodeURIComponent(room)}` : '';
 mkdirSync(outDir, { recursive: true });
 
 const errors: string[] = [];
@@ -136,7 +138,7 @@ async function main(): Promise<void> {
   const app = createApp(cfg, { youtube: createFakeYouTube(), dataDir: null, log: () => {} });
   const port = await app.listen(0, '127.0.0.1');
   const base = `http://localhost:${port}`;
-  const stopBots = startBots({ url: `ws://127.0.0.1:${port}/ws`, n: nBots, video });
+  const stopBots = startBots({ url: `ws://127.0.0.1:${port}/ws`, n: nBots, video, room });
   const browser = await launch();
   try {
     await sleep(2500);
@@ -145,7 +147,7 @@ async function main(): Promise<void> {
       watch(page, 'desktop');
       await page.send('Page.enable'); await page.send('Runtime.enable'); await page.send('Log.enable');
       await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
-      await page.send('Page.navigate', { url: `${base}/#admin=qa-local-admin` });
+      await page.send('Page.navigate', { url: `${base}/${roomQs}#admin=qa-local-admin` });
       await waitFor(page, 'window.__vc && window.__vc.store.ready === true');
       await sleep(1200);
       await shot(page, 'desktop-join.png');
@@ -187,17 +189,36 @@ async function main(): Promise<void> {
       await shot(page, 'desktop-admin.png');
       await checkOverlap(page, 'desktop admin');
       await key(page, 'Escape', 'Escape', 27, 'keyDown'); await key(page, 'Escape', 'Escape', 27, 'keyUp');
-      // bật "Màn hình lớn" → video to nhất, khán phòng gọn lại
-      await page.evaluate("document.getElementById('btn-theater').click()");
-      await sleep(800);
-      await shot(page, 'desktop-big.png');
-      await checkOverlap(page, 'desktop màn hình lớn');
-      await page.evaluate("document.getElementById('btn-theater').click()");
+      await page.evaluate("document.getElementById('btn-prefs').click()");
+      await sleep(700);
+      await shot(page, 'desktop-prefs.png');
+      await checkOverlap(page, 'desktop tùy chọn');
+      await key(page, 'Escape', 'Escape', 27, 'keyDown'); await key(page, 'Escape', 'Escape', 27, 'keyUp');
+      // góc xem (menu 📺): rộng = video to nhất · cân = khán phòng rộng · rồi về mặc định (lớn)
+      for (const v of ['rong', 'can', 'lon']) {
+        await page.evaluate("document.getElementById('btn-theater').click()");
+        await sleep(250);
+        await page.evaluate(`document.querySelector('[data-view="${v}"]').click()`);
+        await sleep(800);
+        if (v !== 'lon') {
+          await shot(page, `desktop-${v}.png`);
+          await checkOverlap(page, `desktop góc xem ${v}`);
+        }
+      }
       // laptop nhỏ
       await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 680, deviceScaleFactor: 1, mobile: false });
       await sleep(900);
       await shot(page, 'desktop-small.png');
       await checkOverlap(page, 'desktop 1280×680');
+      // mở lại trang: người đã vào rạp thấy thẻ "Chào mừng quay lại", bấm một rạp là vào luôn (khỏi đặt tên lại)
+      await page.send('Page.navigate', { url: `${base}/` });
+      await waitFor(page, 'window.__vc && window.__vc.store.ready === true && window.__vc.store.rooms.length > 0');
+      await sleep(800);
+      await shot(page, 'desktop-quick.png');
+      const quick = await page.evaluate<boolean>("!document.getElementById('join-quick').hidden && document.getElementById('join-form').hidden");
+      if (!quick) errors.push('[desktop] mở lại trang không hiện thẻ "Chào mừng quay lại"');
+      await page.evaluate("document.querySelector('.jq-room:not([disabled])').click()");
+      if (!(await waitFor(page, 'window.__vc.store.joined === true', 8000))) errors.push('[desktop] bấm rạp trên thẻ chào lại không vào được');
       await page.close();
     }
     if (only !== 'desktop') {
@@ -207,7 +228,7 @@ async function main(): Promise<void> {
       await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
       await page.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
       await page.send('Emulation.setUserAgentOverride', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
-      await page.send('Page.navigate', { url: base });
+      await page.send('Page.navigate', { url: `${base}/${roomQs}` });
       await waitFor(page, 'window.__vc && window.__vc.store.ready === true');
       await sleep(1200);
       await shot(page, 'mobile-join.png');
@@ -228,6 +249,12 @@ async function main(): Promise<void> {
       await sleep(500);
       await shot(page, 'mobile-chat.png');
       await page.evaluate("document.getElementById('side-close').click()");
+      await sleep(300);
+      await page.evaluate("document.getElementById('btn-prefs').click()");
+      await sleep(600);
+      await shot(page, 'mobile-prefs.png');
+      await checkOverlap(page, 'mobile tùy chọn');
+      await page.evaluate("document.getElementById('sheet-close').click()");
       await sleep(300);
       const sm = await smoothness(page, 5);
       console.log('🎞️  mobile', JSON.stringify(sm));

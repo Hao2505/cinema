@@ -1,6 +1,6 @@
 // YouTube Data API GIẢ cho test / QA: không ra Internet, không tốn quota. Trả siêu dữ liệu theo bảng dưới;
 // id lạ (đúng dạng 11 ký tự) = video công khai, cho nhúng, dài 3 phút 20 giây.
-import type { FetchResult, VideoMeta, YouTubeClient } from '../src/youtube.js';
+import type { FetchResult, OEmbedResult, VideoMeta, YouTubeClient } from '../src/youtube.js';
 
 const base = (id: string, title: string, durationSec: number, extra: Partial<VideoMeta> = {}): VideoMeta => ({
   id, title, channel: 'Kênh thử nghiệm', durationSec, live: false, upcoming: false, embeddable: true, privacy: 'public',
@@ -20,6 +20,8 @@ export const FIXTURES: Record<string, VideoMeta | null> = {
   onlyUS00001: base('onlyUS00001', 'Video chỉ ở Mỹ', 120, { regionAllowed: ['US'] }),
   tooLong0001: base('tooLong0001', 'Phim dài 2 tiếng', 7200),
   liveNow0001: base('liveNow0001', 'Đang phát trực tiếp', 0, { live: true }),
+  // video mặc định của rạp (DEFAULT_VIDEO): kênh trực tiếp 24/7 — bản giả cho QA
+  'rFZHOHl-L8A': base('rFZHOHl-L8A', 'lofi hip hop radio 📚 beats to relax/study to', 0, { live: true, channel: 'Lofi Girl' }),
   upcoming001: base('upcoming001', 'Sắp phát trực tiếp', 0, { upcoming: true }),
   shortClip01: base('shortClip01', 'Clip 2 giây', 2),
   missing0001: null,
@@ -30,6 +32,12 @@ export function createFakeYouTube(opts: { delayMs?: number; fail?: FetchResult }
   return {
     configured: true,
     calls,
+    async fetchOEmbed(id: string): Promise<OEmbedResult> {
+      const m = id in FIXTURES ? FIXTURES[id] : base(id, `Video thử nghiệm ${id}`, 200);
+      if (!m) return { ok: false, code: 'missing' };
+      if (!m.embeddable) return { ok: false, code: 'not_embeddable' };
+      return { ok: true, title: m.title, channel: m.channel };
+    },
     async fetchVideo(id: string): Promise<FetchResult> {
       calls.push(id);
       if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));

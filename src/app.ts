@@ -8,6 +8,7 @@ import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Config } from './config.js';
+import { ROOM_ID_RE } from '../public/js/shared/hall.js';
 import { Hub, type Conn } from './hub.js';
 import { WindowCounter, hashIp, loadOrCreateSalt } from './moderation.js';
 import { MAX_MSG_BYTES, parseClientMsg, rawToString } from './protocol.js';
@@ -344,7 +345,7 @@ export function createApp(cfg: Config, deps: AppDeps): App {
     const ipHash = hashIp(clientIp(req), salt);
     let room = '';
     try { room = new URL(req.url ?? '/', 'http://localhost').searchParams.get('room') ?? ''; } catch { room = ''; }
-    const conn: Conn | null = hub.connect(ws, { ipHash, admin: isAdminReq(req), room: /^[0-9]{1,3}$/.test(room) ? room : undefined });
+    const conn: Conn | null = hub.connect(ws, { ipHash, admin: isAdminReq(req), room: ROOM_ID_RE.test(room) ? room : undefined });
     if (!conn) { ws.close(1013, 'quá nhiều kết nối'); return; }
     alive.set(ws, true);
     ws.on('pong', () => alive.set(ws, true));

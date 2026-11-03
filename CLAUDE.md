@@ -63,10 +63,13 @@
 
 ## 8. Trạng thái (cập nhật 2026-11-03)
 
-- **Đã làm** (bản 0.3.0, chưa commit / chưa deploy): đủ §1–§4 — xem `README.md`, `CHANGELOG.md`, `docs/`. Khán phòng vẽ
+- **Đã làm** (bản 0.4.0): đủ §1–§4 — xem `README.md`, `CHANGELOG.md`, `docs/`. Khán phòng vẽ
   phối cảnh 3D một điểm tụ (chủ dự án yêu cầu "có chiều sâu"); xem chung — không ai tua / dừng riêng (chủ dự án yêu cầu);
   nhân vật chọn Nam / Nữ (+ râu cho nam); rạp phủ cả màn hình, video to hết cỡ, nút là cụm nổi nhỏ + dock dưới, hàng chờ /
   chat là ngăn kéo (chủ dự án yêu cầu "thu gọn, thả nổi, phóng to màn hình chính").
+  Thêm theo yêu cầu: 4 rạp (Nhung Đỏ / Công Viên / Đỗ Xe / Bãi Biển, `render/venues/`), góc xem 3 chế độ (mặc định Màn
+  lớn), kênh mặc định `DEFAULT_VIDEO` khi trống 30 s, làm tối xung quanh khi chiếu, ⚙️ Tùy chọn + ẩn riêng từng người
+  (`public/js/prefs.js`, chỉ trên máy người xem). Tài liệu cho người mới + AI agent: `AGENTS.md`, `docs/00`–`docs/08`.
   `npm test` xanh (typecheck + test đơn vị + smoke). QA hình: `npm run qa -- --out <thư mục>`.
 - **Xem thử trên máy** (YouTube giả, không cần key): `npx tsx scripts/qa-server.ts` + `npx tsx scripts/bots.ts --n 10 --video aqz-KE-bpKQ`
   → http://localhost:3399 (admin QA: `#admin=qa-local-admin`).

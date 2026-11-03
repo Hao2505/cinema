@@ -2,6 +2,7 @@
 // Mã admin: mở trang kèm #admin=<mã> (hoặc ?admin=<mã>) MỘT lần → gửi POST /api/admin/login → server đặt cookie HttpOnly
 // (JS không đọc được) → gỡ mã khỏi thanh địa chỉ. Mã không bao giờ được lưu ở localStorage, không hiện, không ghi log.
 import { handleMessage, onPong, setConn, store } from './store.js';
+import { ROOM_ID_RE } from './shared/hall.js';
 
 let ws = null;
 let attempt = 0;
@@ -49,7 +50,7 @@ export function adminLogout() {
 function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const room = new URLSearchParams(location.search).get('phong');
-  return `${proto}//${location.host}/ws${room && /^[0-9]{1,3}$/.test(room) ? `?room=${room}` : ''}`;
+  return `${proto}//${location.host}/ws${room && ROOM_ID_RE.test(room) ? `?room=${room}` : ''}`;
 }
 
 export function connect() {

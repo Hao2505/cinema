@@ -8,6 +8,7 @@ import { react } from '../me.js';
 import { store } from '../store.js';
 import { el, initial, pad2, reducedMotion, safeColor, setText } from '../util.js';
 import { luma } from '../render/draw.js';
+import { onPrefs, prefs, showChatFrom } from '../prefs.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_ITEMS = 120;
@@ -97,17 +98,27 @@ export function initChat({ isChatVisible, feedVisible, onUnread }) {
   }, { passive: true });
   // khung đổi cỡ (thêm video, mở tấm trượt, xoay máy…) mà đang ở cuối → giữ ở cuối, không giật
   new ResizeObserver(() => { if (stuck) log.scrollTop = log.scrollHeight; }).observe(log);
-  store.on('chatReset', (list) => {
-    log.replaceChildren(...list.map((m) => msgNode(m, false)));
+  // tùy chọn ⚙️: ẩn chat của mọi người / của riêng vài người (chỉ trên máy này) — tin của mình luôn hiện
+  const visible = (m) => showChatFrom(m.name, m.pid === store.myId);
+  const renderAll = (list = store.chat) => {
+    log.replaceChildren(...list.filter(visible).map((m) => msgNode(m, false)));
+    if (!prefs.chat) log.append(el('li', { class: 'c-sys', text: 'Bạn đang ẩn chat của mọi người — bật lại trong ⚙️ Tùy chọn.' }));
     stuck = true;
     pending = 0;
     toBottom(log, false);
+  };
+  store.on('chatReset', (list) => renderAll(list));
+  onPrefs((k) => {
+    if (k === 'chat' || k === 'hidden' || k === '*') renderAll();
+    if (feed && (k === 'feed' || k === 'chat' || k === '*') && (!prefs.feed || !prefs.chat)) feed.replaceChildren();
   });
   store.on('chat', (m) => {
-    if (m.pid === store.myId) stuck = true; // mình vừa nhắn → luôn xuống cuối
+    const mine = m.pid === store.myId;
+    if (!visible(m)) return;
+    if (mine) stuck = true; // mình vừa nhắn → luôn xuống cuối
     append(log, msgNode(m, true));
-    if (feed && feedVisible?.()) feedPush(feed, m);
-    if (!isChatVisible() && m.pid !== store.myId) { unread++; onUnread?.(unread); }
+    if (feed && prefs.feed && feedVisible?.()) feedPush(feed, m);
+    if (!isChatVisible() && !mine) { unread++; onUnread?.(unread); }
   });
   $('chat-form').addEventListener('submit', (e) => {
     e.preventDefault();

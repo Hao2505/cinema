@@ -5,7 +5,8 @@ import { checkMeta, metaFromItem, parseIsoDuration, parseVideoId, VideoCache } f
 import { Bucket, checkChat, checkName, cleanText, hasLink, maskProfanity, nameKey, WindowCounter } from '../src/moderation.js';
 import { parseClientMsg } from '../src/protocol.js';
 import {
-  ACTIONS, HALL, SEATS, clampToWalkable, isWalkable, moveWithCollision, nearestSeat, normalizeLook, randomLook, seatAt, spawnPoint,
+  ACTIONS, HALL, ROOM_ID_RE, SEATS, VENUES, clampToWalkable, isWalkable, moveWithCollision, nearestSeat, normalizeLook, parseRoomId,
+  randomLook, roomName, seatAt, spawnPoint,
 } from '../public/js/shared/hall.js';
 import { FIXTURES } from './fake-youtube.js';
 
@@ -198,6 +199,15 @@ test('ngoại hình: chỉ nhận giá trị trong bảng', () => {
   const bodies = new Set();
   for (let i = 0; i < 50; i++) { const r = randomLook(); assert.deepEqual(normalizeLook(r), r, 'ngoại hình ngẫu nhiên phải hợp lệ'); bodies.add(r.body); }
   assert.equal(bodies.size, 2, 'ngẫu nhiên ra cả nam lẫn nữ');
+});
+test('rạp: id phòng, tên, bản sao', () => {
+  assert.equal(VENUES.length, 4);
+  assert.deepEqual(parseRoomId('bien-2'), { venue: VENUES.find((v) => v.id === 'bien'), n: 2 });
+  assert.equal(parseRoomId('nhung')!.n, 1);
+  for (const bad of ['1', 'bien-1', 'bien-10', 'BIEN', 'xyz', 'bien-2-3', '', null, 42]) assert.equal(parseRoomId(bad), null, String(bad));
+  assert.equal(roomName('doxe'), 'Rạp Đỗ Xe');
+  assert.equal(roomName('congvien-3'), 'Rạp Công Viên 3');
+  assert.ok(VENUES.every((v) => ROOM_ID_RE.test(v.id) && v.name && v.emoji));
 });
 test('động tác: 8 động tác, phím 1–8', () => {
   assert.equal(ACTIONS.length, 8);

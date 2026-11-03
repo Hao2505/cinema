@@ -78,11 +78,13 @@
     </header>
     <!-- cụm nổi góc trên phải: công cụ -->
     <nav class="hud hud-r" id="hud-r" aria-label="Công cụ">
-      <button type="button" class="hud-btn" id="btn-theater" aria-label="Màn hình lớn" title="Màn hình lớn (bật / tắt)">📺</button>
+      <button type="button" class="hud-btn" id="btn-theater" aria-label="Góc xem" title="Góc xem: cân / màn lớn / màn rộng" aria-haspopup="menu" aria-expanded="false">📺</button>
       <button type="button" class="hud-btn" id="btn-full" aria-label="Toàn màn hình" title="Toàn màn hình" hidden>⛶</button>
       <button type="button" class="hud-btn" id="btn-look" aria-label="Đổi ngoại hình" title="Đổi ngoại hình" hidden>🎨</button>
+      <button type="button" class="hud-btn" id="btn-prefs" aria-label="Tùy chọn" title="Tùy chọn: làm tối khi chiếu, ẩn chat / động tác / người khác…">⚙️</button>
       <button type="button" class="hud-btn" id="btn-help" aria-label="Hướng dẫn &amp; phím tắt" title="Hướng dẫn &amp; phím tắt">?</button>
       <button type="button" class="hud-btn icon-admin" id="btn-admin" aria-label="Bảng quản trị" title="Bảng quản trị" hidden>🛠</button>
+      <div class="view-pop" id="view-pop" role="menu" aria-label="Góc xem" hidden></div>
     </nav>
 
     <!-- ngăn kéo Hàng chờ + Trò chuyện: máy tính = thẻ nổi bên phải (video tự dời sang trái), điện thoại = tấm trượt dưới màn hình -->
@@ -144,6 +146,10 @@
           <p class="join-room" id="join-room"></p>
         </div>
       </div>
+      <div class="field">
+        <span>Chọn rạp</span>
+        <div class="venues" id="join-venues" role="radiogroup" aria-label="Chọn rạp"></div>
+      </div>
       <label class="field">
         <span>Tên của bạn</span>
         <input type="text" id="join-name" minlength="2" maxlength="20" placeholder="2–20 ký tự, không cần đăng nhập" required enterkeyhint="go">
@@ -156,6 +162,19 @@
       </div>
       <p class="join-legal">Video phát bằng trình phát chính thức của YouTube. Vào rạp là bạn đồng ý với <a href="/chinh-sach" target="_blank" rel="noopener">chính sách &amp; quyền riêng tư</a> của rạp.</p>
     </form>
+    <!-- người đã vào rạp trước đây: chào lại, bấm một rạp là vào luôn (khỏi đặt tên / tạo nhân vật lại) -->
+    <div class="join-card join-quick" id="join-quick" hidden>
+      <div class="jq-head">
+        <div class="jq-avatar" id="jq-avatar" aria-hidden="true"></div>
+        <div class="jq-hello"><span>Chào mừng quay lại 👋</span><b id="jq-name"></b></div>
+      </div>
+      <p class="jq-sub" id="jq-sub">Chọn rạp để vào ngay:</p>
+      <div class="jq-rooms" id="jq-rooms" role="list" aria-label="Các rạp"></div>
+      <div class="join-err" id="jq-err" role="alert"></div>
+      <div class="join-actions">
+        <button type="button" class="btn btn-ghost" id="jq-edit">✏️ Đổi tên / nhân vật</button>
+      </div>
+    </div>
   </div>
 
   <!-- tấm dùng chung: ngoại hình, báo cáo, hướng dẫn, chọn phòng, quản trị (máy tính: thẻ nổi bên phải, video tự dời;

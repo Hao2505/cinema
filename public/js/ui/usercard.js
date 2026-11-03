@@ -1,9 +1,11 @@
-// Thẻ người xem khi bấm / chạm vào một nhân vật: tên, vẫy chào, báo cáo; admin có thêm tắt tiếng / mời ra / cấm.
+// Thẻ người xem khi bấm / chạm vào một nhân vật: tên, vẫy chào, báo cáo, ẩn tin nhắn / động tác / cả người đó (chỉ trên
+// máy mình — prefs.js); admin có thêm tắt tiếng / mời ra / cấm.
 import { send } from '../net.js';
 import { doAction } from '../me.js';
 import { store } from '../store.js';
 import { clamp, el, setKids } from '../util.js';
 import { openSheet, closeSheet } from './sheet.js';
+import { personFlags, setPersonFlag } from '../prefs.js';
 
 const $ = (id) => document.getElementById(id);
 let adminTools = null; // (player) → Node[]
@@ -54,10 +56,26 @@ export function initUserCard(stage) {
       if (store.joined) acts.push(el('button', { type: 'button', class: 'btn btn-ghost', text: '🚩 Báo cáo', onclick: () => { close(); openReportUser(a); } }));
     }
     const adm = !isMe && adminTools ? adminTools(a, close) : [];
+    // ẩn riêng người này (chỉ trên máy mình): tin nhắn · động tác + emoji · cả nhân vật
+    let mine = null;
+    if (!isMe) {
+      const f = personFlags(a.name) || {};
+      const tog = (flag, hideText, showText, title) => el('button', {
+        type: 'button', class: `btn btn-ghost${f[flag] ? ' on' : ''}`, text: f[flag] ? showText : hideText, title,
+        onclick: () => { setPersonFlag(a.name, flag, !f[flag]); close(); },
+      });
+      mine = el('div', { class: 'uc-mine' },
+        el('div', { class: 'uc-mine-title', text: 'Chỉ trên máy bạn' }),
+        el('div', { class: 'uc-actions' },
+          tog('chat', '🔇 Ẩn tin nhắn', '💬 Hiện tin nhắn', 'Không thấy tin nhắn, bong bóng của người này'),
+          tog('acts', '🙈 Ẩn động tác', '🕺 Hiện động tác', 'Không thấy người này nhảy / thả emoji'),
+          tog('all', '👻 Ẩn người này', '👤 Hiện người này', 'Không thấy nhân vật này nữa (bỏ ẩn trong ⚙️ Tùy chọn)')));
+    }
     setKids(card,
       el('div', { class: 'uc-name', text: isMe ? `${a.name} (bạn)` : a.name }),
       el('div', { class: 'uc-sub', text: a.ghost ? 'Đang kết nối lại…' : a.seated ? 'Đang ngồi xem' : a.act ? a.act.def.label : 'Đang ở trong rạp' }),
       el('div', { class: 'uc-actions' }, acts),
+      mine,
       adm.length ? el('div', { class: 'uc-admin' }, el('div', { class: 'uc-actions' }, adm)) : null,
     );
     card.hidden = false;

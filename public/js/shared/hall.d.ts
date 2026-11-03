@@ -29,6 +29,14 @@ export declare function nearestSeat(x: number, y: number, maxD?: number): Seat |
 export declare function seatAt(x: number, y: number, eps?: number): Seat | null;
 export declare function spawnPoint(rand?: () => number): { x: number; y: number };
 
+export interface Venue { readonly id: string; readonly name: string; readonly emoji: string; readonly desc: string }
+export declare const VENUES: readonly Venue[];
+export declare const DEFAULT_VENUE: string;
+export declare const ROOM_ID_RE: RegExp;
+export declare function venueById(id: string): Venue | null;
+export declare function parseRoomId(id: unknown): { venue: Venue; n: number } | null;
+export declare function roomName(id: string): string;
+
 export type Dir = 'down' | 'up' | 'left' | 'right';
 export declare const DIRS: readonly Dir[];
 export declare function dirIndex(d: string): number;

@@ -2,9 +2,10 @@
 // nhân vật động.
 // Dùng lại bộ chọn ngoại hình cho nút 🎨 sau khi đã vào rạp.
 import {
-  ACCESSORIES, BODIES, FACIALS, HAIR_COLORS, HAIR_STYLES, LIMITS, PANTS, SHIRTS, SKINS, normalizeLook, randomLook,
+  ACCESSORIES, BODIES, FACIALS, HAIR_COLORS, HAIR_STYLES, LIMITS, PANTS, SHIRTS, SKINS, VENUES, normalizeLook, randomLook,
 } from '../shared/hall.js';
-import { drawCharacter } from '../render/character.js';
+import { send } from '../net.js';
+import { drawCharacter, portrait } from '../render/character.js';
 import { actionPose } from '../render/anims.js';
 import { el, lsGet, lsSet, setKids, setText, str } from '../util.js';
 import { store } from '../store.js';
@@ -12,6 +13,8 @@ import { store } from '../store.js';
 const $ = (id) => document.getElementById(id);
 const LOOK_KEY = 'vc.look';
 const NAME_KEY = 'vc.name';
+const RETURNING_KEY = 'vc.returning'; // '1' sau lần vào rạp thành công đầu tiên
+const LAST_ROOM_KEY = 'vc.room'; // phòng vào lần trước
 
 export function savedLook() {
   try {
@@ -25,6 +28,21 @@ export function saveLook(look) {
 }
 export const savedName = () => str(lsGet(NAME_KEY, ''), 40);
 export const saveName = (n) => lsSet(NAME_KEY, n);
+
+/** vào rạp thành công: lần sau mở trang là vào thẳng (thẻ "Chào mừng quay lại"), nhớ phòng vừa vào */
+export function rememberJoin(roomId) {
+  lsSet(RETURNING_KEY, '1');
+  if (roomId) lsSet(LAST_ROOM_KEY, roomId);
+}
+
+/** đã từng vào rạp và còn tên hợp lệ trên máy này */
+export function isReturning() {
+  if (lsGet(RETURNING_KEY, '') !== '1') return false;
+  const len = Array.from(savedName()).length;
+  return len >= LIMITS.nameMin && len <= LIMITS.nameMax;
+}
+
+export const lastRoom = () => str(lsGet(LAST_ROOM_KEY, ''), 16);
 
 const SKIN_LABEL = ['Rất sáng', 'Sáng', 'Sáng vừa', 'Trung bình', 'Ngăm', 'Nâu', 'Nâu đậm'];
 const BODY_ICON = { nam: '👨', nu: '👩' };
@@ -129,14 +147,60 @@ export function startPreview(canvas, getLook) {
   return () => cancelAnimationFrame(raf);
 }
 
-/** màn vào rạp; onSubmit(name, look) → gửi join */
-export function initJoin(onSubmit) {
+/**
+ * màn vào rạp: lần đầu = đặt tên + chọn nhân vật (onSubmit(name, look)); đã từng vào = thẻ "Chào mừng quay lại" chọn rạp,
+ * bấm là vào luôn bằng tên + nhân vật đã nhớ (onQuick(roomId)).
+ */
+export function initJoin(onSubmit, onQuick) {
   const form = $('join-form');
+  const quick = $('join-quick');
   const nameInput = $('join-name');
   nameInput.value = savedName();
   const editor = lookEditor(savedLook(), (l) => saveLook(l));
   setKids($('join-looks'), editor.node);
-  const stopPreview = startPreview($('join-preview'), () => editor.get());
+  let stopPreview = startPreview($('join-preview'), () => editor.get());
+  // ---- thẻ "Chào mừng quay lại": danh sách rạp (số người + đang chiếu gì), rạp lần trước lên đầu
+  let busyRoom = '';
+  const renderQuick = () => {
+    if (quick.hidden) return;
+    setText($('jq-name'), savedName());
+    const last = lastRoom();
+    const rooms = [...store.rooms].sort((a, b) => (b.id === last) - (a.id === last));
+    if (!rooms.length) { setKids($('jq-rooms'), el('p', { class: 'jq-sub', text: 'Đang tải danh sách rạp…' })); return; }
+    setKids($('jq-rooms'), rooms.map((r) => {
+      const v = VENUES.find((x) => x.id === r.venue);
+      const full = r.count >= r.cap;
+      return el('button', {
+        type: 'button', class: `jq-room${r.id === last ? ' last' : ''}`, role: 'listitem', disabled: full || !!busyRoom,
+        onclick: () => { if (!busyRoom) onQuick?.(r.id); },
+      },
+      el('span', { class: 'e', 'aria-hidden': 'true', text: v?.emoji || '🎬' }),
+      el('span', { class: 't' },
+        el('b', null, r.name, r.id === last ? el('span', { class: 'jq-badge', text: 'LẦN TRƯỚC' }) : null),
+        el('small', { text: `${r.count}/${r.cap} người · ${r.now ? `Đang chiếu: ${r.now}` : v?.desc || 'Màn hình đang trống'}` })),
+      el('span', { class: 'go', text: busyRoom === r.id ? 'Đang vào…' : full ? 'Đầy' : 'Vào ▸' }));
+    }));
+  };
+  store.on('rooms', renderQuick);
+  $('jq-edit').addEventListener('click', () => showForm(''));
+  function showQuick() {
+    $('join').hidden = false;
+    form.hidden = true;
+    quick.hidden = false;
+    setKids($('jq-avatar'), portrait(savedLook(), 64));
+    setText($('jq-err'), '');
+    renderQuick();
+  }
+  function showForm(err) {
+    $('join').hidden = false;
+    quick.hidden = true;
+    form.hidden = false;
+    busyRoom = '';
+    nameInput.value = savedName() || nameInput.value;
+    if (!stopPreview) stopPreview = startPreview($('join-preview'), () => editor.get());
+    showJoinError(err || '');
+    setJoinBusy(false);
+  }
   $('join-random').addEventListener('click', () => {
     const l = randomLook();
     editor.set(l);
@@ -157,6 +221,23 @@ export function initJoin(onSubmit) {
     onSubmit(name, editor.get());
   });
   nameInput.addEventListener('input', () => showJoinError(''));
+  // chọn rạp: xem trước rạp đó ngay sau lớp phủ (spec), bấm "Vào rạp" là vào đúng rạp đang xem
+  const renderVenues = () => {
+    const count = new Map();
+    for (const r of store.rooms) count.set(r.venue, (count.get(r.venue) || 0) + (Number(r.count) || 0));
+    setKids($('join-venues'), VENUES.map((v) => {
+      const on = store.venue === v.id;
+      return el('button', {
+        type: 'button', class: `venue-card${on ? ' on' : ''}`, role: 'radio', 'aria-checked': on ? 'true' : 'false', title: v.desc,
+        onclick: () => { if (store.venue !== v.id) send({ t: 'spec', room: v.id }); },
+      }, el('span', { class: 'vc-emoji', 'aria-hidden': 'true', text: v.emoji }),
+      el('span', { class: 'vc-name', text: v.name }),
+      el('span', { class: 'vc-count', text: `${count.get(v.id) || 0} người` }));
+    }));
+  };
+  store.on('rooms', renderVenues);
+  store.on('venue', renderVenues);
+  renderVenues();
   const updateRoom = () => {
     const room = store.rooms.find((r) => r.id === store.roomId);
     const n = store.now;
@@ -171,8 +252,14 @@ export function initJoin(onSubmit) {
   store.on('hello', updateRoom);
   setTimeout(() => nameInput.focus({ preventScroll: true }), 50);
   return {
-    hide() { $('join').hidden = true; stopPreview(); },
-    show() { $('join').hidden = false; setJoinBusy(false); },
+    hide() { $('join').hidden = true; busyRoom = ''; if (stopPreview) { stopPreview(); stopPreview = null; } },
+    /** màn đặt tên + chọn nhân vật (kèm lỗi nếu có) */
+    show(err) { showForm(err); },
+    showQuick,
+    get isQuick() { return !$('join').hidden && !quick.hidden; },
+    /** thẻ chào lại: đang vào phòng nào ('' = thôi) */
+    setQuickBusy(roomId) { busyRoom = roomId || ''; renderQuick(); },
+    quickError(text) { busyRoom = ''; setText($('jq-err'), text || ''); renderQuick(); },
     get look() { return editor.get(); },
   };
 }
