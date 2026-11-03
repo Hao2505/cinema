@@ -1,5 +1,10 @@
 # Lịch sử thay đổi
 
+## 0.4.9 — 2026-11-04 · Cụm nút dưới màn hình gọn lại
+
+Bỏ thanh âm lượng riêng của rạp (thanh điều khiển YouTube đã có âm lượng + phụ đề). Dưới màn hình chỉ còn một viên gọn
+chia ô **⏭ 0/5 · 🚩 · ⛶**; "🔊 Bật tiếng" chỉ hiện khi trình duyệt tự tắt tiếng lúc phát đầu.
+
 ## 0.4.8 — 2026-11-03 · Hiện thanh điều khiển YouTube (tự bật / tắt phụ đề)
 
 Trình phát hiện thanh điều khiển của YouTube để mỗi người tự bật / tắt **phụ đề (nút CC)** và chọn chất lượng — YouTube

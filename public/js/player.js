@@ -7,7 +7,6 @@
 // riêng DƯỚI màn hình. Chỉ admin dừng được cả phòng. Live thì theo đầu live. Lỗi 100/101/150 → báo server.
 import { send } from './net.js';
 import { store } from './store.js';
-import { lsGet, lsSet } from './util.js';
 
 const DRIFT_MAX = 1.0; // giây
 const SEEK_GAP_MS = 2500; // không tua dồn dập (đang quảng cáo thì lệnh tua bị bỏ qua — thử lại sau, giãn dần)
@@ -56,8 +55,8 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
   let lastState = YT_STATE.UNSTARTED;
   let enabled = false;
   let apiWarned = false;
-  let volume = Math.max(0, Math.min(100, Number(lsGet('vc.vol', '100')) || 0));
-  let wantMuted = lsGet('vc.muted', '0') === '1';
+  // trình duyệt tự tắt tiếng lúc tự phát: null = chưa biết, true = mời "🔊 Bật tiếng", false = thôi (đã bật / tự chọn tắt sau)
+  let autoMuted = null;
   let firstPlay = false; // vừa tải bài: lần PLAYING đầu tiên tua lại cho thật khớp (bù thời gian tải ~0,5–1,5 s)
   let loadedLive = false; // bài đang nạp theo kiểu live (không tua)
   let durProbe = null; // đo độ dài video "chưa rõ thời lượng": { qid, d, cur, at }
@@ -73,7 +72,7 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     hooks.onHint?.(SHARED_HINT);
   }
 
-  const status = () => ({ ready, enabled, needsTap, muted, userPaused, error: errorFor && errorFor === curV, state: lastState });
+  const status = () => ({ ready, enabled, needsTap, askUnmute: autoMuted === true, userPaused, error: errorFor && errorFor === curV, state: lastState });
   const changed = () => hooks.onStatus?.(status());
 
   function targetSec() {
@@ -100,7 +99,7 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
           origin: location.origin, widget_referrer: location.href,
         },
         events: {
-          onReady: () => { ready = true; applyVolume(); changed(); sync(true); },
+          onReady: () => { ready = true; cmd(() => player.unMute()); changed(); sync(true); },
           onStateChange: (e) => onState(e.data),
           onError: (e) => onError(e.data),
           // đổi tốc độ trong nút ⚙ của YouTube → về 1× (xem chung)
@@ -127,7 +126,7 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     if (s === YT_STATE.PLAYING) {
       needsTap = false;
       if (userPaused) { userPaused = false; lastSeek = 0; sync(true); } // vừa chạy lại: tua về đúng chỗ ngay
-      try { muted = !!player.isMuted(); } catch { /* bỏ qua */ }
+      readMuted();
       const n = store.now;
       if (firstPlay && n && !n.live && !n.paused) {
         firstPlay = false;
@@ -149,10 +148,15 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     changed();
   }
 
-  function applyVolume() {
-    if (!player || !ready) return;
-    cmd(() => { player.setVolume(volume); if (wantMuted || volume === 0) player.mute(); else player.unMute(); });
-    muted = wantMuted || volume === 0;
+  /** đọc trạng thái tắt tiếng của trình phát (người xem chỉnh bằng thanh điều khiển YouTube) */
+  function readMuted() {
+    let m = muted;
+    try { m = !!player.isMuted(); } catch { return; }
+    if (m === muted && autoMuted !== null) return;
+    muted = m;
+    if (autoMuted === null) autoMuted = m; // lần phát đầu mà đã bị tắt tiếng = trình duyệt tự tắt
+    else if (!m) autoMuted = false;
+    changed();
   }
 
   function onError(code) {
@@ -274,6 +278,7 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       return; // live: YouTube tự giữ đầu live
     }
     if (state === YT_STATE.PLAYING) {
+      readMuted(); // người xem bật / tắt tiếng bằng thanh của YouTube
       // người xem tự kéo thanh tua: giờ video nhảy tới nhanh hơn thời gian thật > 3 s, hoặc lùi > 3 s, so với lần đo trước
       // (không phải lệnh tua của mình). Quảng cáo / mạng tải chậm chỉ làm video chạy CHẬM hơn thời gian thật → không nhầm.
       // → về giờ chung ngay + nhắc
@@ -327,24 +332,6 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       changed();
     },
     /** âm lượng 0–100 (nút riêng dưới màn hình) */
-    setVolume(v) {
-      volume = Math.max(0, Math.min(100, Math.round(v)));
-      wantMuted = volume === 0;
-      lsSet('vc.vol', volume);
-      lsSet('vc.muted', wantMuted ? '1' : '0');
-      applyVolume();
-      changed();
-    },
-    toggleMute() {
-      wantMuted = !(wantMuted || volume === 0);
-      if (!wantMuted && volume === 0) volume = 60;
-      lsSet('vc.muted', wantMuted ? '1' : '0');
-      lsSet('vc.vol', volume);
-      applyVolume();
-      changed();
-    },
-    get volume() { return volume; },
-    get muted() { return wantMuted || volume === 0; },
     /** toàn màn hình cho khung video (không có nút của YouTube vì đã ẩn điều khiển) */
     fullscreen() {
       const el = slotEl;
@@ -362,9 +349,8 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       needsTap = false;
       userPaused = false;
       lastSeek = 0;
-      wantMuted = false;
-      if (volume === 0) volume = 60;
-      applyVolume();
+      cmd(() => player.unMute());
+      autoMuted = false;
       const n = store.now;
       if (n && !n.paused) {
         const t = targetSec();

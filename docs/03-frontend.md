@@ -273,7 +273,7 @@ ghế khi chụm phóng; xem lại giá của chùm máy chiếu (`drawBeam`) tr
 | Màn vào rạp `#join` | `join.js` | lớp phủ toàn trang (lúc này **trình phát chưa bật** nên không đè video đang chạy). **Lần đầu** (`#join-form`): chọn rạp (4 thẻ + số người; bấm → `spec` xem trước rạp đó ngay phía sau), tên 2–20 ký tự (nhớ `vc.name`), bộ chọn ngoại hình `lookEditor` (Dáng người 👨 / 👩 · Màu da · Kiểu tóc · Màu tóc · Áo · Quần · Phụ kiện · Râu — chỉ nam; đổi dáng thì tóc / phụ kiện quá "đặc trưng" tự đổi theo), 🎲 Ngẫu nhiên, nhân vật xem trước động (`startPreview`), link chính sách. **Người quay lại** (`#join-quick`, khi `vc.returning = 1` và còn tên hợp lệ): chân dung (`portrait`), "Chào mừng quay lại 👋 <tên>", danh sách phòng (`RoomInfo`: số người / sức chứa, "Đang chiếu: …" hoặc mô tả rạp; phòng lần trước `vc.room` lên đầu với nhãn "LẦN TRƯỚC"; phòng đầy bị khoá) → bấm là `quickJoin`; "✏️ Đổi tên / nhân vật" về form |
 | Cụm góc trên trái | `main.js` | 🎬 (về trang chủ) + ô phòng (emoji rạp, tên, `người/sức chứa`) → tấm "🎬 Chọn rạp" (đứng xem: `spec`; đã vào: tải lại `/?phong=`) |
 | Cụm góc trên phải | `main.js` | 📺 menu góc xem (Cân / Màn lớn / Màn rộng) · ⛶ toàn màn hình cả rạp (ẩn nếu trình duyệt không hỗ trợ) · 🎨 đổi ngoại hình (sau khi vào) · ⚙️ tùy chọn · ? hướng dẫn · 🛠 quản trị (admin) |
-| Dưới màn hình `#screen-tools` | `main.js`, `queue.js` | "▶ Bấm để xem", "🔊 Bật tiếng", "📋 Dán link YouTube để chiếu" (khi trống / đang phát kênh mặc định), tên video, ⏭ Bỏ qua `n/need` (ẩn với kênh mặc định), 🔊 + thanh âm lượng, ⛶ video, 🚩 |
+| Dưới màn hình `#screen-tools` | `main.js`, `queue.js` | "▶ Bấm để xem", "🔊 Bật tiếng", "📋 Dán link YouTube để chiếu" (khi trống / đang phát kênh mặc định), tên video, rồi một cụm gọn `#tool-group` (viên chia ô, ẩn hẳn khi không còn nút nào): ⏭ `n/need` (ẩn với kênh mặc định / video admin), 🚩, ⛶ video. Âm lượng + phụ đề dùng thanh điều khiển của YouTube (0.4.9 bỏ thanh âm lượng riêng) |
 | Dock `#dock` | `main.js`, `chat.js` | 😀 bảng 8 emoji (mở rồi bấm liên tục được) · 🎭 vòng động tác · ô chat (≤ 140, tắt khi chưa vào) · 📋 hàng chờ (badge số bài) · 💬 trò chuyện (badge chưa đọc) |
 | Ngăn kéo `#side` | `queue.js`, `chat.js` | máy tính: thẻ nổi bên phải chứa cả Đang chiếu + Hàng chờ + Trò chuyện, nhớ mở / đóng (`vc.side`); điện thoại dọc: tấm trượt 2 thẻ |
 | Đang chiếu | `queue.js` | badge (ĐANG CHIẾU / TRỰC TIẾP / TẠM DỪNG / KÊNH MẶC ĐỊNH / MÀN HÌNH TRỐNG), tên, kênh + người thêm, thanh tiến độ theo đồng hồ phòng, nút bỏ phiếu (người thêm: "Bỏ qua video của mình"), 🚩, nút admin |
@@ -387,7 +387,6 @@ hiện). Người bị ẩn vẫn được cập nhật vị trí, chỉ không 
 | `vc.returning`, `vc.room` | localStorage | đã từng vào rạp (`'1'` → thẻ "Chào mừng quay lại"), phòng vào lần trước |
 | `vc.view` | localStorage | góc xem (`can` / `lon` / `rong`) |
 | `vc.side` | localStorage | ngăn kéo máy tính đang mở |
-| `vc.vol`, `vc.muted` | localStorage | âm lượng |
 | `vc.prefs` | localStorage | tùy chọn ⚙️ + danh sách người đang ẩn |
 | `vc.token` | sessionStorage | token nối lại nhân vật (theo tab) |
 | `vc.autojoin` | sessionStorage | cờ cũ (bản tải lại trang khi đổi rạp) — vẫn đọc để tương thích |

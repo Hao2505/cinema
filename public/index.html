@@ -117,13 +117,12 @@
         <button type="button" class="pill-btn pill-accent" id="btn-unmute" hidden>🔊 Bật tiếng</button>
         <button type="button" class="pill-btn" id="btn-add-video" hidden>📋 Dán link YouTube để chiếu</button>
         <span class="screen-title" id="screen-title"></span>
-        <button type="button" class="pill-btn" id="btn-vote" hidden>⏭ Bỏ qua <span id="vote-count"></span></button>
-        <span class="vol" id="vol" hidden>
-          <button type="button" class="pill-btn pill-ghost" id="btn-vol" aria-label="Tắt / bật tiếng" title="Tắt / bật tiếng">🔊</button>
-          <input type="range" id="vol-range" min="0" max="100" step="1" value="100" aria-label="Âm lượng">
+        <!-- một cụm gọn: bỏ qua · báo cáo · toàn màn hình (âm lượng + phụ đề dùng thanh điều khiển của YouTube) -->
+        <span class="tool-group" id="tool-group">
+          <button type="button" class="tool-btn" id="btn-vote" hidden aria-label="Bỏ phiếu bỏ qua video">⏭<span class="tool-n" id="vote-count"></span></button>
+          <button type="button" class="tool-btn" id="btn-report" hidden aria-label="Báo cáo video này" title="Báo cáo video này">🚩</button>
+          <button type="button" class="tool-btn" id="btn-fs" hidden aria-label="Xem video toàn màn hình" title="Xem video toàn màn hình">⛶</button>
         </span>
-        <button type="button" class="pill-btn pill-ghost" id="btn-fs" hidden aria-label="Xem video toàn màn hình" title="Xem video toàn màn hình">⛶</button>
-        <button type="button" class="pill-btn pill-ghost" id="btn-report" hidden aria-label="Báo cáo video này" title="Báo cáo video này">🚩</button>
       </div>
       <ol class="chat-feed" id="chat-feed" aria-hidden="true"></ol>
       <div class="joystick" id="joystick" hidden aria-hidden="true"><div class="joy-knob"></div></div>

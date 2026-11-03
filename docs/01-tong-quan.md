@@ -49,7 +49,7 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
   được ở VN, ≤ 15 phút** (live ≤ 30 phút / lượt) — từ chối thì nói rõ lý do. Mỗi người chờ tối đa 2 video, xoá được bài
   của mình.
 - **Xem chung**: "đồng hồ phòng" trên server; ẩn thanh tua / dừng của YouTube; lệch > 1 s tự tua; lỡ bấm dừng tự chạy
-  lại; xem quảng cáo xong tự về đúng chỗ. Âm lượng + toàn màn hình video là nút riêng dưới màn hình.
+  lại; xem quảng cáo xong tự về đúng chỗ. Âm lượng + phụ đề: thanh điều khiển của YouTube; dưới màn hình chỉ còn một cụm gọn ⏭ · 🚩 · ⛶.
 - Bỏ phiếu bỏ qua (≥ 50 % người có mặt, ≥ 2 phiếu); người thêm bài bỏ qua bài mình ngay; **video admin thêm thì người
   thường không bỏ phiếu bỏ qua được** (báo cáo cũng không tự gỡ — admin quyết). Chủ kênh tắt nhúng giữa chừng → tự chuyển bài.
 - Điện thoại chuyển app / về màn hình chính / tắt màn hình → nhân vật **biến khỏi rạp ngay** với người khác, mở lại hiện

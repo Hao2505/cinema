@@ -60,20 +60,15 @@ player = createPlayer($('screen-slot'), $('yt-host'), {
     const showing = !!store.now && s.enabled;
     $('btn-tap-play').hidden = !s.needsTap || !showing;
     setText($('btn-tap-play'), '▶ Bấm để xem');
-    // trình duyệt tự tắt tiếng (chặn tự phát có tiếng) mà người xem không chọn tắt → mời bật tiếng
-    $('btn-unmute').hidden = !(s.muted && !player.muted && !s.needsTap && showing);
-    $('vol').hidden = !showing;
+    // trình duyệt tự tắt tiếng lúc tự phát (chặn tự phát có tiếng) → mời bật tiếng; âm lượng thường dùng thanh của YouTube
+    $('btn-unmute').hidden = !(s.askUnmute && !s.needsTap && showing);
     $('btn-fs').hidden = !showing;
-    setText($('btn-vol'), player.muted ? '🔇' : player.volume < 45 ? '🔉' : '🔊');
-    $('vol-range').value = String(player.muted ? 0 : player.volume);
   },
   onNotice: (t) => toast(t, 'warn'),
   onHint: (t) => toast(t, 'info', 4500),
 });
 $('btn-tap-play').addEventListener('click', () => player.userPlay());
 $('btn-unmute').addEventListener('click', () => player.userPlay());
-$('btn-vol').addEventListener('click', () => player.toggleMute());
-$('vol-range').addEventListener('input', (e) => player.setVolume(Number(e.target.value)));
 $('btn-fs').addEventListener('click', () => player.fullscreen());
 
 function layoutOverlays(L) {

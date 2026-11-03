@@ -117,7 +117,8 @@ Thử trên máy: `NO_KEY=1 npx tsx scripts/qa-server.ts` (YouTube giả không 
   or disable any links that appear in YouTube players" (III.I.4), "interfere with … or block advertisements" (III.I.5) —
   chặn bấm sẽ chặn nút "Bỏ qua quảng cáo", link quảng cáo, logo / tiêu đề YouTube. Tự chạy lại cho kết quả như nhau mà
   không vi phạm.
-- Nút **dưới** màn hình (`#screen-tools`, không đè video): 🔊 + thanh âm lượng (nhớ `vc.vol`, `vc.muted`), ⛶ toàn màn hình
+- Nút **dưới** màn hình (`#screen-tools`, không đè video): cụm gọn ⏭ · 🚩 · ⛶ toàn màn hình (âm lượng dùng thanh của
+  YouTube từ 0.4.9; "🔊 Bật tiếng" chỉ hiện khi trình duyệt tự tắt tiếng lúc phát đầu — `autoMuted`); ⛶ toàn màn hình
   khung video (`requestFullscreen` lên `#screen-slot`; iPhone dùng `webkitEnterFullscreen` của iframe), "▶ Bấm để xem"
   khi trình duyệt chặn tự phát (iPhone), "🔊 Bật tiếng" khi trình duyệt tự tắt tiếng.
 - Không che: `#screen-slot` (iframe) nằm trên canvas, đặt khít ô màn hình (`stage.placeSlot`). Canvas cắt (clip) mọi thứ

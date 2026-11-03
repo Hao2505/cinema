@@ -23,7 +23,7 @@ Phía trên là màn hình lớn — trình phát YouTube chính thức đặt k
 |---|---|---|
 | Đi lại | `W A S D` hoặc phím mũi tên · bấm sàn để đi tới | kéo cần điều khiển góc trái · chạm sàn |
 | Ngồi ghế | đi tới sát ghế rồi dừng (tự ngồi) · bấm vào ghế | chạm vào ghế |
-| Âm lượng / toàn màn hình | 🔊 + thanh trượt, ⛶ dưới màn hình (riêng video) · ⛶ góc trên phải (cả rạp) | như máy tính |
+| Âm lượng / phụ đề / toàn màn hình | thanh điều khiển YouTube trên video (🔊, CC) · ⛶ dưới màn hình (riêng video) · ⛶ góc trên phải (cả rạp) | như máy tính |
 | Chọn rạp | bảng chọn rạp ở màn vào rạp · bấm ô tên rạp góc trên trái | như máy tính |
 | Vào lại lần sau | máy nhớ tên + nhân vật: mở trang là thấy thẻ "Chào mừng quay lại", bấm một rạp là vào | như máy tính |
 | Góc xem | 📺 góc trên phải: Cân (khán phòng rộng) · **Màn lớn** (mặc định) · Màn rộng (video to nhất) | — |
