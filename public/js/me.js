@@ -166,13 +166,14 @@ function sendIfNeeded(now) {
   if (!changed && !stopNow) return;
   if (me.moving && now - me.lastSend < SEND_MS) return;
   if (!me.moving && !stopNow && now - me.lastSend < 60) return;
-  const ok = send({ t: 'move', x: round2(me.x), y: round2(me.y), d: DIR_INDEX[me.dir] ?? 0, c: Math.round(now), m: me.moving ? 1 : 0 });
+  const ok = send({ t: 'move', x: round3(me.x), y: round3(me.y), d: DIR_INDEX[me.dir] ?? 0, c: Math.round(now), m: me.moving ? 1 : 0 });
   if (!ok) return;
   me.lastSend = now;
   me.sentX = me.x; me.sentY = me.y; me.sentDir = me.dir; me.sentMoving = me.moving;
 }
 
-const round2 = (v) => Math.round(v * 100) / 100;
+// 3 chữ số lẻ: làm tròn 2 chữ số làm mỗi bước 33 ms (~0,11 ô) lệch tới ±9 % → máy khác thấy tốc độ rung nhẹ
+const round3 = (v) => Math.round(v * 1000) / 1000;
 
 /** đang ngồi ghế? (đứng yên đúng chỗ ngồi) */
 export function mySeat() {

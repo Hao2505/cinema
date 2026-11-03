@@ -30,11 +30,11 @@ Yêu cầu gốc của chủ dự án: `CLAUDE.md` (đọc trước). Tài liệ
 
 ```bash
 npm install
-npm test                                   # typecheck + 22 test đơn vị + 32 bước smoke (~15 s, không Internet)
+npm test                                   # typecheck + 24 test đơn vị + 35 bước smoke (~15 s, không Internet)
 npm run dev                                # server thật :3300 (cần .env: ADMIN_TOKEN, YT_API_KEY)
 npx tsx scripts/qa-server.ts               # server QA :3399, YouTube giả, admin: http://localhost:3399/#admin=qa-local-admin
 npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 10 --video aqz-KE-bpKQ [--room bien]   # người xem giả
-npm run qa -- --out /tmp/vc-shots [--only desktop|mobile] [--room bien]   # Chrome headless: ảnh, chồng lấn video, độ mượt
+npm run qa -- --out /tmp/vc-shots [--only desktop|mobile|smooth] [--room bien] [--bunch]   # Chrome headless: ảnh, chồng lấn video, độ mượt
 npx tsx scripts/qa-characters.ts --url http://localhost:3399 --out /tmp/vc-chars                 # soi nhân vật / động tác
 bash deploy/deploy.sh [--setup]            # CHỈ khi chủ dự án bảo — xem docs/05
 ```

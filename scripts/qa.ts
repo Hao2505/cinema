@@ -9,6 +9,7 @@ import { createApp } from '../src/app.js';
 import { createFakeYouTube } from './fake-youtube.js';
 import { startBots } from './bots.js';
 import { launch, sleep, type Page } from './cdp.js';
+import { SPEED } from '../public/js/shared/hall.js';
 
 const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i++) {
@@ -18,7 +19,8 @@ for (let i = 2; i < process.argv.length; i++) {
 const outDir = resolve(args.get('out') || 'qa-shots');
 const nBots = Number(args.get('bots') ?? 14);
 const video = args.get('video') ?? 'aqz-KE-bpKQ';
-const only = args.get('only') || ''; // 'desktop' | 'mobile'
+const only = args.get('only') || ''; // 'desktop' | 'mobile' | 'smooth' (chỉ đo độ mượt, không chụp)
+const smoothSecs = Number(args.get('secs') || 15);
 const room = args.get('room') || ''; // rạp cần chụp (vd 'bien'): người xem giả + trang QA vào đúng rạp đó
 const roomQs = room ? `?phong=${encodeURIComponent(room)}` : '';
 const jitter = Number(args.get('jitter') || 0); // giả lập mạng xấu cho người xem giả (ms)
@@ -97,13 +99,22 @@ async function enterCinema(page: Page, name: string): Promise<void> {
   }
 }
 
-/** đo độ mượt: tỉ lệ khung hình nhân vật khác "khựng" khi đang đi + nhịp rAF */
+/**
+ * đo độ mượt của người khác: khung "khựng" khi đang đi, bước nhảy vọt, và ĐỘ ĐỀU tốc độ — tốc độ từng khung so với tốc độ
+ * đi thật (SPEED; 1/4 bot đi 0,6× như cần analog đẩy nhẹ) + mức đổi tốc giữa 2 khung liền nhau. Thời gian lấy đúng mốc
+ * khung vẽ đã dùng cho người đó (a.posAt) nên không lẫn nhịp rAF của trang QA.
+ */
 async function smoothness(page: Page, seconds = 6): Promise<unknown> {
   return page.evaluate(`new Promise((resolve) => {
     const { store } = window.__vc;
+    const SPEED = ${SPEED};
     const last = new Map();
+    const lastV = new Map();
     let frames = 0, moving = 0, stalls = 0, steps = [];
+    const dirs = new Map(); // hướng mặt người khác lúc đang đi — phải có nhiều hướng (bắt lỗi luôn quay một phía)
+    const ratios = [], dv = [];
     const deltas = [];
+    const net0 = { ...store.net };
     let prevT = performance.now();
     const t0 = prevT;
     function f() {
@@ -111,13 +122,22 @@ async function smoothness(page: Page, seconds = 6): Promise<unknown> {
       deltas.push(now - prevT); prevT = now;
       for (const a of store.players.values()) {
         if (a.isMe || !a.lastCt) continue;
+        if (a.moveAmt > 0.6) dirs.set(a.dir, (dirs.get(a.dir) || 0) + 1);
         const p = last.get(a.id);
-        if (p && a.moveAmt > 0.6) {
+        if (p && a.moveAmt > 0.6 && a.posAt > p.t) {
           moving++;
           const d = Math.hypot(a.x - p.x, a.y - p.y);
           if (d < 1e-4) stalls++; else steps.push(d);
-        }
-        last.set(a.id, { x: a.x, y: a.y });
+          const dtf = (a.posAt - p.t) / 1000;
+          if (dtf > 0.004 && dtf < 0.1) {
+            const v = d / dtf;
+            ratios.push(v / SPEED);
+            const pv = lastV.get(a.id);
+            if (pv !== undefined && pv > 0.15 && v > 0.15) dv.push(Math.abs(v - pv) / Math.max(v, pv));
+            lastV.set(a.id, v);
+          }
+        } else lastV.delete(a.id);
+        last.set(a.id, { x: a.x, y: a.y, t: a.posAt });
       }
       frames++;
       if (now - t0 < ${seconds * 1000}) requestAnimationFrame(f);
@@ -129,9 +149,18 @@ async function smoothness(page: Page, seconds = 6): Promise<unknown> {
         const ss = [...steps].sort((p, q) => p - q);
         const med = ss.length ? ss[ss.length >> 1] : 0;
         const jumps = med ? steps.filter((x) => x > med * 4).length : 0;
+        // phân bố tốc độ (× SPEED) lúc đang đi — đi đều thì dồn vào 0.9–1.1 (và 0.5–0.7 cho bot đi chậm)
+        const bins = [[0, 0.3], [0.3, 0.5], [0.5, 0.7], [0.7, 0.9], [0.9, 1.1], [1.1, 1.3], [1.3, 1.7], [1.7, 99]];
+        const hist = {};
+        for (const [lo, hi] of bins) hist[lo + '-' + (hi > 9 ? '∞' : hi)] = ratios.length ? +(100 * ratios.filter((r) => r >= lo && r < hi).length / ratios.length).toFixed(1) : 0;
+        const dvs = [...dv].sort((p, q) => p - q);
+        const q95 = dvs.length ? +dvs[Math.floor(dvs.length * 0.95)].toFixed(3) : null;
         resolve({ frames, fps: Math.round(frames / ${seconds}), movingSamples: moving, stallRatio: moving ? +(stalls / moving).toFixed(3) : null,
-          jumps, maxStepRatio: med ? +(ss[ss.length - 1] / med).toFixed(1) : null, catchup: store.net.catchup, dry: store.net.dry,
-          stepCV: steps.length ? +(sd / mean).toFixed(3) : null, hitches, buffer: Math.round(store.net.buffer), late: store.net.late, netFrames: store.net.frames,
+          jumps, maxStepRatio: med ? +(ss[ss.length - 1] / med).toFixed(1) : null,
+          speedHist: hist, speedChangeP95: q95, speedChangeOver15: dv.length ? +(100 * dv.filter((x) => x > 0.15).length / dv.length).toFixed(2) : null,
+          dry: store.net.dry - net0.dry, holdMs: Math.round(store.net.holdMs - net0.holdMs), catchup: store.net.catchup - net0.catchup,
+          dirs: Object.fromEntries(dirs),
+          stepCV: steps.length ? +(sd / mean).toFixed(3) : null, hitches, buffer: Math.round(store.net.buffer), netFrames: store.net.frames - net0.frames,
           view: window.__vc.view() });
       }
     }
@@ -148,7 +177,20 @@ async function main(): Promise<void> {
   const browser = await launch();
   try {
     await sleep(2500);
-    if (only !== 'mobile') {
+    if (only === 'smooth') {
+      // chỉ đo độ mượt người khác (so sánh thuật toán / mạng giả lập), không chụp ảnh
+      const page = await browser.newPage();
+      watch(page, 'smooth');
+      await page.send('Page.enable'); await page.send('Runtime.enable'); await page.send('Log.enable');
+      await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+      await page.send('Page.navigate', { url: `${base}/${roomQs}` });
+      await waitFor(page, 'window.__vc && window.__vc.store.ready === true');
+      await enterCinema(page, 'Tao Test');
+      await sleep(4000);
+      const sm = await smoothness(page, smoothSecs);
+      console.log('🎞️  smooth', JSON.stringify(sm));
+    }
+    if (only !== 'mobile' && only !== 'smooth') {
       const page = await browser.newPage();
       watch(page, 'desktop');
       await page.send('Page.enable'); await page.send('Runtime.enable'); await page.send('Log.enable');
@@ -189,6 +231,8 @@ async function main(): Promise<void> {
       await sleep(400);
       const sm = await smoothness(page, 6);
       console.log('🎞️  desktop', JSON.stringify(sm));
+      const ds = (sm as { dirs?: Record<string, number> }).dirs || {};
+      if (Object.values(ds).reduce((a, b) => a + b, 0) > 200 && Object.keys(ds).length < 3) errors.push(`[desktop] người khác lúc đi chỉ quay ${Object.keys(ds).join('/')} — hướng mặt không theo hướng đi`);
       console.log('▶️  player', JSON.stringify(await page.evaluate('window.__vc.player()')));
       await page.evaluate("document.getElementById('btn-admin').click()");
       await sleep(700);
@@ -237,7 +281,7 @@ async function main(): Promise<void> {
       if (!(await waitFor(page, 'window.__vc.store.joined === true', 8000))) errors.push('[desktop] bấm rạp trên thẻ chào lại không vào được');
       await page.close();
     }
-    if (only !== 'desktop') {
+    if (only !== 'desktop' && only !== 'smooth') {
       const page = await browser.newPage();
       watch(page, 'mobile');
       await page.send('Page.enable'); await page.send('Runtime.enable'); await page.send('Log.enable');

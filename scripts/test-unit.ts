@@ -9,6 +9,8 @@ import {
   randomLook, roomName, seatAt, spawnPoint,
 } from '../public/js/shared/hall.js';
 import { FIXTURES } from './fake-youtube.js';
+import { httpsRedirectUrl, pickEncoding } from '../src/app.js';
+import type { IncomingMessage } from 'node:http';
 
 let passed = 0;
 const failures: string[] = [];
@@ -220,6 +222,31 @@ test('động tác: 8 động tác, phím 1–8', () => {
   assert.equal(ACTIONS.length, 8);
   assert.deepEqual(ACTIONS.map((a) => a.key), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.ok(!ACTIONS.some((a) => /ke/i.test(a.label.normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/).find((w) => w.toLowerCase() === 'ke') ?? '')));
+});
+
+// ---------------------------------------------------------------- http → https (tên miền trỏ thẳng VPS)
+test('httpsRedirectUrl: chỉ chuyển khi người xem vào bằng http, không bao giờ vòng lặp', () => {
+  const req = (headers: Record<string, string>, url = '/?phong=bien'): IncomingMessage => ({ headers, url } as unknown as IncomingMessage);
+  const site = 'https://cinema.vibe-coder.fun';
+  assert.equal(httpsRedirectUrl(req({ host: 'cinema.vibe-coder.fun' }), site), ''); // không qua proxy (dev / test)
+  assert.equal(httpsRedirectUrl(req({ host: 'cinema.vibe-coder.fun', 'x-forwarded-proto': 'http' }), site), 'https://cinema.vibe-coder.fun/?phong=bien');
+  assert.equal(httpsRedirectUrl(req({ host: 'cinema.vibe-coder.fun', 'x-forwarded-proto': 'https' }), site), '');
+  // Cloudflare Flexible: nginx nhận http nhưng người xem dùng https → không chuyển (tránh vòng lặp)
+  assert.equal(httpsRedirectUrl(req({ host: 'cinema.vibe-coder.fun', 'x-forwarded-proto': 'http', 'cf-visitor': '{"scheme":"https"}' }), site), '');
+  assert.equal(httpsRedirectUrl(req({ host: 'cinema.vibe-coder.fun', 'x-forwarded-proto': 'https', 'cf-visitor': '{"scheme":"http"}' }), site), 'https://cinema.vibe-coder.fun/?phong=bien');
+  // Host lạ (gọi thẳng IP kèm Host giả) → vẫn về đúng tên miền SITE_URL
+  assert.equal(httpsRedirectUrl(req({ host: 'evil.example', 'x-forwarded-proto': 'http' }, '/'), site), 'https://cinema.vibe-coder.fun/');
+  assert.equal(httpsRedirectUrl(req({ host: 'localhost:3300', 'x-forwarded-proto': 'http' }), ''), '');
+  assert.equal(httpsRedirectUrl(req({ host: 'bad host!', 'x-forwarded-proto': 'http' }), ''), '');
+});
+
+test('pickEncoding: chọn br > gzip, tôn trọng q=0', () => {
+  assert.equal(pickEncoding('gzip, deflate, br, zstd'), 'br');
+  assert.equal(pickEncoding('gzip, deflate'), 'gzip');
+  assert.equal(pickEncoding('br;q=0, gzip;q=0.8'), 'gzip');
+  assert.equal(pickEncoding('identity'), '');
+  assert.equal(pickEncoding(undefined), '');
+  assert.equal(pickEncoding('gzip;q=0'), '');
 });
 
 if (failures.length) {

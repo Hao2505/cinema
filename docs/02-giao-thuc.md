@@ -76,7 +76,7 @@ Vị trí luôn tính **bằng ô** (tile), là **điểm chân**: `x` ngang (0 
 | `switch` | `room` khớp `ROOM_ID_RE` (≤ 16 ký tự) | đã có nhân vật: chuyển sang phòng / rạp khác **không tải lại trang** — giữ id, tên, ngoại hình, token; xuất hiện ở lối đi cuối rạp mới → `welcome` mới. Rạp đầy / trùng tên / đổi quá nhanh (`JOINS_PER_MINUTE`) → `notice` warn, ở yên |
 | `leave` | — | đóng tab / rời trang (`pagehide`, không phải bộ nhớ đệm): bỏ nhân vật ngay (`pl` cho cả phòng); socket vẫn mở như người đứng xem |
 | `join` | `name` chuỗi ≤ 80; `look` bất kỳ; `room` (sai → `''`); `token` 32 hex (sai → `''`); `ck` 16–64 hex (sai → `''`) | vào rạp / nối lại → `welcome` hoặc `join_err` ([07](07-server.md) §5) |
-| `move` | `x, y` hữu hạn, \|·\| ≤ 1000; `d` nguyên 0–3; `c` 0–1e12 (làm tròn); `m` = `1`/`true` → 1, còn lại 0 | kiểm ngân sách + va chạm, có thể trả `corr`; vào frame `f` |
+| `move` | `x, y` hữu hạn, \|·\| ≤ 1000 (client gửi 3 chữ số lẻ); `d` nguyên 0–3; `c` 0–1e12 (làm tròn); `m` = `1`/`true` → 1, còn lại 0 | kiểm ngân sách + va chạm, có thể trả `corr`; vào frame `f` (x, y 3 chữ số lẻ) |
 | `act` | `a` ∈ `ACTION_IDS` hoặc `''` (thôi); `c` (sai → 0) | phát `act` cho cả phòng |
 | `chat` | `text` ≤ 1000 ký tự thô | lọc (`cleanText` ≤ 140, link, bậy, lặp, tốc độ) → `chat` |
 | `emo` | `e` ∈ `REACTIONS` (`❤️ 😂 👏 🔥 😮 😢 🎉 👍`) | phát `emo` |

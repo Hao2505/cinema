@@ -96,7 +96,7 @@ Admin: mở `/#admin=<mã>` một lần → nút 🛠 hiện; công cụ admin c
 ## 4. Kiến trúc
 
 ```
-Trình duyệt ──HTTPS / WSS──► Cloudflare (proxy, SSL Full) ──► nginx (VPS dùng chung, Let's Encrypt) ──► Node :3300 (pm2 "vibecinema")
+Trình duyệt ──HTTPS / WSS (DNS only, thẳng VPS)──► nginx (VPS dùng chung, Let's Encrypt) ──► Node :3300 (pm2 "vibecinema")
    │                                                                                                   │
    │ IFrame Player ◄──── video đi thẳng từ YouTube (KHÔNG qua VPS)                                       ├─ app.ts   HTTP tĩnh + /api + /ws
    │                                                                                                   ├─ hub.ts   rạp / phòng / người / hàng chờ / đồng hồ
@@ -121,7 +121,7 @@ Trình duyệt ──HTTPS / WSS──► Cloudflare (proxy, SSL Full) ──►
 | Client | ES module thuần, Canvas 2D, DOM | không framework, không bundler, không ảnh trong giao diện (vẽ bằng code); font Be Vietnam Pro (Google Fonts) |
 | Video | YouTube IFrame Player API (`youtube-nocookie.com`), YouTube Data API v3 `videos.list`, oEmbed | |
 | Test / QA | `tsc --noEmit`, script `tsx` tự viết, Chrome headless qua DevTools Protocol (chỉ dùng `ws`) | không ra Internet trong `npm test` |
-| Hạ tầng | VPS Ubuntu dùng chung, pm2, nginx, Cloudflare (DNS + proxy + SSL Full), Let's Encrypt (certbot webroot) | [05](05-van-hanh-deploy.md) |
+| Hạ tầng | VPS Ubuntu dùng chung, pm2, nginx, Cloudflare chỉ làm DNS cho `cinema` (proxy tắt — qua Cloudflare chậm 440 ms từ VN), Let's Encrypt (certbot webroot) | [05](05-van-hanh-deploy.md) |
 
 ## 6. Quyết định chính & lý do
 
@@ -131,12 +131,12 @@ Trình duyệt ──HTTPS / WSS──► Cloudflare (proxy, SSL Full) ──►
 | **Không chặn bấm** vào khung video; lỡ dừng thì tự chạy lại | Điều khoản YouTube cấm chặn chức năng / link / quảng cáo của trình phát |
 | Ẩn thanh điều khiển (`controls=0`, `disablekb=1`) | "xem chung" — chủ dự án yêu cầu không ai tua / dừng riêng; là tham số chính thức |
 | Client tự đi trước (dự đoán), server kiểm "ngân sách quãng đường" + va chạm | mượt ngay trên máy, vẫn chống đi xuyên tường / dịch chuyển |
-| Frame mang **giờ máy người đi** + bộ đệm thích ứng phía người xem | bài học VibeCorp: giật do so le WebSocket qua Cloudflare, không phải CPU |
+| Frame mang **giờ máy người đi** + phát lại đều theo giờ đó với đệm thích ứng phía người xem | bài học VibeCorp: giật do so le WebSocket qua Cloudflare, không phải CPU — rạp bỏ hẳn proxy Cloudflare + phát lại đều |
 | Động tác là **sự kiện** ("A bắt đầu điệu X lúc T"), hoạt ảnh là hàm thuần của thời gian | gửi ít, mọi máy 60 fps cùng nhịp |
 | Frame 30 Hz, chỉ người vừa đổi | băng thông nhỏ với 60 người / phòng |
 | `shared/hall.js` thuần JS, server import thẳng (+ `.d.ts` viết tay) | một nguồn sự thật cho sơ đồ, luật, bảng giá trị; không cần build |
 | Mọi rạp chung sơ đồ `HALL`, chủ đề chỉ đổi cách vẽ, nạp động | server không đổi khi thêm rạp; trang nhẹ; file một rạp lỗi không làm hỏng rạp khác |
-| Phiên bản tài nguyên `/v/<băm>/` + `immutable` | deploy xong trình duyệt / Cloudflare lấy ngay bản mới, không cần xoá cache |
+| Phiên bản tài nguyên `/v/<băm>/` + `immutable` | deploy xong trình duyệt lấy ngay bản mới, không cần xoá cache |
 | Tắt tiếng / mời ra theo **khoá máy**, cấm theo IP chỉ 24 giờ đầu | ở VN nhiều người chung IP (4G, wifi quán) — tránh vạ lây |
 | Tự gỡ / chuyển bài cần nhiều **IP khác nhau** | một người nhiều tab không đủ để phá |
 | Admin bằng mã bí mật → cookie HttpOnly (băm), `#admin=` | không tài khoản; mã không vào log; người thường không thấy gì |

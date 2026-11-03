@@ -1,4 +1,0 @@
-# VibeCinema — cho bot đọc trang; API nội bộ không cần đánh chỉ mục
-User-agent: *
-Allow: /
-Disallow: /api/

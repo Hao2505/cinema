@@ -16,7 +16,7 @@
 | Tiến trình | pm2 tên **`vibecinema`**, lệnh `npm start` = `tsx src/server.ts` (không build), chạy dưới user `deploy` |
 | Cổng app | **3300** (`PORT` trong `.env.production` = `APP_PORT` trong script), chỉ nghe `127.0.0.1` |
 | nginx | site riêng `/etc/nginx/sites-available/cinema.vibe-coder.fun` (+ symlink `sites-enabled`) và `/etc/nginx/conf.d/vibecinema-limit.conf` (vùng `limit_req` tên **`vcin_api`**) |
-| HTTPS | Cloudflare proxy (đám mây cam) ở chế độ SSL **Full** (đo 2026-11-03 — ghi chú "Flexible" cũ của VibeCorp / `CLAUDE.md` không đúng) → origin nghe cả 80 lẫn 443 với chứng chỉ **Let's Encrypt** riêng cho `cinema.vibe-coder.fun` |
+| HTTPS / DNS | bản ghi `cinema` **DNS only (đám mây xám)** từ 2026-11-03 — trình duyệt nối **thẳng VPS**; nginx nghe 80 + 443 với chứng chỉ **Let's Encrypt** riêng cho `cinema.vibe-coder.fun`; app tự chuyển http → https và tự nén br / gzip. (`corp` của VibeCorp vẫn qua Cloudflare; zone đang SSL **Full (strict)**.) Vì sao bỏ Cloudflare: §3.1 |
 | Mã nguồn | https://github.com/Hao2505/cinema (VPS không có `.git` — chỉ nhận file qua rsync) |
 
 ## 2. Quy tắc VPS dùng chung (không được phá)
@@ -27,14 +27,15 @@
    dùng `vpa_api` trong `/etc/nginx/conf.d/vpa-limit.conf`).
 3. Luôn `nginx -t` trước khi `systemctl reload nginx` (`deploy.sh` làm sẵn); lỗi thì gỡ đúng phần của rạp, không reload.
 4. Trước khi chiếm cổng mới: `ss -ltnp` kiểm còn trống (`deploy.sh --setup` làm sẵn).
-5. Không redirect http → https ở origin (Cloudflare lo; tránh vòng lặp nếu ai đổi chế độ SSL).
+5. Chuyển http → https do **app** làm (`httpsRedirectUrl` trong `src/app.ts`), không phải nginx: có header `CF-Visitor`
+   (đi qua Cloudflare) thì theo giao thức của người xem trong đó — bật lại proxy ở chế độ nào (kể cả Flexible) cũng không
+   thành vòng lặp; không có thì theo `X-Forwarded-Proto` của nginx. `/api/` và `/ws` không chuyển.
 
 ## 3. Đường đi của một request
 
 ```
-Trình duyệt ──https / wss──► Cloudflare (proxy, SSL Full, WebSocket bật sẵn)
-                               │  khách vào https → nối cổng 443 của VPS · khách vào http → cổng 80
-                               ▼
+Trình duyệt ──https / wss (DNS only: nối THẲNG VPS, không qua Cloudflare)──┐
+                                                                         ▼
                        nginx site cinema.vibe-coder.fun
                          ├─ realip: CHỈ tin CF-Connecting-IP khi kết nối đến từ dải IP Cloudflare
                          ├─ /.well-known/acme-challenge/ → /var/www/html (certbot)
@@ -47,16 +48,33 @@ Trình duyệt ──https / wss──► Cloudflare (proxy, SSL Full, WebSocket
 Video: trình duyệt ◄── YouTube trực tiếp (không qua VPS)
 ```
 
-Nhờ realip chỉ tin dải IP Cloudflare, ai gọi thẳng IP VPS kèm header giả vẫn bị tính đúng IP của họ. Dải IP lấy từ
+Nhờ realip chỉ tin dải IP Cloudflare, ai gọi thẳng IP VPS kèm header giả vẫn bị tính đúng IP của họ (giờ đi thẳng nên
+`X-Real-IP` = IP thật luôn; giữ cấu hình realip để lỡ bật lại proxy vẫn đúng). Dải IP lấy từ
 https://www.cloudflare.com/ips/ — Cloudflare đổi thì sửa `deploy/nginx.site.conf` rồi chạy lại `--setup`.
+
+### 3.1. Vì sao `cinema` không đi qua Cloudflare (đo 2026-11-03 từ mạng nhà chủ dự án ở VN)
+
+| Đường | RTT WebSocket (ping/pong 20 lần/s, 60 s) | Khựng > 200 ms | Mở trang (TTFB) |
+|---|---|---|---|
+| Qua Cloudflare (proxy cam) | min 439 · p50 443 · max 843 ms | 6 lần / phút, tới 400 ms (chiều lên) | 0,5–1,9 s |
+| Thẳng VPS (DNS only) | min 6 · p50 8 · max 79 ms | 0 | 0,03 s |
+
+Cloudflare gói miễn phí đưa khách VN sang PoP **xa** (đo được `colo=NRT` Tokyo, có lần `WAW` Warsaw) rồi mới vòng về VPS
+ở VN → mỗi gói vị trí đi 2 lần ra nước ngoài. Đánh đổi khi tắt proxy: IP VPS lộ ra (mọi app trên máy này gọi thẳng được),
+mất lớp chống DDoS của Cloudflare cho `cinema`. Bị tấn công thì bật lại đám mây cam (1 cú bấm; app vẫn chạy đúng — realip,
+chuyển https không vòng lặp, WebSocket qua Cloudflare chỉ chậm hơn). Script đo: chạy ping/pong `{t:'ping',c}` qua
+`wss://…/ws` và tách trễ chiều lên / xuống bằng giờ server `s` trong `pong` (xem docs/02).
 
 ## 4. DNS trên Cloudflare (chủ dự án tự làm — đã làm cho production)
 
 1. https://dash.cloudflare.com → tên miền **vibe-coder.fun** → **DNS → Records → Add record**.
 2. **Type** `A` · **Name** `cinema` · **IPv4** = IP của VPS (giống bản ghi `corp` của VibeCorp; hoặc `VPS_HOST` trong
-   `deploy/vps.env`) · **Proxy status** bật (đám mây **cam**) · **TTL** Auto → **Save**.
-3. **SSL/TLS → Overview**: để nguyên chế độ đang dùng (**Full**) — VibeCorp chạy cùng chế độ này.
-4. **SSL/TLS → Edge Certificates → Always Use HTTPS**: bật.
+   `deploy/vps.env`) · **Proxy status** **tắt** (đám mây **xám**, "DNS only" — §3.1) · **TTL** Auto → **Save**.
+   Lần đầu dựng (`--setup` lấy chứng chỉ qua cổng 80) cam hay xám đều được.
+3. **SSL/TLS → Overview**: zone đang **Full (strict)** (chủ dự án đổi 2026-11-03) — chỉ ảnh hưởng bản ghi cam (`corp`).
+   Đừng đổi về **Flexible** khi `corp` còn cam (VibeCorp không chuyển https ở origin nên không vòng lặp, nhưng mất mã hoá
+   đoạn Cloudflare → VPS).
+4. http → https: app tự chuyển (§2 mục 5); "Always Use HTTPS" của Cloudflare chỉ có tác dụng khi bật lại proxy.
 5. Đợi 1–5 phút, mở `https://cinema.vibe-coder.fun/api/health` → thấy `{"ok":true,…}`.
 
 ## 5. Chuẩn bị trên máy dev
@@ -91,7 +109,8 @@ bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
 - `data/` trên VPS (hàng chờ, video bị gỡ, lệnh cấm, báo cáo, muối IP) **không bao giờ bị ghi đè** (rsync loại trừ).
 - Tắt server khi deploy (pm2 gửi `SIGINT`) → `rooms.json` được lưu rồi khôi phục: người xem thấy "Mất kết nối — đang nối
   lại…" vài giây rồi tự vào lại (nhân vật mới cùng tên + ngoại hình, video đang chiếu tiếp đúng chỗ).
-- Phiên bản tài nguyên đổi theo file → trình duyệt tự tải JS / CSS mới, không cần xoá cache Cloudflare.
+- Phiên bản tài nguyên đổi theo file → trình duyệt tự tải JS / CSS mới (không có cache Cloudflare nào cần xoá).
+- App tự nén br (mức 7) / gzip cho JS, CSS, HTML, JSON… (public/ 592 KB → 190 KB), giữ bản nén trong bộ nhớ theo mtime.
 - Site nginx chỉ được ghi khi `--setup`; deploy thường không đụng nginx.
 
 ## 7. nginx
@@ -112,7 +131,8 @@ bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
   `systemctl list-timers | grep certbot`). Vì dùng webroot, sau khi gia hạn nginx phải **reload** mới dùng chứng chỉ mới:
   kiểm có deploy hook (`/etc/letsencrypt/renewal-hooks/deploy/`) reload nginx; chưa có thì thêm, hoặc reload tay sau
   mỗi lần gia hạn (~60 ngày). Thử: `certbot renew --dry-run`.
-- Chứng chỉ hỏng / hết hạn khi Cloudflare ở chế độ Full (không Strict) vẫn chạy, nhưng nên giữ đúng hạn.
+- Chứng chỉ Let's Encrypt giờ là chứng chỉ người xem thấy trực tiếp (DNS only) → hỏng / hết hạn là **trang lỗi ngay**.
+  certbot tự gia hạn (timer + `--deploy-hook 'systemctl reload nginx'`); kiểm: `certbot certificates` trên VPS.
 
 ## 9. Biến môi trường production
 
@@ -125,7 +145,7 @@ bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
 | `HOST` | `127.0.0.1` (mặc định — chỉ nginx gọi được) |
 | `SITE_URL` | `https://cinema.vibe-coder.fun` |
 | `ADMIN_TOKEN`, `YT_API_KEY` | bí mật — chỉ ở file này |
-| `TRUST_PROXY` | `true` (đứng sau nginx + Cloudflare) |
+| `TRUST_PROXY` | `true` (đứng sau nginx; tin `X-Real-IP` / `X-Forwarded-Proto` nginx ghi) |
 | `PERSIST`, `DATA_DIR` | `true`, `data` |
 | `DEFAULT_VIDEO`, `DEFAULT_IDLE_SECONDS` | kênh trực tiếp mặc định, 30 |
 

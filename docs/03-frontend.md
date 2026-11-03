@@ -306,17 +306,29 @@ Bài học từ VibeCorp: giật trên production là do **so le WebSocket qua C
 gói + bộ đệm phát.
 
 - **Mình**: đi ngay trên máy (dự đoán), server chỉ sửa khi lệch (§8).
-- **Người khác — đi theo vệt** (`store.pushSample` / `actorPos`). Đo thật trên production (Cloudflare + 4G): gói vị trí
-  tới **dồn cục** (một nửa số gói tới cùng lúc với gói trước) xen những lúc **khựng 0,3–1,4 s** rồi ùa tới cả loạt. Vẽ
-  theo giờ (bộ đệm thời gian — bản 0.4.1 trở về trước) gặp khựng là đứng, gói ùa tới là bị kéo vọt → "đi, đứng, nhảy".
-  Giờ mỗi người có một **vệt** điểm đã nhận (`a.path`); hình luôn **đi bộ dọc vệt** với tốc độ đi thật `SPEED`, điều tốc
-  theo phần vệt còn lại phía trước (backlog, ô) so với vệt cần giữ `a.lag`:
-  `k = clamp(1 + 0,8·(backlog − lag)/lag, 0,55, 2,2)` khi người kia còn đi (tin mới nhất `m = 1`); người kia đã dừng thì
-  đi nốt tới đúng chỗ dừng với `k = clamp(1 + backlog/2, 1, 2,2)`. Tụt lại → đi nhanh dần (≤ 2,2×) bắt kịp **liền mạch**;
-  vệt sắp hết → chậm lại (≥ 0,55×) đỡ phải đứng chờ. `a.lag` (0,4–1,6 ô, khởi đầu 0,5 ≈ 150 ms sau người thật) tăng 0,2
-  mỗi lần vệt cạn giữa lúc người kia đang đi, êm thì siết 0,03 ô / s (`tickNet`). Chỉ **dịch chuyển tức thời** khi điểm
-  mới cách hình > 5 ô. Hướng mặt = hướng gửi kèm điểm đang đi tới. Gói cũ / lệch thứ tự bị bỏ theo `c`.
-- Trục giờ máy người kia (`off = min(giờ mình lúc nhận − c)`) chỉ còn dùng để động tác bắt đầu đúng lúc (`localTimeOf`).
+- **Người khác — phát lại đều theo đồng hồ người gửi** (`store.pushSample` / `actorPos`, bản 0.4.3). Mỗi gói vị trí mang
+  `c` = giờ máy người gửi. Máy mình xếp gói theo `c` (hàng `a.q`) rồi **phát lại đúng đường, đúng tốc độ người kia đã
+  đi** (cần analog đẩy nhẹ → đi chậm cũng đúng chậm), trễ sau họ một khoảng **đệm** `a.buf`; mốc đang phát `a.pc` tính
+  bằng giờ người gửi, vị trí = nội suy thẳng giữa 2 gói kẹp `a.pc`.
+  - Gói tới dồn cục / lệch nhịp không ảnh hưởng (vị trí đặt theo `c`, không theo lúc tới).
+  - Mạng khựng ngắn hơn đệm → không ai thấy. Dài hơn → hình **đứng chờ** ở điểm cuối đã biết rồi đi tiếp **đúng tốc độ**
+    — không bao giờ nhảy, không chạy nhanh đuổi theo (`store.net.dry` đếm số lần, `holdMs` tổng thời gian chờ).
+  - Đệm tự chỉnh từng người: `a.gap` = khoảng trống dài nhất giữa 2 lần nhận gói lúc người kia đang đi (co dần
+    `e^(−0,04·t)`, ~17 s co một nửa; trống > 4 s là ẩn tab / rớt mạng, không tính); `a.buf = clamp(gap + 40, 110, 1600)` ms.
+    Mạng êm (trỏ thẳng VPS) ~110 ms.
+  - Đổi đệm chỉ khi nhân vật **đứng yên** (dời mốc phát lúc đứng yên không ai thấy) hoặc đi nhanh / chậm **tối đa 4 %**
+    (`RATE_MAX`, mắt không phân biệt được); tụt quá xa (> đệm + 1,5 s, hiếm) mới đuổi 1,2×.
+  - Người kia vừa bắt đầu đi sau lúc đứng: chèn một gói "đứng" ngay trước gói đầu (`c − quãng/SPEED`) để bước đầu không
+    bị kéo dài ra cả quãng đứng. Chỉ **dịch chuyển tức thời** khi điểm mới xa hơn mức đi bộ được (> 5 ô và
+    > `SPEED·1,4·Δc + 0,5`).
+  - Hướng mặt: đoạn đang đi lấy hướng gửi kèm gói cuối đoạn; đứng yên giữ hướng gói đầu đoạn. Gói cũ / trùng bỏ theo `c`.
+  - Động tác của người khác bắt đầu đúng lúc mốc phát chạm `c` của động tác (`localTimeOf = now + (c − a.pc)`) — đi tới
+    nơi rồi mới nhảy.
+  - Lịch sử: 0.4.1 "bộ đệm thời gian cố định" → khựng là đứng rồi nhảy; 0.4.2 "đi theo vệt" điều tốc 0,55–2,2× → lúc nhanh
+    lúc chậm, người đi chậm (cần analog) bị đi-đứng-đi. Đo cùng bot / cùng mạng giả lập (`npm run qa -- --only smooth`):
+    đổi tốc giữa 2 khung p95 14 % → 1 % (mạng sạch), 37 % → 5 % (trễ 150 ms), 26 % → 0,4 % (dồn cục + khựng).
+- Vị trí gửi / phát **3 chữ số lẻ** (`me.js round3`, `hub.ts r3`): 2 chữ số làm mỗi bước 33 ms (~0,11 ô) lệch tới ±9 %
+  → tốc độ rung nhẹ.
 - Nhịp: client gửi `move` tới **30 lần / giây** (`LIMITS.sendHz`), server gom **30 Hz** (`TICK_HZ`); server cho "dồn"
   tối đa 2 s đi bộ (`BUDGET_CAP`) để loạt gói ùa tới sau khi mạng khựng không bị cắt (người đi không bị kéo giật lùi).
 - Đo bằng `npm run qa -- --bunch` (người xem giả gửi gói dồn cục 40–140 ms, 4 % lần khựng 0,4–1,2 s — đúng kiểu đo được

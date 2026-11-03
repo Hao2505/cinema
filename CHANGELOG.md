@@ -1,5 +1,25 @@
 # Lịch sử thay đổi
 
+## 0.4.3 — 2026-11-03 · Đi đều tăm tắp, bỏ đường vòng Cloudflare, người khác quay mặt đúng hướng
+
+**Tìm ra thủ phạm giật: Cloudflare** — đo từng chặng từ mạng nhà ở VN: qua proxy Cloudflare mỗi vòng đi-về WebSocket mất
+**~440 ms** và khựng tới 400 ms (Cloudflare gói miễn phí đưa khách VN sang Tokyo / Warsaw rồi mới vòng về VPS ở VN); nối
+thẳng VPS chỉ **8 ms**, không khựng lần nào. Bản ghi `cinema` chuyển sang **DNS only** (đám mây xám): mở trang 0,03 s
+(trước 0,5–1,9 s). App tự chuyển http → https (không vòng lặp dù bật lại proxy ở chế độ nào) và tự nén br / gzip
+(592 KB → 190 KB) vì không còn Cloudflare làm hộ.
+
+**Người khác đi đều — không nhanh, không chậm, không nhảy** — phát lại đúng đường + đúng tốc độ người kia đã đi theo đồng
+hồ máy họ, trễ sau một khoảng đệm cố định (~110 ms khi mạng êm, tự dài ra khi mạng hay khựng). Mạng khựng lâu hơn đệm thì
+hình đứng chờ rồi đi tiếp đúng tốc độ, không chạy đuổi. Người đi chậm bằng cần analog trên điện thoại cũng hiện đúng chậm
+(trước bị đi-đứng-đi). Đo cùng bot / cùng mạng giả lập, mức đổi tốc giữa 2 khung hình (p95): mạng sạch 14 % → **1 %**, trễ
+150 ms 37 % → **5 %** (0 lần đứng, trước 11), dồn cục + khựng 26 % → **0,4 %** (không khung nào nhanh quá 1,1×, trước có
+lúc > 1,7×). Vị trí gửi 3 chữ số lẻ (2 chữ số làm tốc độ rung ±9 %).
+
+**Sửa lỗi người khác luôn quay mặt về màn hình** khi đi ngang / đi lên (lỗi của 0.4.2: hướng bị đổi kiểu hai lần).
+
+QA: `npm run qa -- --only smooth [--bunch|--jitter 150] [--secs 15]` đo riêng độ mượt (phân bố tốc độ, mức đổi tốc,
+số lần đứng chờ, đệm); 1/4 bot đi 0,6× như cần analog đẩy nhẹ.
+
 ## 0.4.2 — 2026-11-03 · Hết "đi, đứng, nhảy" + hết đi lùi
 
 **Người khác đi theo vệt, không bao giờ nhảy cóc** — đo thật trên production: gói vị trí qua Cloudflare + 4G tới dồn cục

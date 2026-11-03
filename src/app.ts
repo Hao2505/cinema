@@ -6,6 +6,7 @@ import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliCompressSync, constants as zlibConst, gzipSync } from 'node:zlib';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Config } from './config.js';
 import { ROOM_ID_RE } from '../public/js/shared/hall.js';
@@ -36,10 +37,43 @@ const CONTENT_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.woff2': 'font/woff2',
   '.webmanifest': 'application/manifest+json',
+  '.xml': 'application/xml; charset=utf-8',
 };
 
 /** trang có tên đẹp → file html */
 const PAGES: Record<string, string> = { '/': 'index.html', '/chinh-sach': 'chinh-sach.html' };
+
+// ---------------------------------------------------------------- nén (br / gzip)
+// Tên miền trỏ thẳng VPS (không qua Cloudflare) thì không ai nén hộ → app tự nén chữ (JS, CSS, HTML, JSON…) một lần cho mỗi
+// file (theo mtime) rồi giữ trong bộ nhớ. nginx thấy Content-Encoding sẵn thì không nén lại. br mức 7: cả thư mục public/
+// 592 KB → 190 KB, tốn ~17 ms CPU tổng (mức 10–11 nhỏ hơn 5 % nhưng chậm gấp 13 lần — chặn vòng sự kiện, giật WebSocket).
+const COMPRESSIBLE = new Set(['.js', '.css', '.json', '.svg', '.txt', '.webmanifest', '.xml', '.html']);
+const ZCACHE_MAX = 300;
+const zCache = new Map<string, Buffer>();
+export function pickEncoding(acceptEncoding: unknown): 'br' | 'gzip' | '' {
+  const ae = String(acceptEncoding ?? '').toLowerCase();
+  const allowed = (name: string): boolean => {
+    const m = new RegExp(`(?:^|,)\\s*${name}\\s*(?:;\\s*q\\s*=\\s*([0-9.]+))?\\s*(?:,|$)`).exec(ae);
+    return !!m && (m[1] === undefined || Number(m[1]) > 0);
+  };
+  if (allowed('br')) return 'br';
+  if (allowed('gzip')) return 'gzip';
+  return '';
+}
+/** bản nén của `body` (khoá = tên file + mtime + biến thể), tạo một lần */
+function compressedBody(key: string, enc: 'br' | 'gzip', body: () => Buffer): Buffer {
+  const k = `${enc}|${key}`;
+  let z = zCache.get(k);
+  if (!z) {
+    const raw = body();
+    z = enc === 'br'
+      ? brotliCompressSync(raw, { params: { [zlibConst.BROTLI_PARAM_QUALITY]: 7, [zlibConst.BROTLI_PARAM_SIZE_HINT]: raw.length } })
+      : gzipSync(raw, { level: 9 });
+    if (zCache.size >= ZCACHE_MAX) zCache.delete(zCache.keys().next().value as string);
+    zCache.set(k, z);
+  }
+  return z;
+}
 
 /** So chuỗi không lộ thời gian (băm trước để độ dài luôn bằng nhau) */
 function safeEqual(a: string, b: string): boolean {
@@ -78,6 +112,25 @@ function requestIsHttps(req: IncomingMessage): boolean {
   const xfp = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim().toLowerCase();
   return xfp === 'https' || String(req.headers['cf-visitor'] ?? '').includes('"https"')
     || Boolean((req.socket as { encrypted?: boolean }).encrypted);
+}
+
+/**
+ * Người xem vào bằng http qua proxy (nginx / Cloudflare) → trả URL https để chuyển hướng, không thì ''.
+ * Lấy giao thức của NGƯỜI XEM: có CF-Visitor (đi qua Cloudflare) thì tin nó — Cloudflare "Flexible" gọi nginx bằng http
+ * nhưng CF-Visitor vẫn là https nên không bao giờ thành vòng lặp; không qua Cloudflare (DNS only) thì dùng
+ * X-Forwarded-Proto của nginx. Không có header proxy nào (máy dev, test, health check nội bộ) → không chuyển.
+ */
+export function httpsRedirectUrl(req: IncomingMessage, siteUrl: string): string {
+  const cfv = String(req.headers['cf-visitor'] ?? '');
+  const xfp = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim().toLowerCase();
+  const scheme = cfv ? (cfv.includes('"https"') ? 'https' : cfv.includes('"http"') ? 'http' : '') : xfp;
+  if (scheme !== 'http') return '';
+  let host = '';
+  if (siteUrl) { try { host = new URL(siteUrl).host; } catch { host = ''; } }
+  if (!host) host = String(req.headers.host ?? '').trim().toLowerCase();
+  if (!HOST_RE.test(host) || /^(localhost|127\.|\[?::1)/.test(host)) return '';
+  const path = (req.url ?? '/').startsWith('/') ? (req.url ?? '/') : '/';
+  return `https://${host}${path}`;
 }
 
 const HOST_RE = /^[a-z0-9.-]{1,253}(?::\d{1,5})?$/;
@@ -153,6 +206,38 @@ export function createApp(cfg: Config, deps: AppDeps): App {
     return `${requestIsHttps(req) ? 'https' : 'http'}://${HOST_RE.test(host) ? host : `localhost:${cfg.port}`}`;
   }
 
+  // ---------------------------------------------------------- SEO
+  /** ngày sửa trang gần nhất (lastmod trong sitemap) */
+  const PAGES_LASTMOD = (() => {
+    let t = 0;
+    for (const f of Object.values(PAGES)) { try { t = Math.max(t, statSync(join(PUBLIC_ROOT, f)).mtimeMs); } catch { /* bỏ qua */ } }
+    return new Date(t || Date.now()).toISOString().slice(0, 10);
+  })();
+  function robotsTxt(origin: string): string {
+    return [
+      '# VibeCinema — rạp chiếu phim 2D xem YouTube cùng nhau',
+      'User-agent: *',
+      'Allow: /',
+      'Disallow: /api/',
+      'Disallow: /ws',
+      '',
+      `Sitemap: ${origin}/sitemap.xml`,
+      '',
+    ].join('\n');
+  }
+  function sitemapXml(origin: string): string {
+    const page = (path: string, freq: string, prio: string): string =>
+      `  <url><loc>${escAttr(origin + path)}</loc><lastmod>${PAGES_LASTMOD}</lastmod><changefreq>${freq}</changefreq><priority>${prio}</priority></url>`;
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+      page('/', 'daily', '1.0'),
+      page('/chinh-sach', 'monthly', '0.3'),
+      '</urlset>',
+      '',
+    ].join('\n');
+  }
+
   function safeHost(req: IncomingMessage): string {
     const host = String(req.headers.host ?? '').trim().toLowerCase();
     return HOST_RE.test(host) ? host : `localhost:${cfg.port}`;
@@ -189,10 +274,14 @@ export function createApp(cfg: Config, deps: AppDeps): App {
       e = { mtime: mtimeMs, html };
       htmlCache.set(file, e);
     }
-    const body = Buffer.from(e.html.replaceAll('%SITE_URL%', escAttr(siteOrigin(req)))
+    const origin = siteOrigin(req);
+    const render = (): Buffer => Buffer.from(e.html.replaceAll('%SITE_URL%', escAttr(origin))
       .replaceAll('%CONTACT_EMAIL%', escAttr(cfg.contactEmail)), 'utf8');
+    const enc = pickEncoding(req.headers['accept-encoding']);
+    const body = enc ? compressedBody(`${file}|${mtimeMs}|${origin}`, enc, render) : render();
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8', 'Content-Length': String(body.length), 'Cache-Control': 'no-cache',
+      Vary: 'Accept-Encoding', ...(enc ? { 'Content-Encoding': enc } : {}),
       ...securityHeaders(req),
     });
     if (req.method === 'HEAD') { res.end(); return; }
@@ -236,13 +325,23 @@ export function createApp(cfg: Config, deps: AppDeps): App {
         res.end();
         return;
       }
-      res.writeHead(200, {
-        'Content-Type': CONTENT_TYPES[extname(real).toLowerCase()] ?? 'application/octet-stream',
-        'Content-Length': String(st.size),
+      const ext = extname(real).toLowerCase();
+      const headers: Record<string, string> = {
+        'Content-Type': CONTENT_TYPES[ext] ?? 'application/octet-stream',
         'Cache-Control': cache,
         'Last-Modified': new Date(mtime).toUTCString(),
         'X-Content-Type-Options': 'nosniff',
-      });
+      };
+      const zip = COMPRESSIBLE.has(ext) && st.size > 1024 && st.size < 2_000_000;
+      const enc = zip ? pickEncoding(req.headers['accept-encoding']) : '';
+      if (zip) headers.Vary = 'Accept-Encoding';
+      if (enc) {
+        const body = compressedBody(`${real}|${st.mtimeMs}`, enc, () => readFileSync(real));
+        res.writeHead(200, { ...headers, 'Content-Encoding': enc, 'Content-Length': String(body.length) });
+        res.end(req.method === 'HEAD' ? undefined : body);
+        return;
+      }
+      res.writeHead(200, { ...headers, 'Content-Length': String(st.size) });
       if (req.method === 'HEAD') { res.end(); return; }
       const stream = createReadStream(real);
       stream.on('error', () => res.destroy());
@@ -335,6 +434,22 @@ export function createApp(cfg: Config, deps: AppDeps): App {
         return;
       }
       if (url.pathname.startsWith('/api/')) { send(res, 404, 'Not found'); return; }
+      // vào bằng http (tên miền trỏ thẳng VPS, không qua Cloudflare) → chuyển sang https
+      const toHttps = cfg.trustProxy ? httpsRedirectUrl(req, cfg.siteUrl) : '';
+      if (toHttps) {
+        res.writeHead(301, { Location: toHttps, 'Cache-Control': 'public, max-age=3600', 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(method === 'HEAD' ? undefined : `Chuyển sang ${toHttps}`);
+        return;
+      }
+      // SEO: robots.txt + sitemap.xml sinh theo tên miền thật (SITE_URL) — không ghi cứng domain vào file tĩnh
+      if (url.pathname === '/robots.txt') {
+        send(res, 200, robotsTxt(siteOrigin(req)), 'text/plain; charset=utf-8', { 'Cache-Control': 'public, max-age=3600' });
+        return;
+      }
+      if (url.pathname === '/sitemap.xml') {
+        send(res, 200, sitemapXml(siteOrigin(req)), 'application/xml; charset=utf-8', { 'Cache-Control': 'public, max-age=3600' });
+        return;
+      }
       const vm = ASSET_PREFIX_RE.exec(url.pathname);
       if (vm) { handleStatic(req, res, vm[2], vm[1] === ASSET_VERSION); return; }
       handleStatic(req, res, url.pathname);

@@ -66,9 +66,15 @@ export function startBots(o: BotOpts): () => void {
       };
       setTimeout(flush, 100);
     }
-    // đi: cùng nhịp với người thật (LIMITS.sendHz)
+    // đi: cùng nhịp gửi với người thật (LIMITS.sendHz); quãng đi mỗi nhịp theo thời gian thật đã trôi (như me.js) để vị trí
+    // khớp đúng giờ gửi c. 1/4 bot đi 0,6× tốc độ — như người dùng điện thoại đẩy nhẹ cần analog.
     const HZ = LIMITS.sendHz;
+    const speedMul = i % 4 === 3 ? 0.6 : 1;
+    let lastStep = Date.now();
     const moveTimer = setInterval(() => {
+      const tNow = Date.now();
+      const el = Math.min(0.2, (tNow - lastStep) / 1000);
+      lastStep = tNow;
       if (!id || ws.readyState !== 1) return;
       if (!target) return;
       const dx = target.x - x, dy = target.y - y, dist = Math.hypot(dx, dy);
@@ -77,12 +83,12 @@ export function startBots(o: BotOpts): () => void {
         sendMove({ t: 'move', x, y, d, c: now(), m: 0 });
         return;
       }
-      const step = Math.min(dist, SPEED / HZ);
+      const step = Math.min(dist, SPEED * speedMul * el);
       const r = moveWithCollision(x, y, (dx / dist) * step, (dy / dist) * step);
       if (Math.hypot(r.x - x, r.y - y) < 0.001) target = null;
       x = r.x; y = r.y;
       d = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 2 : 3) : dy < 0 ? 1 : 0;
-      sendMove({ t: 'move', x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, d, c: now(), m: 1 });
+      sendMove({ t: 'move', x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000, d, c: now(), m: 1 });
     }, 1000 / HZ);
     let thinkTimer: NodeJS.Timeout | null = null;
     cleanups.push(() => { clearInterval(moveTimer); if (thinkTimer) clearTimeout(thinkTimer); });

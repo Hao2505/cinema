@@ -77,91 +77,146 @@ export function onPong(msg, sentAt) {
   k.samples++;
 }
 
-// ---------------------------------------------------------------- người khác: ĐI THEO VỆT (không bao giờ nhảy)
-// Đo thật trên production (2026-11-03): gói vị trí qua Cloudflare + 4G tới DỒN CỤC (một nửa số gói tới cùng lúc với gói
-// trước) xen những lúc KHỰNG 0,3–1,4 s rồi ùa tới cả loạt. Vẽ theo giờ (bộ đệm thời gian) thì gặp khựng là đứng lại, gói ùa
-// tới là bị kéo vọt → "đi, đứng, nhảy, đi". Cách ở đây: mỗi người có một VỆT điểm đã nhận; hình luôn ĐI BỘ dọc vệt với tốc
-// độ đi thật, tự điều tốc theo phần vệt còn lại phía trước (backlog):
-//   tụt lại xa (gói dồn cục)   → đi nhanh dần, tối đa 2,2× — bắt kịp liền mạch, không nhảy;
-//   vệt sắp hết (gói đang khựng) → đi chậm lại, tối thiểu 0,55× — đỡ phải đứng khựng chờ gói;
-//   người kia dừng hẳn          → đi nốt tới đúng chỗ dừng (ghế…) với tốc độ ≥ bình thường.
-// Vệt "cần giữ" (lag, ô) tự chỉnh theo từng người: mạng êm ~0,45 ô (~130 ms sau người thật), từng bị cạn vệt giữa lúc người
-// kia đang đi thì giữ dài hơn (tới 1,6 ô ≈ 470 ms), êm lâu thì siết lại. Người kia vừa bấm đi → hình đi ngay khi gói đầu tới.
-// Chỉ dịch chuyển tức thời khi điểm mới cách hình > 5 ô (vào rạp, bị server kéo về…).
-const LAG_MIN = 0.4, LAG_MAX = 1.6, LAG_START = 0.5; // ô
-const V_MIN = 0.55, V_MAX = 2.2; // × SPEED
-const SNAP = 5; // ô
-const PATH_MAX = 90;
-const ACT_DELAY = 120; // ms — động tác của người khác bắt đầu sau ~độ trễ vệt (đứng lại xong mới nhảy)
+// ---------------------------------------------------------------- người khác: PHÁT LẠI ĐỀU theo đồng hồ người gửi
+// Mỗi gói vị trí mang c = giờ máy người gửi lúc đó. Máy mình xếp gói theo c rồi PHÁT LẠI đúng đường, đúng tốc độ người kia
+// đã đi (cần analog điện thoại đẩy nhẹ → đi chậm cũng đúng chậm), trễ sau họ một khoảng ĐỆM:
+//   - gói tới dồn cục / lệch nhịp → không ảnh hưởng (vị trí đặt theo giờ người gửi, không theo lúc gói tới);
+//   - mạng khựng ngắn hơn đệm → không ai thấy; dài hơn → hình đứng chờ ở điểm cuối đã biết rồi đi tiếp ĐÚNG tốc độ —
+//     không bao giờ nhảy, không chạy nhanh đuổi theo (bản cũ "đi theo vệt" tăng tốc tới 2,2× / chậm 0,55× → lúc nhanh lúc
+//     chậm; bản cũ hơn "bộ đệm thời gian cố định" thì đứng rồi nhảy);
+//   - đệm tự chỉnh từng người = khoảng trống dài nhất gần đây giữa 2 lần nhận gói lúc người kia đang đi + 40 ms (mạng êm
+//     ~110–150 ms; từng khựng thì dài ra tới 1,6 s, êm lâu thì co lại dần). Đổi đệm chỉ lúc nhân vật đứng yên (dời mốc giờ
+//     lúc đứng yên không ai thấy) hoặc đi nhanh / chậm tối đa 4 % (mắt không phân biệt được).
+// Đo 2026-11-03 từ VN: qua Cloudflare (PoP Tokyo) RTT ~440 ms + khựng tới 0,4–1,4 s; đi thẳng VPS RTT 8 ms, không khựng.
+const BUF_MIN = 110, BUF_MAX = 1600, BUF_START = 180, BUF_MARGIN = 40; // ms
+const GAP_DECAY = 0.04; // 1/s — đệm co dần khi mạng êm (~17 s co một nửa)
+const GAP_IGNORE = 4000; // ms — trống lâu hơn = người kia ẩn tab / rớt mạng hẳn, không phải mạng khựng
+const RATE_MAX = 0.04, RATE_T = 2500; // ±4 % tốc độ, đạt mức tối đa khi đệm lệch 100 ms
+const SNAP = 5; // ô — xa hơn mức đi bộ được → dịch chuyển tức thời (vào rạp, server kéo về…)
+const Q_MAX = 240; // gói giữ tối đa / người (~8 s)
 
-store.net = { buffer: 0, lag: LAG_START, dry: 0, frames: 0, catchup: 0 };
+store.net = { buffer: BUF_START, dry: 0, frames: 0, catchup: 0, holdMs: 0 };
 
-/** mỗi khung: siết dần vệt cần giữ của từng người khi mạng êm; số liệu tổng cho QA / gỡ lỗi */
-export function tickNet(dtMs) {
+/** mỗi khung: số liệu tổng (đệm trung bình) cho QA / gỡ lỗi */
+export function tickNet() {
   let sum = 0, n = 0;
   for (const a of store.players.values()) {
-    if (a.isMe || !a.lastCt) continue;
-    if (!a.dryNow) a.lag = Math.max(LAG_MIN, a.lag - (dtMs / 1000) * 0.03);
-    sum += a.lag; n++;
+    if (a.isMe || a.pc === null) continue;
+    sum += a.buf; n++;
   }
-  store.net.lag = n ? sum / n : LAG_START;
-  store.net.buffer = Math.round((store.net.lag / SPEED) * 1000);
+  store.net.buffer = n ? sum / n : BUF_START;
 }
 
-function pushSample(a, ct, x, y, d, m, now) {
-  // trục giờ máy người kia (chỉ để động tác bắt đầu đúng lúc): off = đường truyền nhanh nhất từng thấy
-  const transit = now - ct;
-  if (a.off === null || (a.lastCt && ct < a.lastCt - 2000)) { a.off = transit; a.lastCt = 0; }
-  else if (transit < a.off) a.off = transit;
-  else a.off += (transit - a.off) * 0.002;
-  if (a.lastCt && ct <= a.lastCt) return; // gói cũ / trùng (tới lệch thứ tự)
-  a.lastCt = ct;
+const same = (p, r) => Math.abs(p.x - r.x) < 1e-4 && Math.abs(p.y - r.y) < 1e-4;
+
+/** chỉ số gói cuối cùng có c ≤ t (0 nếu t trước gói đầu) */
+function segAt(q, t) {
+  let i = 0;
+  while (i + 1 < q.length && q[i + 1].c <= t) i++;
+  return i;
+}
+
+function pushSample(a, c, x, y, d, m, now) {
+  if (a.lastCt && c <= a.lastCt) return; // gói cũ / trùng (tới lệch thứ tự)
+  const q = a.q;
+  const last = q.length ? q[q.length - 1] : null;
+  // khoảng trống giữa 2 lần nhận gói trong lúc người kia đang đi = mạng vừa khựng chừng đó → đệm phải dài hơn
+  if (last && last.m && a.lastArr) {
+    const gap = now - a.lastArr;
+    if (gap < GAP_IGNORE && gap > a.gap) a.gap = gap;
+  }
+  a.lastArr = now;
+  a.lastCt = c;
   store.net.frames++;
-  if (Math.hypot(x - a.rx, y - a.ry) > SNAP) {
+  const px = last ? last.x : a.rx, py = last ? last.y : a.ry;
+  const dist = Math.hypot(x - px, y - py);
+  const dc = last ? c - last.c : Infinity;
+  if (dist > SNAP && dist > (SPEED * 1.4 * Math.min(dc, 60_000)) / 1000 + 0.5) {
     // dịch chuyển (vào rạp, server kéo về…): hiện ngay chỗ mới
-    a.rx = x; a.ry = y; a.rdir = DIRS[d] || a.rdir; a.path = []; a.lastM = m;
+    a.q = [{ c, x, y, d, m }];
+    a.pc = c; a.rx = x; a.ry = y; a.rdir = d;
     return;
   }
-  const tail = a.path.length ? a.path[a.path.length - 1] : { x: a.rx, y: a.ry };
-  if (Math.hypot(x - tail.x, y - tail.y) > 0.0005 || m !== a.lastM) a.path.push({ x, y, d: DIRS[d] || 'down', m });
-  if (a.path.length > PATH_MAX) a.path.splice(0, a.path.length - PATH_MAX);
-  a.lastM = m;
+  if (!last || !last.m || dc >= GAP_IGNORE) {
+    // người kia đứng yên ở chỗ cũ tới ngay trước gói này (vừa bắt đầu đi) — không kéo dài bước đầu ra cả quãng đứng
+    const lead = Math.max(16, (dist / SPEED) * 1000);
+    const cs = last ? Math.max(last.c + 1, c - lead) : c - lead;
+    if (cs < c) q.push({ c: cs, x: px, y: py, d: last ? last.d : a.rdir, m: 0 });
+  }
+  q.push({ c, x, y, d, m });
+  if (a.pc === null) a.pc = c - a.buf; // gói đầu tiên: bắt đầu phát sau một khoảng đệm
+  if (q.length > Q_MAX) {
+    const drop = q.length - Q_MAX;
+    q.splice(0, drop);
+    if (a.pc < q[0].c) a.pc = q[0].c;
+  }
 }
 
 /** vị trí + hướng của người khác để vẽ tại `now` — gọi mỗi khung một lần mỗi người */
 export function actorPos(a, now) {
-  const dt = a.posAt ? Math.min(0.1, Math.max(0, (now - a.posAt) / 1000)) : 0;
+  const dt = a.posAt ? Math.min(250, Math.max(0, now - a.posAt)) : 0;
   a.posAt = now;
-  const path = a.path;
-  if (!path.length) {
-    // vệt cạn trong khi người kia (theo tin mới nhất) vẫn đang đi = gói đang khựng → lần sau giữ vệt dài hơn
-    if (a.lastM && !a.dryNow) { a.dryNow = true; a.lag = Math.min(LAG_MAX, a.lag + 0.2); store.net.dry++; }
-    return { x: a.rx, y: a.ry, d: a.rdir, seg: false };
+  const q = a.q;
+  if (!q.length || a.pc === null) return { x: a.rx, y: a.ry, d: a.rdir, seg: false };
+  // đệm mong muốn: khoảng trống dài nhất gần đây (co dần) + chút dư
+  a.gap *= Math.exp((-GAP_DECAY * dt) / 1000);
+  a.buf = clamp(a.gap + BUF_MARGIN, BUF_MIN, BUF_MAX);
+  const newest = q[q.length - 1];
+  const i = segAt(q, a.pc);
+  if (i > 0) q.splice(0, i); // bỏ gói đã phát qua (q[0] = đầu đoạn đang phát)
+  // đoạn có dời chỗ đầu tiên từ chỗ đang phát trở đi (j = chỉ số đầu đoạn đó, -1 nếu không còn)
+  let j = 0;
+  while (j + 1 < q.length && same(q[j], q[j + 1])) j++;
+  if (j + 1 >= q.length) j = -1;
+  if (j === 0 && a.pc >= q[0].c) {
+    // ĐANG ĐI: tiến đều theo giờ thật; lệch đệm thì nhanh / chậm tối đa 4 %
+    const ahead = newest.c - a.pc;
+    a.aheadF = a.aheadF === null ? ahead : a.aheadF + (ahead - a.aheadF) * Math.min(1, dt / 400);
+    let rate = 1 + clamp((a.aheadF - a.buf) / RATE_T, -RATE_MAX, RATE_MAX);
+    if (a.aheadF > a.buf + 1500) rate = 1.2; // tụt quá xa (hiếm): đuổi rõ hơn chút
+    if (rate > 1.02) store.net.catchup++;
+    a.pc += dt * rate;
+    if (a.pc >= newest.c && newest.m) {
+      // hết gói mà người kia vẫn đang đi = mạng đang khựng lâu hơn đệm → đứng chờ ở điểm cuối (không đoán, không nhảy)
+      if (!a.dryNow) { a.dryNow = true; store.net.dry++; }
+      store.net.holdMs += Math.max(0, a.pc - newest.c);
+      a.pc = newest.c;
+    } else a.dryNow = false;
+  } else if (j > 0 || (j === 0 && a.pc < q[0].c)) {
+    // ĐỨNG YÊN, sắp đi tiếp: dời mốc phát về đúng "gói mới nhất − đệm" (hình đứng yên nên không ai thấy)
+    const end = q[j].c;
+    a.pc = Math.min(Math.max(a.pc, newest.c - a.buf), end);
+    a.aheadF = null;
+    a.dryNow = false;
+  } else if (!newest.m) {
+    // người kia đã dừng hẳn: đứng yên, đồng hồ phát vẫn chạy theo giờ thật (động tác hiện đúng lúc)
+    a.pc += dt;
+    a.aheadF = null;
+    a.dryNow = false;
+  } else {
+    // đứng một chỗ nhưng tin mới nhất bảo "đang đi" (xoay mặt tại chỗ / đang chờ gói): đi tới gói cuối rồi chờ
+    a.pc = Math.min(a.pc + dt, newest.c);
   }
-  a.dryNow = false;
-  let backlog = 0, px = a.rx, py = a.ry;
-  for (const p of path) { backlog += Math.hypot(p.x - px, p.y - py); px = p.x; py = p.y; }
-  const k = a.lastM
-    ? clamp(1 + (0.8 * (backlog - a.lag)) / a.lag, V_MIN, V_MAX)
-    : clamp(1 + backlog / 2, 1, V_MAX);
-  if (k > 1.25) store.net.catchup++;
-  let step = SPEED * k * dt;
-  let moved = 0;
-  while (step > 1e-6 && path.length) {
-    const p = path[0];
-    const dx = p.x - a.rx, dy = p.y - a.ry, dist = Math.hypot(dx, dy);
-    a.rdir = p.d;
-    if (dist <= step) { a.rx = p.x; a.ry = p.y; step -= dist; moved += dist; path.shift(); }
-    else { a.rx += (dx / dist) * step; a.ry += (dy / dist) * step; moved += step; step = 0; }
+  // nội suy vị trí tại pc
+  const k = segAt(q, a.pc);
+  const p0 = q[k], p1 = q[k + 1];
+  let seg = false;
+  if (!p1 || a.pc <= p0.c) {
+    a.rx = p0.x; a.ry = p0.y; a.rdir = p0.d;
+  } else {
+    const f = clamp((a.pc - p0.c) / Math.max(1, p1.c - p0.c), 0, 1);
+    a.rx = p0.x + (p1.x - p0.x) * f;
+    a.ry = p0.y + (p1.y - p0.y) * f;
+    seg = !same(p0, p1);
+    a.rdir = seg ? p1.d : p0.d;
   }
-  return { x: a.rx, y: a.ry, d: a.rdir, seg: moved > 0.0005 || path.length > 0 };
+  return { x: a.rx, y: a.ry, d: a.rdir, seg };
 }
 
-/** mốc giờ máy mình (performance.now) ứng với giờ máy người kia `c` khi vẽ (đã tính độ trễ vệt) */
+/** mốc giờ máy mình (performance.now) ứng với giờ máy người kia `c` khi vẽ — cùng nhịp với phát lại vị trí */
 function localTimeOf(a, c, now) {
-  if (a.off === null || !Number.isFinite(c) || c <= 0) return now;
-  const t = c + a.off + Math.max(ACT_DELAY, store.net.buffer);
-  return clamp(t, now - 4000, now + 1500);
+  if (a.pc === null || !Number.isFinite(c) || c <= 0) return now;
+  return clamp(now + (c - a.pc), now - 4000, now + BUF_MAX + 400);
 }
 
 // ---------------------------------------------------------------- người trong phòng
@@ -171,9 +226,10 @@ function newActor(p, now, bornAt = now) {
   const a = {
     id: p.id, name: str(p.name, 40), look: p.look || null, ghost: !!p.ghost,
     x: num(p.x, 16), y: num(p.y, 12), dir: DIRS[num(p.d, 0)] || 'down',
-    off: null, lastCt: 0, posAt: 0,
-    // đi theo vệt (actorPos): vị trí đang vẽ, hướng, vệt điểm chưa tới, tin mới nhất có đang đi không, vệt cần giữ
-    rx: num(p.x, 16), ry: num(p.y, 12), rdir: DIRS[num(p.d, 0)] || 'down', path: [], lastM: 0, lag: LAG_START, dryNow: false,
+    // phát lại (actorPos): vị trí / hướng đang vẽ, hàng gói theo giờ người gửi, mốc đang phát (giờ người gửi), đệm (ms),
+    // khoảng trống dài nhất gần đây, lúc nhận gói trước, phần đã nhận mà chưa phát (lọc mượt), đang đứng chờ gói
+    rx: num(p.x, 16), ry: num(p.y, 12), rdir: DIRS[num(p.d, 0)] || 'down',
+    q: [], pc: null, buf: store.net.buffer || BUF_START, gap: 0, lastArr: 0, lastCt: 0, aheadF: null, dryNow: false, posAt: 0,
     moving: false, moveAmt: 0, phase: 0, seed: (Math.random() * 1000) | 0,
     act: null, bornAt, goneAt: 0, isMe: false,
     emoAt: 0, emo: '', fxAt: 0,

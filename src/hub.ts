@@ -127,6 +127,8 @@ const REPORT_REASONS: Record<string, string> = {
 };
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
+/** vị trí trong khung 'f': 3 chữ số lẻ — 2 chữ số làm tốc độ người khác thấy rung tới ±9 % mỗi bước 33 ms */
+const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const isOpen = (s: Sock): boolean => s.readyState === 1;
 
 export interface HubDeps {
@@ -366,7 +368,7 @@ export class Room {
     for (const p of this.players.values()) {
       if (!p.dirty) continue;
       p.dirty = false;
-      entries.push([p.id, r2(p.x), r2(p.y), p.d, p.ct, p.m]);
+      entries.push([p.id, r3(p.x), r3(p.y), p.d, p.ct, p.m]);
     }
     if (entries.length) this.broadcast({ t: 'f', p: entries });
   }

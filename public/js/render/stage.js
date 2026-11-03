@@ -198,8 +198,7 @@ export function createStage(canvas, slot, hooks = {}) {
 
   // ---------------------------------------------------------------- người
   function prepareActors(now) {
-    tickNet(Math.min(100, Math.max(0, now - (prepareActors.at || now))));
-    prepareActors.at = now;
+    tickNet();
     const out = [];
     const myPos = me.active ? myRenderPos(now) : null;
     for (const a of store.players.values()) {

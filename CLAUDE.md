@@ -44,8 +44,12 @@
 
 - Cùng VPS với VibeCorp. Thông tin đăng nhập: chép `../agent_office/deploy/vps.env` sang `deploy/vps.env` của dự án này (đổi `DOMAIN=cinema.vibe-coder.fun`), file này phải nằm trong `.gitignore`. **Không bao giờ in, commit, ghi vào docs / memory** mật khẩu, key, token, địa chỉ VPS.
 - Trên VPS có app khác: tiến trình pm2 `tokivietnam.com` (cổng 3000) và `vibecorp` (cổng 3200). **Không đụng** tiến trình, site nginx hay file cấu hình của chúng. App này: thư mục `/opt/vibecinema`, pm2 tên `vibecinema`, cổng đề xuất **3300** (kiểm tra còn trống bằng `ss -ltnp` trước), site nginx riêng `cinema.vibe-coder.fun`, file `conf.d` riêng với **tên zone `limit_req` riêng** (VibeCorp đã dùng `/etc/nginx/conf.d/vpa-limit.conf` — trùng tên zone là nginx lỗi cả máy). Luôn `nginx -t` trước khi reload.
-- DNS: chủ dự án tự thêm bản ghi trên Cloudflare (hướng dẫn họ từng bước: bản ghi A `cinema` → IP VPS, bật proxy). Cloudflare thực tế đang ở chế độ SSL **Full** (đo 2026-11-03; ghi chú "Flexible" cũ sai) → site nghe cả 80 lẫn 443 với
-  chứng chỉ Let's Encrypt riêng (`deploy.sh --setup` tự lấy bằng webroot), **không** redirect HTTPS ở origin.
+- DNS: chủ dự án tự thêm bản ghi trên Cloudflare (hướng dẫn họ từng bước). Bản ghi A `cinema` → IP VPS để **DNS only
+  (đám mây xám)** từ 2026-11-03: qua proxy Cloudflare khách VN bị vòng sang Tokyo / Warsaw (WebSocket RTT ~440 ms, khựng
+  tới 0,4 s) còn thẳng VPS 8 ms — chủ dự án đã đồng ý đánh đổi lộ IP / mất chống DDoS (`docs/05` §3.1). Zone đang SSL
+  **Full (strict)** (chỉ ảnh hưởng `corp` còn cam). Site nghe cả 80 lẫn 443 với chứng chỉ Let's Encrypt riêng
+  (`deploy.sh --setup` tự lấy bằng webroot); http → https do **app** chuyển (xét `CF-Visitor`, không vòng lặp), không
+  redirect trong nginx; app tự nén br / gzip.
 - Chỉ deploy khi chủ dự án bảo.
 
 ## 6. Repo & quy ước làm việc
@@ -78,7 +82,8 @@
   (rạp 130 ghế + sàn nhảy lớn — chủ dự án chê rạp 64 ghế chật),
   đầy tự mở phòng kế (tối đa 3), **mỗi phòng hàng chờ riêng**; 3 báo cáo → tự gỡ; 8 động tác như §1; điện thoại = cần điều
   khiển ảo + chạm sàn + nút 🎭 + chụm phóng to.
-- **Đã deploy** 2026-11-03: https://cinema.vibe-coder.fun (pm2 `vibecinema`, cổng 3300, HTTPS Let's Encrypt). Repo
+- **Đã deploy** 2026-11-03: https://cinema.vibe-coder.fun (pm2 `vibecinema`, cổng 3300, HTTPS Let's Encrypt, DNS only —
+  thẳng VPS). Netcode người khác: phát lại đều theo đồng hồ người gửi + đệm thích ứng (`docs/03` §11, bản 0.4.3). Repo
   `Hao2505/cinema` (chủ dự án cho push). Cập nhật: `bash deploy/deploy.sh` (chỉ khi chủ dự án bảo).
 - **Chờ chủ dự án**: tạo `YT_API_KEY` (README) → điền `.env` + `deploy/.env.production` rồi deploy lại — chưa có key thì
   chưa ai thêm được video.
