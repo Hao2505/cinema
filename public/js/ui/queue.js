@@ -1,5 +1,7 @@
 // Đang chiếu + hàng chờ: thẻ video đang chiếu (tiến độ theo đồng hồ phòng), ô dán link YouTube, danh sách chờ,
 // bỏ phiếu bỏ qua, báo cáo video. Admin gắn thêm nút qua registerAdminHooks (ui/admin.js).
+// Phòng riêng: chủ phòng bỏ qua ngay (không bỏ phiếu) + xoá được mọi video trong hàng chờ; ai trong phòng cũng dừng /
+// phát tiếp cho cả phòng bằng nút ⏸ / ▶ dưới màn hình (proom_op).
 import { send } from '../net.js';
 import { store } from '../store.js';
 import { el, fmtTime, setKids, setText } from '../util.js';
@@ -27,20 +29,31 @@ function isMine(q) {
   return q && q.byId === store.myId && store.joined;
 }
 
+/** thao tác phòng riêng (server kiểm quyền: dừng / phát tiếp = mọi thành viên; bỏ qua / xoá = chủ phòng) */
+const roomOp = (op, extra = {}) => send({ t: 'proom_op', op, ...extra });
+
+function skipOrVote() {
+  if (store.isOwner() && store.now) roomOp('skip');
+  else vote();
+}
+
 function renderNow() {
   const n = store.now;
   const votes = store.votes;
   setText($('now-badge'), n ? (n.paused ? 'TẠM DỪNG' : n.filler ? 'KÊNH MẶC ĐỊNH' : n.live ? 'TRỰC TIẾP' : 'ĐANG CHIẾU') : 'MÀN HÌNH TRỐNG');
   setText($('now-title'), n ? n.title : 'Chưa có video');
-  setText($('now-meta'), !n ? 'Dán link YouTube bên dưới để chiếu cho cả rạp.'
+  setText($('now-meta'), !n ? (store.inPrivate() ? 'Dán link YouTube bên dưới để xem cùng nhau.' : 'Dán link YouTube bên dưới để chiếu cho cả rạp.')
     : n.filler ? `${n.ch ? `${n.ch} · ` : ''}phát khi hàng chờ trống — dán link để chiếu video của bạn, kênh này nhường ngay.`
       : [n.ch, `thêm bởi ${n.by}`, n.adm ? '🛠 admin chọn — không bỏ phiếu bỏ qua' : ''].filter(Boolean).join(' · '));
+  // phòng riêng: chủ phòng bỏ qua ngay, không cần phiếu (kể cả video admin thêm)
+  const owner = store.isOwner();
   // video admin thêm: người thường không bỏ phiếu bỏ qua (server cũng chặn) — ẩn nút
-  const noSkip = !!n && !!n.adm && !store.admin && !isMine(n);
+  const noSkip = !!n && !!n.adm && !store.admin && !isMine(n) && !owner;
   const acts = [];
   if (n && store.joined && !n.filler) {
     const mine = isMine(n);
-    if (!noSkip) acts.push(el('button', {
+    if (owner) acts.push(el('button', { type: 'button', class: 'btn', text: '⏭ Bỏ qua ngay', title: 'Bỏ qua ngay — chủ phòng', onclick: () => roomOp('skip') }));
+    else if (!noSkip) acts.push(el('button', {
       type: 'button', class: `btn${votes.mine ? ' on' : ''}`, onclick: () => vote(),
       text: mine ? '⏭ Bỏ qua video của mình' : `⏭ ${votes.mine ? 'Đã bỏ phiếu' : 'Bỏ qua'} (${votes.n}/${votes.need})`,
       title: mine ? 'Bạn thêm video này nên bỏ qua được ngay' : `Đủ ${votes.need} phiếu thì chuyển bài`,
@@ -54,11 +67,22 @@ function renderNow() {
   setKids($('now-actions'), acts);
   // nút dưới màn hình (kênh mặc định: không bỏ phiếu — có video mới là tự nhường)
   const showTools = !!n && store.joined;
-  $('btn-vote').hidden = !showTools || !!n?.filler || noSkip;
+  const vb = $('btn-vote');
+  vb.hidden = !showTools || !!n?.filler || noSkip;
+  vb.classList.toggle('on', !owner && !!votes.mine);
+  // chủ phòng riêng: "⏭ Bỏ qua ngay" (không đếm phiếu); người thêm video: chỉ ⏭; còn lại: số phiếu
+  setText($('vote-count'), owner ? 'Bỏ qua ngay' : n && isMine(n) ? '' : `${votes.n}/${votes.need}`);
+  vb.title = owner ? 'Bỏ qua ngay — chủ phòng' : n && isMine(n) ? 'Bỏ qua video của mình' : `Bỏ phiếu bỏ qua — đủ ${votes.need} phiếu thì chuyển bài`;
+  vb.setAttribute('aria-label', owner ? 'Bỏ qua ngay (chủ phòng)' : 'Bỏ phiếu bỏ qua video');
+  // phòng riêng: dừng / phát tiếp cho CẢ PHÒNG (dừng trên thanh YouTube chỉ dừng máy mình) — không áp cho live / kênh mặc định
+  const pb = $('btn-room-pause');
+  pb.hidden = !showTools || !store.inPrivate() || !!n?.filler || !!n?.live;
+  const paused = !!n?.paused;
+  setText(pb, paused ? '▶' : '⏸');
+  pb.title = paused ? 'Phát tiếp cho cả phòng' : 'Dừng cho cả phòng';
+  pb.setAttribute('aria-label', pb.title);
+  pb.classList.toggle('on', paused);
   $('btn-report').hidden = !showTools;
-  $('btn-vote').classList.toggle('on', !!votes.mine);
-  setText($('vote-count'), n && isMine(n) ? '' : `${votes.n}/${votes.need}`);
-  $('btn-vote').title = n && isMine(n) ? 'Bỏ qua video của mình' : `Bỏ phiếu bỏ qua — đủ ${votes.need} phiếu thì chuyển bài`;
   setText($('screen-title'), n ? n.title : '');
   tick();
 }
@@ -90,11 +114,13 @@ function renderQueue() {
   input.disabled = lockedForMe || !store.joined;
   $('add-btn').disabled = lockedForMe || !store.joined;
   input.placeholder = !store.joined ? 'Vào rạp để thêm video…' : lockedForMe ? 'Admin đang khoá hàng chờ' : 'Dán link YouTube…';
+  const owner = store.isOwner();
   const items = q.map((it, i) => {
     const tools = [];
-    if (isMine(it) || store.admin) {
-      // admin xoá bằng lệnh admin (chạy được cả khi admin chưa vào rạp); người thường xoá video của mình
-      const del = () => (store.admin && !isMine(it) ? send({ t: 'adm', op: 'remove', qid: it.qid }) : send({ t: 'q_del', qid: it.qid }));
+    if (isMine(it) || store.admin || owner) {
+      // người thường xoá video của mình; chủ phòng riêng xoá mọi video trong phòng mình; admin xoá bằng lệnh admin (chạy
+      // được cả khi admin chưa vào rạp)
+      const del = () => (isMine(it) ? send({ t: 'q_del', qid: it.qid }) : owner ? roomOp('remove', { qid: it.qid }) : send({ t: 'adm', op: 'remove', qid: it.qid }));
       tools.push(el('button', { type: 'button', text: '✕', 'aria-label': `Xoá "${it.title}"`, title: 'Xoá khỏi hàng chờ', onclick: del }));
     }
     if (admin) tools.unshift(...admin.itemTools(it, i));
@@ -173,12 +199,15 @@ export function initQueue() {
     msgTimer = setTimeout(() => setText(msg, ''), r.ok ? 4500 : 9000);
   });
   input.addEventListener('input', () => { if (msg.classList.contains('err')) setText(msg, ''); });
-  $('btn-vote').addEventListener('click', () => vote());
+  $('btn-vote').addEventListener('click', () => skipOrVote());
+  $('btn-room-pause').addEventListener('click', () => { const n = store.now; if (n && !n.live) roomOp(n.paused ? 'resume' : 'pause'); });
   $('btn-report').addEventListener('click', () => openReport());
   store.on('now', renderNow);
   store.on('votes', renderNow);
   store.on('queue', () => { renderQueue(); renderNow(); });
   store.on('welcome', () => { renderQueue(); renderNow(); });
+  // chủ phòng có mặt / vắng (priv.ownerId) đổi nút bỏ qua + ✕ trong hàng chờ
+  store.on('priv', () => { renderQueue(); renderNow(); });
   setInterval(tick, 500);
   renderNow();
   renderQueue();

@@ -2,6 +2,8 @@
 //   npx tsx scripts/qa-server.ts            → http://localhost:3399  (admin: http://localhost:3399/#admin=qa-local-admin)
 // Biến: PORT (mặc định 3399), CAPACITY (người / phòng), NO_KEY=1 (giả như chưa có YT_API_KEY → rạp kiểm cơ bản bằng
 // oEmbed giả, trình phát thật đo độ dài). Không bao giờ dùng mã admin thật ở đây.
+// Thử phòng riêng: tạo phòng ở một tab, mở link mời ở cửa sổ ẨN DANH / trình duyệt khác — các tab cùng hồ sơ dùng chung
+// khoá máy (vc.ck) nên server coi là chính chủ phòng (không hỏi mật khẩu). Tab đang là admin (#admin=…) cũng vào thẳng.
 import { loadConfig } from '../src/config.js';
 import { createApp } from '../src/app.js';
 import { createFakeYouTube } from './fake-youtube.js';

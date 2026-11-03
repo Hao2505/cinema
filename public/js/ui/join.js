@@ -1,8 +1,9 @@
 // Màn vào rạp: đặt tên + chọn ngoại hình (dáng Nam / Nữ, da, kiểu tóc, màu tóc, áo, quần, phụ kiện, râu) có xem trước
-// nhân vật động.
+// nhân vật động. Mở link phòng riêng (/#phong=p-…) → "chế độ phòng riêng": ẩn chọn rạp, thêm ô mật khẩu (form) / ô mật khẩu
+// thay danh sách rạp (thẻ chào lại). Mọi kết quả hiện ngay trên thẻ (#join-err / #jq-err) — toast nằm dưới lớp phủ này.
 // Dùng lại bộ chọn ngoại hình cho nút 🎨 sau khi đã vào rạp.
 import {
-  ACCESSORIES, BODIES, FACIALS, HAIR_COLORS, HAIR_STYLES, LIMITS, PANTS, SHIRTS, SKINS, VENUES, normalizeLook, randomLook,
+  ACCESSORIES, BODIES, FACIALS, HAIR_COLORS, HAIR_STYLES, LIMITS, PANTS, SHIRTS, SKINS, VENUES, isPrivateRoomId, normalizeLook, randomLook,
 } from '../shared/hall.js';
 import { send } from '../net.js';
 import { drawCharacter, portrait } from '../render/character.js';
@@ -29,11 +30,22 @@ export function saveLook(look) {
 export const savedName = () => str(lsGet(NAME_KEY, ''), 40);
 export const saveName = (n) => lsSet(NAME_KEY, n);
 
-/** vào rạp thành công: lần sau mở trang là vào thẳng (thẻ "Chào mừng quay lại"), nhớ phòng vừa vào */
+/** vào rạp thành công: lần sau mở trang là vào thẳng (thẻ "Chào mừng quay lại"), nhớ phòng vừa vào (chỉ phòng chung —
+ * phòng riêng vào lại bằng link + vé vc.rt) */
 export function rememberJoin(roomId) {
   lsSet(RETURNING_KEY, '1');
-  if (roomId) lsSet(LAST_ROOM_KEY, roomId);
+  if (roomId && !isPrivateRoomId(roomId)) lsSet(LAST_ROOM_KEY, roomId);
 }
+
+/** mật khẩu phòng như server so: chuẩn hoá Unicode (NFC — gõ tiếng Việt / dán từ Zalo có thể ra NFD) + bỏ khoảng trắng hai đầu */
+export const normPass = (s) => String(s ?? '').normalize('NFC').trim();
+/** '' = hợp lệ */
+export const passError = (p) => (p.length < 4 || p.length > 40 ? 'Mật khẩu phòng cần 4–40 ký tự.' : '');
+
+// chế độ phòng riêng của màn vào rạp: { room, authorized } — authorized = đã có quyền vào (vé vc.rt / vừa nhập đúng mật
+// khẩu / admin) nên không cần ô mật khẩu nữa. null = màn vào rạp thường
+let priv = null;
+let privBusy = false; // đang chờ server kiểm mật khẩu (thẻ chào lại)
 
 /** đã từng vào rạp và còn tên hợp lệ trên máy này */
 export function isReturning() {
@@ -148,22 +160,28 @@ export function startPreview(canvas, getLook) {
 }
 
 /**
- * màn vào rạp: lần đầu = đặt tên + chọn nhân vật (onSubmit(name, look)); đã từng vào = thẻ "Chào mừng quay lại" chọn rạp,
- * bấm là vào luôn bằng tên + nhân vật đã nhớ (onQuick(roomId)).
+ * màn vào rạp: lần đầu = đặt tên + chọn nhân vật (onSubmit(name, look, pass) — pass chỉ có khi mở link phòng riêng chưa có
+ * quyền vào); đã từng vào = thẻ "Chào mừng quay lại" chọn rạp, bấm là vào luôn bằng tên + nhân vật đã nhớ (onQuick(roomId)),
+ * link phòng riêng thì nhập mật khẩu (onQuickPass(pass)). onCreate(from: 'form' | 'quick') = "🔒 Tạo phòng riêng";
+ * onPublic() = "Vào rạp chung thay thế" (bỏ link phòng riêng).
  */
-export function initJoin(onSubmit, onQuick) {
+export function initJoin({ onSubmit, onQuick, onQuickPass, onCreate, onPublic }) {
   const form = $('join-form');
   const quick = $('join-quick');
   const nameInput = $('join-name');
+  const passInput = $('join-pass');
   nameInput.value = savedName();
   const editor = lookEditor(savedLook(), (l) => saveLook(l));
   setKids($('join-looks'), editor.node);
   let stopPreview = startPreview($('join-preview'), () => editor.get());
   // ---- thẻ "Chào mừng quay lại": danh sách rạp (số người + đang chiếu gì), rạp lần trước lên đầu
   let busyRoom = '';
+  let quickNote = ''; // dòng thay cho "Chọn rạp để vào ngay:" (vd phòng riêng vừa đóng → mời vào rạp chung 👇)
   const renderQuick = () => {
     if (quick.hidden) return;
     setText($('jq-name'), savedName());
+    renderPrivate();
+    if (priv) return; // phòng riêng: ô mật khẩu thay cho danh sách rạp
     const last = lastRoom();
     // rạp đông lên đầu (ít người thì gặp được nhau), rồi rạp lần trước
     const rooms = [...store.rooms].sort((a, b) => (b.count - a.count) || ((b.id === last) - (a.id === last)));
@@ -187,6 +205,55 @@ export function initJoin(onSubmit, onQuick) {
   };
   store.on('rooms', renderQuick);
   $('jq-edit').addEventListener('click', () => showForm(''));
+  $('jq-create').addEventListener('click', () => onCreate?.('quick'));
+  $('join-create').addEventListener('click', () => onCreate?.('form'));
+  $('jq-public').addEventListener('click', () => onPublic?.());
+  $('join-public').addEventListener('click', () => onPublic?.());
+  $('jq-pass-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (busyRoom || privBusy || !priv) return;
+    let pass = '';
+    if (!priv.authorized) {
+      pass = normPass($('jq-pass').value);
+      const err = passError(pass);
+      if (err) { setText($('jq-err'), err); $('jq-pass').focus(); return; }
+    }
+    setText($('jq-err'), '');
+    privBusy = true;
+    renderPrivate();
+    onQuickPass?.(pass);
+  });
+  $('jq-pass').addEventListener('input', () => setText($('jq-err'), ''));
+  passInput.addEventListener('input', () => showJoinError(''));
+
+  /** hiện / ẩn phần riêng của chế độ phòng riêng trên cả hai thẻ */
+  function renderPrivate() {
+    const on = !!priv;
+    const needPass = on && !priv.authorized;
+    $('join-venue-field').hidden = on;
+    $('join-pass-field').hidden = !needPass;
+    // chế độ phòng riêng: dòng lỗi ngay dưới tên / mật khẩu (form dài vì bộ chọn nhân vật — lỗi ở cuối thì không thấy);
+    // thường: trên các nút như cũ
+    const err = $('join-err');
+    if (on) { if (err.previousElementSibling !== $('join-pass-field')) $('join-pass-field').after(err); }
+    else if (err.nextElementSibling !== form.querySelector('.join-actions')) form.querySelector('.join-actions').before(err);
+    $('join-create').hidden = on;
+    $('join-public').hidden = !on;
+    $('jq-create').hidden = on;
+    $('jq-public').hidden = !on;
+    $('jq-rooms').hidden = on;
+    // thẻ chào lại: đang tự vào bằng vé (busyRoom) → chỉ hiện dòng "Đang vào phòng riêng…"
+    $('jq-pass-form').hidden = !on || !!busyRoom;
+    $('jq-pass').hidden = !needPass;
+    const go = $('jq-pass-go');
+    go.disabled = privBusy;
+    setText(go, privBusy ? 'Đang vào…' : on && priv.authorized ? 'Vào phòng 🔒' : 'Vào phòng');
+    const sub = $('jq-sub');
+    sub.classList.toggle('note', !on && !!quickNote);
+    setText(sub, on ? (busyRoom ? 'Đang vào phòng riêng…' : '🔒 Bạn được mời vào một phòng riêng') : quickNote || 'Chọn rạp để vào ngay:');
+    setJoinBusy($('join-go').disabled);
+    updateRoom();
+  }
   function showQuick() {
     $('join').hidden = false;
     form.hidden = true;
@@ -200,10 +267,23 @@ export function initJoin(onSubmit, onQuick) {
     quick.hidden = true;
     form.hidden = false;
     busyRoom = '';
+    privBusy = false;
     nameInput.value = savedName() || nameInput.value;
     if (!stopPreview) stopPreview = startPreview($('join-preview'), () => editor.get());
     showJoinError(err || '');
     setJoinBusy(false);
+    renderPrivate();
+  }
+  /** tên trong form đã chuẩn hoá ('' = sai độ dài: đã báo lỗi + đặt con trỏ vào ô tên) */
+  function validName() {
+    const name = nameInput.value.replace(/\s+/g, ' ').trim();
+    const len = Array.from(name).length;
+    if (len < LIMITS.nameMin || len > LIMITS.nameMax) {
+      showJoinError(`Tên cần ${LIMITS.nameMin}–${LIMITS.nameMax} ký tự.`);
+      nameInput.focus();
+      return '';
+    }
+    return name;
   }
   $('join-random').addEventListener('click', () => {
     const l = randomLook();
@@ -212,17 +292,18 @@ export function initJoin(onSubmit, onQuick) {
   });
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const name = nameInput.value.replace(/\s+/g, ' ').trim();
-    const len = Array.from(name).length;
-    if (len < LIMITS.nameMin || len > LIMITS.nameMax) {
-      showJoinError(`Tên cần ${LIMITS.nameMin}–${LIMITS.nameMax} ký tự.`);
-      nameInput.focus();
-      return;
+    const name = validName();
+    if (!name) return;
+    let pass = '';
+    if (priv && !priv.authorized) {
+      pass = normPass(passInput.value);
+      const err = passError(pass);
+      if (err) { showJoinError(err); passInput.focus(); return; }
     }
     saveName(name);
     saveLook(editor.get());
     setJoinBusy(true);
-    onSubmit(name, editor.get());
+    onSubmit(name, editor.get(), pass);
   });
   nameInput.addEventListener('input', () => showJoinError(''));
   // chọn rạp: xem trước rạp đó ngay sau lớp phủ (spec), bấm "Vào rạp" là vào đúng rạp đang xem
@@ -242,7 +323,13 @@ export function initJoin(onSubmit, onQuick) {
   store.on('rooms', renderVenues);
   store.on('venue', renderVenues);
   renderVenues();
-  const updateRoom = () => {
+  function updateRoom() {
+    if (priv) {
+      setText($('join-room'), priv.authorized
+        ? '🔒 Bạn được mời vào một phòng riêng — đặt tên là vào.'
+        : '🔒 Bạn được mời vào một phòng riêng — đặt tên, nhập mật khẩu là vào.');
+      return;
+    }
     const room = store.rooms.find((r) => r.id === store.roomId);
     const n = store.now;
     const parts = [];
@@ -250,31 +337,60 @@ export function initJoin(onSubmit, onQuick) {
     if (n) parts.push(' · Đang chiếu: ', el('b', { text: n.title }));
     else parts.push(' · Chưa có video, vào rạp rồi dán link để chiếu nhé.');
     setKids($('join-room'), parts);
-  };
+  }
   store.on('rooms', updateRoom);
   store.on('now', updateRoom);
   store.on('hello', updateRoom);
   setTimeout(() => nameInput.focus({ preventScroll: true }), 50);
   return {
-    hide() { $('join').hidden = true; busyRoom = ''; if (stopPreview) { stopPreview(); stopPreview = null; } },
+    hide() { $('join').hidden = true; busyRoom = ''; privBusy = false; quickNote = ''; if (stopPreview) { stopPreview(); stopPreview = null; } },
     /** màn đặt tên + chọn nhân vật (kèm lỗi nếu có) */
     show(err) { showForm(err); },
     showQuick,
     get isQuick() { return !$('join').hidden && !quick.hidden; },
     /** thẻ chào lại: đang vào phòng nào ('' = thôi) */
-    setQuickBusy(roomId) { busyRoom = roomId || ''; renderQuick(); },
-    quickError(text) { busyRoom = ''; setText($('jq-err'), text || ''); renderQuick(); },
+    setQuickBusy(roomId) { busyRoom = roomId || ''; privBusy = false; renderQuick(); },
+    quickError(text) { busyRoom = ''; privBusy = false; setText($('jq-err'), text || ''); renderQuick(); },
+    /** thẻ chào lại: dòng thay cho "Chọn rạp để vào ngay:" ('' = bỏ) */
+    quickNote(text) { quickNote = text || ''; renderQuick(); },
     get look() { return editor.get(); },
+    validName,
+    /**
+     * chế độ phòng riêng: { room, authorized } hoặc null. Giữ nguyên qua lỗi tên (server báo trùng tên… vẫn ở chế độ này);
+     * chỉ đổi khi vào được / phòng đóng / bị mời ra / người xem chọn rạp chung
+     */
+    setPrivate(p) {
+      const next = p && isPrivateRoomId(p.room) ? { room: p.room, authorized: !!p.authorized } : null;
+      if (!next || !priv || next.room !== priv.room) { passInput.value = ''; $('jq-pass').value = ''; }
+      priv = next;
+      privBusy = false;
+      if (next) quickNote = '';
+      renderPrivate();
+      renderQuick();
+    },
+    get privateRoom() { return priv ? priv.room : ''; },
+    get privateAuthorized() { return !!priv && priv.authorized; },
+    /** đặt con trỏ vào ô mật khẩu đang hiện */
+    focusPass() {
+      const i = !quick.hidden ? $('jq-pass') : passInput;
+      if (!i.hidden && !i.closest('[hidden]')) setTimeout(() => i.focus({ preventScroll: true }), 30);
+    },
   };
 }
 
-export function showJoinError(text) {
-  setText($('join-err'), text || '');
-  if (text) setJoinBusy(false);
+/** lỗi / ghi chú dưới form (note = dòng thông tin màu vàng, không phải lỗi) */
+export function showJoinError(text, note = false) {
+  const e = $('join-err');
+  setText(e, text || '');
+  e.classList.toggle('note', !!text && note);
+  if (!text) return;
+  setJoinBusy(false);
+  // phòng riêng: vừa bấm nút cuối form → kéo lên cho thấy lỗi + ô mật khẩu
+  if (priv && !$('join-form').hidden) e.scrollIntoView({ block: 'center' });
 }
 
 export function setJoinBusy(busy) {
   const b = $('join-go');
   b.disabled = !!busy;
-  setText(b, busy ? 'Đang vào…' : 'Vào rạp 🍿');
+  setText(b, busy ? 'Đang vào…' : priv ? 'Vào phòng 🔒' : 'Vào rạp 🍿');
 }

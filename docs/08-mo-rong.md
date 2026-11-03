@@ -149,7 +149,18 @@ Tương thích: hai phía đều bỏ qua `t` lạ và trường lạ → thêm 
    `at` / `ends` / `s` là giờ server — client dùng `store.serverNow()`.
 5. Di chuyển: `me.js` (dự đoán) và `hub.ts onMove` (kiểm) dùng chung `moveWithCollision`, `SPEED`, `HALL` — đổi một phía
    là đổi cả hai; đổi `SPEED` đổi luôn ngân sách quãng đường của server.
-6. Đổi dạng id phòng (`ROOM_ID_RE`) → kiểm lại giới hạn độ dài `room` trong `protocol.ts` (đang 16) + test đơn vị.
+6. Đổi dạng id phòng (`ROOM_ID_RE` phòng chung, `PRIVATE_ROOM_RE` phòng riêng `p-…`, gộp ở `ANY_ROOM_ID_RE`) → kiểm lại
+   giới hạn độ dài `room` trong `protocol.ts` (đang 16) + test đơn vị. Id rạp không được bắt đầu bằng `p-` (đã không thể:
+   `[a-z]{3,10}`).
+6b. Phòng riêng: mọi id client gửi lên phải qua `publicRoom()` hoặc cổng `privEntry()` (`hub.ts`) — `pickRoom` không bao
+   giờ trả phòng riêng; người thường không đứng xem phòng riêng; mật khẩu, vé, khoá máy (chủ phòng, người có vé, người
+   bị mời ra, người thêm video `byCkH` — ở mọi phòng) chỉ lưu mã băm, không log; log phòng riêng chỉ id + tên phòng (lúc
+   tạo / đổi mật khẩu / đóng) — không bao giờ video phòng đó xem; admin không chiếm chỗ của thành viên. Thêm dữ liệu lưu
+   / dòng log cho phòng riêng → cập nhật `chinh-sach.html` mục 2–3 ([07](07-server.md) §20).
+6c. Id phòng riêng không bao giờ được tới máy chủ web hay YouTube: link + thanh địa chỉ dùng `#phong=` (`net.js linkRoom`,
+   `main.js syncUrl`, `ui/private.js inviteLink`) — không `?phong=p-…`; `player.js` tự dựng `<iframe>` (cách có tài liệu
+   của IFrame API) — đừng quay lại `new YT.Player(<div>, {playerVars})`, API sẽ gắn `forigin` = địa chỉ trang. QA:
+   `checkIframe` trong `scripts/qa.ts` ([04](04-youtube-va-phap-ly.md) §5, §11).
 7. Admin: server lờ `adm` của người thường ("như không tồn tại"); `ui/admin.js` chỉ được `import()` khi `hello.admin`.
    Không để lộ gì về hệ thống cho người thường.
 8. Bí mật: không đọc / in / commit `.env`, `deploy/vps.env`, `deploy/.env.production`; không in `ADMIN_TOKEN` /
@@ -163,8 +174,9 @@ Tương thích: hai phía đều bỏ qua `t` lạ và trường lạ → thêm 
 13. Chủ đề rạp nạp bằng `import()` đường dẫn tương đối → cũng nằm dưới `/v/<phiên bản>/`; đừng dùng đường dẫn tuyệt đối.
 14. Giữ `Referrer-Policy: strict-origin-when-cross-origin` (YouTube lỗi 153 nếu thiếu Referer); thêm miền ngoài → sửa CSP
     trong `app.ts`.
-15. VPS dùng chung: tên riêng cho mọi thứ (pm2, cổng, site, zone `limit_req`), `nginx -t` trước khi reload, không đụng app
-    khác ([05](05-van-hanh-deploy.md) §2).
+15. VPS dùng chung: tên riêng cho mọi thứ (pm2, cổng, site, zone `limit_req`, `log_format`, file log), `nginx -t` trước khi
+    reload, không đụng app khác ([05](05-van-hanh-deploy.md) §2). Log nginx của site không có IP / `?…` / Referer
+    (`vcin_noip`) — trang `/chinh-sach` hứa vậy; thêm trường vào log thì sửa trang đó.
 16. Không dùng chữ "ke" trên giao diện (động tác tên "Lắc đầu quẩy"); test kiểm.
 17. Test có con số cứng: `VENUES.length === 4`, `ACTIONS.length === 8`, phím 1–8, `SEATS.length ≥ 120` — đổi dữ liệu thì
     sửa test có chủ đích.

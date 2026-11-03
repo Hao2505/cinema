@@ -1,11 +1,12 @@
 // Thẻ người xem khi bấm / chạm vào một nhân vật: tên, vẫy chào, báo cáo, ẩn tin nhắn / động tác / cả người đó (chỉ trên
-// máy mình — prefs.js); admin có thêm tắt tiếng / mời ra / cấm.
+// máy mình — prefs.js); chủ phòng riêng mời người đó ra (xác nhận trong tấm); admin có thêm tắt tiếng / mời ra / cấm.
 import { send } from '../net.js';
 import { doAction } from '../me.js';
 import { store } from '../store.js';
 import { clamp, el, setKids } from '../util.js';
 import { openSheet, closeSheet } from './sheet.js';
 import { personFlags, setPersonFlag } from '../prefs.js';
+import { confirmKick } from './private.js';
 
 const $ = (id) => document.getElementById(id);
 let adminTools = null; // (player) → Node[]
@@ -54,6 +55,7 @@ export function initUserCard(stage) {
     else {
       acts.push(el('button', { type: 'button', class: 'btn', text: '👋 Vẫy chào', onclick: () => { doAction('wave'); close(); } }));
       if (store.joined) acts.push(el('button', { type: 'button', class: 'btn btn-ghost', text: '🚩 Báo cáo', onclick: () => { close(); openReportUser(a); } }));
+      if (store.isOwner() && !store.priv?.members.some((m) => m.id === a.id && m.adm)) acts.push(el('button', { type: 'button', class: 'btn btn-danger', text: '🚪 Mời ra khỏi phòng', onclick: () => { close(); confirmKick(a.id, a.name); } }));
     }
     const adm = !isMe && adminTools ? adminTools(a, close) : [];
     // ẩn riêng người này (chỉ trên máy mình): tin nhắn · động tác + emoji · cả nhân vật

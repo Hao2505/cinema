@@ -1,16 +1,22 @@
 // Điểm vào client: (1) đăng nhập admin nếu link có #admin=, (2) dựng canvas rạp + trình phát YouTube + giao diện,
 // (3) nối WebSocket. Người xem đứng xem ngoài cửa (thấy rạp sống) tới khi đặt tên → "Vào rạp".
-import { store } from './store.js';
-import { adminLoginFromUrl, connect, isOpen, send } from './net.js';
+// Phòng riêng (link /#phong=p-… — id nằm sau dấu # nên không bao giờ tới máy chủ, nhật ký hay YouTube; link cũ ?phong=p-…
+// vẫn mở được, tự đổi sang #): đứng xem rạp chung trong lúc nhập mật khẩu; vào rồi thì thanh địa chỉ giữ #phong= để tải
+// lại / rớt mạng vẫn về đúng phòng (vé vào lại vc.rt, store.js).
+import { backToSpectate, dropRt, rtFor, store } from './store.js';
+import { adminLoginFromUrl, connect, isOpen, linkRoom, privLinkToHash, send } from './net.js';
 import { applyCorrection, me, placeMe, tickMe, walkTo } from './me.js';
-import { DIRS, ROOM_ID_RE, VENUES, parseRoomId, roomName, venueById } from './shared/hall.js';
+import { DIRS, ROOM_ID_RE, isPrivateRoomId, parseRoomId, roomName, venueById } from './shared/hall.js';
 import { prefetchThemes } from './render/venues/index.js';
 import { createStage } from './render/stage.js';
 import { createPlayer } from './player.js';
 import { initInput } from './input.js';
 import {
-  initJoin, isReturning, lookEditor, rememberJoin, saveLook, savedLook, savedName, setJoinBusy, showJoinError,
+  initJoin, isReturning, lookEditor, rememberJoin, saveLook, saveName, savedLook, savedName, setJoinBusy, showJoinError,
 } from './ui/join.js';
+import {
+  ADMIN_WATCHING, createRow, initPrivate, openCreateSheet, privateOk, privateReset, privateResult, privateSection,
+} from './ui/private.js';
 import { initChat, systemLine } from './ui/chat.js';
 import { initQueue } from './ui/queue.js';
 import { initWheel } from './ui/wheel.js';
@@ -26,10 +32,25 @@ const $ = (id) => document.getElementById(id);
 let ck = lsGet('vc.ck', '');
 if (!/^[a-f0-9]{16,64}$/.test(ck)) { ck = randomHex(16); lsSet('vc.ck', ck); }
 
+privLinkToHash(); // link cũ ?phong=p-… → #phong=p-… TRƯỚC mọi yêu cầu khác (đăng nhập admin, tải rạp…)
 await adminLoginFromUrl();
+
+// link phòng riêng nằm sau dấu #: dán link mời vào tab đang mở rạp, hay bấm Quay lại, chỉ đổi phần sau # nên trình duyệt
+// KHÔNG tải lại trang → phòng riêng trong link đổi thì tự tải lại (như mở link mới)
+window.addEventListener('hashchange', (e) => {
+  const a = linkRoom(e.oldURL), b = linkRoom(e.newURL);
+  if (a !== b && (isPrivateRoomId(a) || isPrivateRoomId(b))) location.reload();
+});
 
 initToasts($('toasts'));
 initSheet();
+
+// phòng riêng đang được mời vào (link #phong=p-… hoặc vào lại hỏng) trong lúc CHƯA ở trong phòng ('' = không)
+let privLink = '';
+// phòng riêng người xem vừa bỏ ("Vào rạp chung thay thế"): lời nhắc / kết quả tới muộn của phòng đó không bật lại chế độ
+// phòng riêng; abandonedJoin = lúc bỏ đang chờ kết quả vào phòng đó (vào bằng vé) → kết quả tới sau bị bỏ qua
+let dismissedPriv = '';
+let abandonedJoin = false;
 
 // ---------------------------------------------------------------- canvas + trình phát
 let player = null;
@@ -39,7 +60,12 @@ const stage = createStage($('hall'), $('screen-slot'), {
   screenInfo: () => {
     const n = store.now;
     if (!store.joined) {
+      // link phòng riêng: phía sau là rạp chung đang đứng xem — không ghi tên video của rạp chung cho khỏi nhầm
+      if (privLink) return { show: true, title: '🔒 Phòng riêng', sub: 'Đặt tên, nhập mật khẩu bạn bè gửi là vào xem cùng nhau' };
       return { show: true, title: n ? `Đang chiếu: ${n.title}` : 'Chưa có video nào đang chiếu', sub: 'Đặt tên rồi vào rạp để xem cùng mọi người 🍿' };
+    }
+    if (!n && store.inPrivate()) {
+      return { show: true, title: 'Phòng riêng đang trống', sub: 'Dán link YouTube vào 📋 Hàng chờ để xem cùng nhau' };
     }
     if (!n) {
       const idle = Number(store.cfg.defaultIdleSec) || 0;
@@ -58,10 +84,13 @@ const stage = createStage($('hall'), $('screen-slot'), {
 player = createPlayer($('screen-slot'), $('yt-host'), {
   onStatus: (s) => {
     const showing = !!store.now && s.enabled;
-    $('btn-tap-play').hidden = !s.needsTap || !showing;
+    $('btn-tap-play').hidden = !s.needsTap || !showing || s.offVideo;
     setText($('btn-tap-play'), '▶ Bấm để xem');
     // trình duyệt tự tắt tiếng lúc tự phát (chặn tự phát có tiếng) → mời bật tiếng; âm lượng thường dùng thanh của YouTube
     $('btn-unmute').hidden = !(s.askUnmute && !s.needsTap && showing);
+    // người xem đang ở video gợi ý của YouTube → nút quay về (không tự quay lại — chính sách YouTube); hiện cả khi rạp đã
+    // hết video (bấm = về màn hình của rạp)
+    $('btn-back-room').hidden = !(s.offVideo && s.enabled);
     $('btn-fs').hidden = !showing;
   },
   onNotice: (t) => toast(t, 'warn'),
@@ -69,7 +98,18 @@ player = createPlayer($('screen-slot'), $('yt-host'), {
 });
 $('btn-tap-play').addEventListener('click', () => player.userPlay());
 $('btn-unmute').addEventListener('click', () => player.userPlay());
+$('btn-back-room').addEventListener('click', () => player.backToRoom());
 $('btn-fs').addEventListener('click', () => player.fullscreen());
+// cụm ⏭ · ⏸ · 🚩 · ⛶: ẩn hẳn khi không còn nút nào hiện (CSS :has() chưa có trên WebView cũ → JS lo)
+{
+  const group = $('tool-group');
+  const syncGroup = () => {
+    const want = ![...group.children].some((c) => !c.hidden);
+    if (group.hidden !== want) group.hidden = want; // chỉ gán khi đổi (gán lại cũng sinh bản ghi → lặp vô tận)
+  };
+  new MutationObserver(syncGroup).observe(group, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  syncGroup();
+}
 
 function layoutOverlays(L) {
   const top = $('stage').getBoundingClientRect().top;
@@ -78,7 +118,8 @@ function layoutOverlays(L) {
   tools.style.left = `${L.screen.x}px`;
   tools.style.width = `${L.screen.w}px`;
   tools.style.top = `${Math.round(stripTop + Math.max(0, (L.audTop - stripTop - 28) / 2))}px`;
-  tools.style.height = '28px';
+  // một hàng 28 px; màn hẹp mà nhiều nút cùng hiện thì xuống hàng — cao thêm về phía dưới (không bao giờ lên đè video)
+  tools.style.minHeight = '28px';
   document.documentElement.style.setProperty('--aud-top', `${L.audTop}px`);
   document.documentElement.style.setProperty('--sheet-top', `${Math.round(top + stripTop + 4)}px`);
 }
@@ -115,6 +156,8 @@ function syncInsets() {
   const sr = $('stage').getBoundingClientRect();
   const vw = sr.width || window.innerWidth, vh = sr.bottom || window.innerHeight;
   const l = $('hud-l').getBoundingClientRect(), r = $('hud-r').getBoundingClientRect();
+  // cụm trái không bao giờ chạm cụm phải: tên phòng dài (phòng riêng "Phòng của …") tự rút gọn "…" cho vừa
+  if (r.width) root.style.setProperty('--hud-l-max', `${Math.max(120, Math.floor(r.left - l.left - 6))}px`);
   const dr = $('dock').getBoundingClientRect();
   const dockH = dr.height ? Math.max(0, Math.ceil(vh - dr.top)) : 0; // dock bị ẩn → không chừa chỗ
   root.style.setProperty('--dock-h', `${dockH}px`);
@@ -316,7 +359,10 @@ setInterval(() => {
   const watching = store.joined && !!store.now && !store.now.paused;
   document.body.classList.toggle('watching', watching);
   const a = document.activeElement;
-  const busy = !reactPop.hidden || !viewPop.hidden || sheetOpen() || sideOpen() || wheel.open || userCard.isOpen
+  // nút mời bấm dưới màn hình (về video của rạp / bấm để xem / bật tiếng) đang hiện → không làm mờ: người xem bấm video
+  // gợi ý thì chuột nằm trong khung YouTube, trang không nhận được sự kiện nào → nút "↩ Về video của rạp" mờ gần như mất
+  const cta = !$('btn-back-room').hidden || !$('btn-tap-play').hidden || !$('btn-unmute').hidden;
+  const busy = !reactPop.hidden || !viewPop.hidden || sheetOpen() || sideOpen() || wheel.open || userCard.isOpen || cta
     || (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
   document.body.classList.toggle('ui-quiet', watching && prefs.autoHide && !busy && performance.now() - lastActive > 4000);
 }, 400);
@@ -339,10 +385,25 @@ $('btn-help').addEventListener('click', () => {
     el('h3', { text: 'Trên điện thoại' }),
     el('p', { text: 'Kéo cần điều khiển góc trái để đi, chạm sàn để đi tới, nút 🎭 để làm động tác, chụm hai ngón để phóng to / thu nhỏ.' }),
     el('h3', { text: 'Luật rạp' }),
-    el('p', { text: `Chỉ chiếu video YouTube công khai, cho phép nhúng, không giới hạn tuổi, xem được ở Việt Nam, dài tối đa ${store.cfg.maxVideoMin} phút. Mỗi người chờ tối đa ${store.cfg.maxPerUser} video. Bỏ qua khi đủ ${Math.round(store.cfg.skipRatio * 100)}% người trong phòng bỏ phiếu. Không gửi link, không chửi bậy trong chat.` }),
+    store.inPrivate()
+      ? el('p', { text: 'Chỉ chiếu video YouTube cho phép nhúng, kiểm như rạp chung. Không gửi link, không chửi bậy trong chat.' })
+      : el('p', { text: `Chỉ chiếu video YouTube công khai, cho phép nhúng, không giới hạn tuổi, xem được ở Việt Nam, dài tối đa ${store.cfg.maxVideoMin} phút. Mỗi người chờ tối đa ${store.cfg.maxPerUser} video. Bỏ qua khi đủ ${Math.round(store.cfg.skipRatio * 100)}% người trong phòng bỏ phiếu. Không gửi link, không chửi bậy trong chat.` }),
+    el('h3', { text: '🔒 Phòng riêng' }),
+    el('p', { text: 'Xem chung với người yêu / bạn bè ở xa: bấm ô tên rạp góc trên trái → 🔒 Tạo phòng riêng (hoặc nút đó ở màn vào rạp), đặt mật khẩu rồi gửi link + mật khẩu cho nhau. Phòng riêng miễn phí, không hiện trong danh sách rạp; quản trị viên rạp có thể vào khi xử lý báo cáo.' }),
+    el('p', { text: privateRules() }),
     el('p', null, el('a', { href: '/chinh-sach', target: '_blank', rel: 'noopener', text: 'Chính sách & quyền riêng tư' })),
   ]);
 });
+
+/**
+ * luật phòng riêng theo cấu hình server (mặc định: 12 giờ, 10 video). 12 giờ chỉ cho video rạp kiểm đủ được qua YouTube;
+ * video chỉ qua kiểm cơ bản (rạp chưa có / hết lượt YouTube API) vẫn giới hạn như rạp chung
+ */
+function privateRules() {
+  const min = Number(store.cfg.privMaxMin) || 720;
+  const len = min % 60 === 0 ? `${min / 60} giờ` : `${min} phút`;
+  return `Phòng riêng: video dài tới ${len} (lúc rạp chỉ kiểm cơ bản được video thì tối đa ${Number(store.cfg.maxVideoMin) || 15} phút như rạp chung), mỗi người chờ tối đa ${Number(store.cfg.privPerUser) || 10} video, ai trong phòng cũng dừng / phát tiếp được, chủ phòng bỏ qua / mời ra / đổi mật khẩu / đóng phòng.`;
+}
 
 // đổi ngoại hình
 $('btn-look').addEventListener('click', () => {
@@ -357,8 +418,11 @@ $('btn-look').addEventListener('click', () => {
   ]);
 });
 
-// chọn rạp (bấm ô phòng góc trên): mỗi rạp một khung cảnh, màn hình + hàng chờ riêng
+// chọn rạp (bấm ô phòng góc trên): mỗi rạp một khung cảnh, màn hình + hàng chờ riêng. Đang ở phòng riêng: phần phòng
+// riêng (thành viên, công cụ chủ phòng) lên đầu; đang ở phòng chung: hàng đầu là "🔒 Tạo phòng riêng"
 $('room-pill').addEventListener('click', () => {
+  const inPriv = store.inPrivate();
+  const sec = inPriv ? privateSection() : null;
   const items = store.rooms.map((r) => {
     const v = venueById(r.venue) || parseRoomId(r.id)?.venue;
     return el('div', { class: `room-item${r.id === store.roomId ? ' cur' : ''}` },
@@ -378,10 +442,13 @@ $('room-pill').addEventListener('click', () => {
           },
         }));
   });
-  openSheet('rooms', '🎬 Chọn rạp', [
+  openSheet('rooms', inPriv ? '🔒 Phòng riêng' : '🎬 Chọn rạp', [
+    sec?.node,
+    inPriv ? el('h3', { class: 'pr-split', text: '🎬 Rạp chung' }) : null,
+    !inPriv && store.joined ? el('div', { class: 'room-list pr-create-list' }, createRow()) : null,
     el('p', { text: `Mỗi rạp một khung cảnh, có màn hình và hàng chờ riêng, tối đa ${store.cfg.capacity} người. Rạp đầy thì tự mở thêm phòng của rạp đó.` }),
     el('div', { class: 'room-list' }, items),
-  ]);
+  ], sec ? () => sec.dispose() : undefined);
 });
 
 // ---------------------------------------------------------------- vào rạp
@@ -389,13 +456,135 @@ let wantJoin = false;
 let joinName = '';
 let joinLook = null;
 let joinRoom = ''; // phòng muốn vào ('' = phòng đang đứng xem)
-const join = initJoin((name, look) => {
-  wantJoin = true;
-  joinName = name;
-  joinLook = look;
-  joinRoom = '';
-  sendJoin();
-}, (roomId) => quickJoin(roomId));
+let rejoining = false; // đang vào lại sau rớt mạng (vẫn đang "ở trong rạp", socket mới) — chờ kết quả join
+let lastJoinRt = ''; // vé phòng riêng gửi kèm join gần nhất ('' = không có)
+let pendingAuth = null; // { room, name, look, quick, timer } — đang chờ server kiểm mật khẩu phòng riêng
+let pendingCreate = null; // { name, look } — tạo phòng riêng từ màn vào rạp (chưa có nhân vật): vào thẳng phòng mới
+let leavingPriv = false; // vừa bấm "🚪 Rời phòng riêng"
+let outText = '', outAt = 0; // vừa bị đưa ra khỏi phòng riêng (bị mời ra / phòng đóng)
+let refused = null; // { room, rt, timer } — xin vào phòng riêng nhưng server nối lại nhân vật cũ ở phòng khác (lý do tới ngay sau)
+let joinWarn = null; // { text, at } — cảnh báo (notice) server gửi lúc đang xin vào phòng riêng từ màn vào rạp (có thể là lý do)
+const CLOSED_LINE = 'Phòng riêng này đã đóng (mọi người đã rời đi). Bạn vẫn có thể vào rạp chung 👇';
+const NO_REPLY = 'Máy chủ chưa trả lời — thử lại nhé.';
+const NAME_CODES = ['name', 'name_taken']; // mã lỗi "tên không dùng được" (join_err / proom_res)
+
+const join = initJoin({
+  onSubmit: (name, look, pass) => {
+    joinName = name;
+    joinLook = look;
+    if (privLink && pass) { startAuth(pass, { name, look, quick: false }); return; }
+    wantJoin = true;
+    joinRoom = privLink || '';
+    sendJoin();
+  },
+  onQuick: (roomId) => quickJoin(roomId),
+  // thẻ chào lại ở chế độ phòng riêng: có mật khẩu → hỏi server trước; đã có quyền (vé / admin) → vào luôn
+  onQuickPass: (pass) => {
+    if (!privLink) return;
+    if (pass) startAuth(pass, { name: savedName(), look: savedLook(), quick: true });
+    else quickJoin(privLink);
+  },
+  onCreate: (from) => {
+    // chưa vào rạp: tên + nhân vật lấy từ form (kiểm tên trước) hoặc đã nhớ (thẻ chào lại) — tạo xong là vào thẳng phòng mới
+    if (from === 'form') {
+      const name = join.validName();
+      if (!name) return;
+      saveName(name);
+      saveLook(join.look);
+      pendingCreate = { name, look: join.look };
+    } else pendingCreate = { name: savedName(), look: savedLook() };
+    openCreateSheet();
+  },
+  onPublic: () => {
+    // bỏ hẳn link phòng riêng: thôi chờ mật khẩu / vé (lượt vào đang chờ server thì kết quả tới sau bị bỏ qua), thôi
+    // "Đang vào phòng riêng…" → danh sách rạp chung bấm được ngay
+    cancelAuth();
+    if (privLink) dismissedPriv = privLink;
+    if (wantJoin && isPrivateRoomId(joinRoom)) { dismissedPriv = joinRoom; abandonedJoin = true; wantJoin = false; joinRoom = ''; }
+    clearTimeout(refused?.timer);
+    refused = null;
+    clearPrivLink();
+    join.setQuickBusy('');
+    setJoinBusy(false);
+  },
+});
+
+initPrivate({
+  ck,
+  createName: () => (store.joined ? store.me()?.name || savedName() : pendingCreate?.name || ''),
+  /** [Vào lại] phòng riêng của mình (tạo phòng báo "đang có phòng") */
+  enterRoom: (room) => {
+    if (store.joined) { switchRoom(room); return; }
+    const who = pendingCreate || { name: savedName(), look: savedLook() };
+    setPrivLink(room, true);
+    wantJoin = true;
+    joinName = who.name;
+    joinLook = who.look;
+    joinRoom = room;
+    sendJoin();
+  },
+  leavePrivate: () => {
+    closeSheet();
+    leavingPriv = true;
+    switchRoom(store.venue); // phòng chung của cùng rạp (đầy thì server xếp bản sao)
+  },
+});
+
+/** chế độ phòng riêng của màn vào rạp (authorized = có vé / vừa nhập đúng mật khẩu / admin → không cần ô mật khẩu) */
+function setPrivLink(room, authorized) {
+  privLink = isPrivateRoomId(room) ? room : '';
+  if (privLink) { dismissedPriv = ''; abandonedJoin = false; } // người xem lại chọn phòng riêng (vd [Vào lại])
+  join.setPrivate(privLink ? { room: privLink, authorized } : null);
+}
+/** bỏ link phòng riêng: màn vào rạp thường + gỡ #phong= khỏi thanh địa chỉ */
+function clearPrivLink() {
+  setPrivLink('', false);
+  syncUrl('');
+}
+
+/**
+ * thanh địa chỉ theo phòng đang ở: phòng riêng → /#phong=<id> (tải lại / rớt mạng vẫn về đúng phòng; phần sau # không bao
+ * giờ tới máy chủ / YouTube); phòng chung → bỏ phong (cả ?phong= lẫn #phong=, giữ tham số khác)
+ */
+function syncUrl(roomId) {
+  try {
+    if (isPrivateRoomId(roomId)) {
+      const want = `#phong=${roomId}`;
+      if (location.hash !== want || location.search || location.pathname !== '/') history.replaceState(null, '', `/${want}`);
+      return;
+    }
+    const url = new URL(location.href);
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+    if (!url.searchParams.has('phong') && !hash.has('phong')) return;
+    url.searchParams.delete('phong');
+    hash.delete('phong');
+    const h = hash.toString();
+    history.replaceState(history.state, '', `${url.pathname}${url.search}${h ? `#${h}` : ''}`);
+  } catch { /* bỏ qua */ }
+}
+
+/** báo ngay trên thẻ vào rạp đang hiện (toast nằm dưới lớp phủ). note = dòng thông tin (vàng), không phải lỗi */
+function joinMsg(text, note = false) {
+  if (join.isQuick) {
+    join.quickError(note ? '' : text);
+    join.quickNote(note ? text : '');
+  } else showJoinError(text, note);
+}
+
+/** form / thẻ chào lại ở link phòng riêng: hỏi server mật khẩu (đúng → proom_ok → join kèm vé) */
+function startAuth(pass, who) {
+  cancelAuth();
+  const room = privLink;
+  if (!send({ t: 'proom_auth', room, pass, ck })) { joinMsg('Đang mất kết nối, thử lại sau nhé.'); return; }
+  pendingAuth = {
+    room, ...who,
+    timer: setTimeout(() => { if (pendingAuth) { pendingAuth = null; joinMsg(NO_REPLY); } }, 12_000),
+  };
+}
+function cancelAuth() {
+  if (pendingAuth) clearTimeout(pendingAuth.timer);
+  pendingAuth = null;
+}
 
 /** vào bằng tên + nhân vật đã nhớ (người quay lại / vừa chuyển phòng) */
 function quickJoin(roomId) {
@@ -410,7 +599,10 @@ function quickJoin(roomId) {
 function sendJoin() {
   if (!wantJoin || !store.ready) return;
   const token = ssGet('vc.token', '') || '';
-  send({ t: 'join', name: joinName, look: joinLook, room: joinRoom || store.roomId, token, ck });
+  const room = joinRoom || store.roomId;
+  // phòng riêng: gửi kèm vé vào lại (nếu có) — server kiểm ngay, không cần mật khẩu
+  lastJoinRt = isPrivateRoomId(room) ? rtFor(room) : '';
+  send({ t: 'join', name: joinName, look: joinLook, room, token, ck, ...(lastJoinRt ? { rt: lastJoinRt } : {}) });
 }
 
 store.on('hello', () => {
@@ -419,27 +611,47 @@ store.on('hello', () => {
     document.getElementById('btn-admin').dataset.ready = '1';
     import('./ui/admin.js').then((m) => m.initAdmin()).catch((e) => console.warn('[rạp] không nạp được admin', e));
   }
+  // admin mở link phòng riêng: server cho đứng xem thẳng phòng đó (không cần mật khẩu)
+  if (privLink && !store.joined && store.admin && store.roomId === privLink) setPrivLink(privLink, true);
+  if (store.helloSeq === 1) abandonedJoin = false; // socket mới: lượt vào đã bỏ trên socket cũ không còn kết quả nào tới
+  rejoining = wantJoin && store.joined;
   if (wantJoin) sendJoin(); // nối lại sau khi rớt mạng: vào lại đúng nhân vật cũ (server giữ 15 giây)
 });
 
 /**
  * chuyển rạp tại chỗ (không tải lại trang): canvas tối dần + tải khung cảnh rạp mới ngay, server chuyển nhân vật sang và
  * gửi welcome mới → khung cảnh mới sáng dần. Server từ chối (đầy, trùng tên) / mạng chậm → sáng lại rạp đang ở.
+ * Phòng riêng: gửi kèm vé; khung cảnh lấy từ `venue` (id phòng riêng không chứa tên rạp), toast dùng `name`.
  */
 let switchTimer = 0;
-function switchRoom(id) {
-  const v = parseRoomId(id)?.venue;
-  if (!v || !send({ t: 'switch', room: id })) return;
-  stage.setVenue(v.id);
-  toast(`Đang chuyển sang ${roomName(id)}…`, 'info', 1800);
+function switchRoom(id, venue = '', name = '') {
+  const priv = isPrivateRoomId(id);
+  const v = priv ? venueById(venue) : parseRoomId(id)?.venue;
+  if (!priv && !v) return;
+  const rt = priv ? rtFor(id) : '';
+  if (!send({ t: 'switch', room: id, ...(rt ? { rt } : {}) })) return;
+  fadeTo(v?.id || '', priv ? `Đang vào 🔒 ${name || 'phòng riêng'}…` : `Đang chuyển sang ${roomName(id)}…`);
+}
+/** canvas tối dần sang khung cảnh rạp mới trong lúc chờ welcome (quá 4 s → sáng lại rạp đang ở) */
+function fadeTo(venueId, text) {
+  if (venueById(venueId)) stage.setVenue(venueId);
+  if (text) toast(text, 'info', 1800);
   clearTimeout(switchTimer);
-  switchTimer = setTimeout(() => { switchTimer = 0; stage.setVenue(store.venue); }, 4000);
+  switchTimer = setTimeout(() => { switchTimer = 0; leavingPriv = false; stage.setVenue(store.venue); }, 4000);
+}
+/** server từ chối chuyển phòng → sáng lại rạp đang ở */
+function cancelSwitch() {
+  leavingPriv = false;
+  if (!switchTimer) return;
+  clearTimeout(switchTimer);
+  switchTimer = 0;
+  stage.setVenue(store.venue);
 }
 
-// vào một rạp vắng trong khi rạp khác đang có người → nhắc một lần (để mọi người gặp được nhau)
+// vào một rạp vắng trong khi rạp khác đang có người → nhắc một lần (để mọi người gặp được nhau). Phòng riêng: vắng là đúng ý
 let aloneHinted = false;
 function hintBusyRoom() {
-  if (aloneHinted || !store.joined) return;
+  if (aloneHinted || !store.joined || store.inPrivate()) return;
   const here = store.rooms.find((r) => r.id === store.roomId);
   const busy = [...store.rooms].filter((r) => r.id !== store.roomId && r.count > 0).sort((a, b) => b.count - a.count)[0];
   if (!here || here.count > 1 || !busy) return;
@@ -447,13 +659,91 @@ function hintBusyRoom() {
   toast(`${busy.count} người đang ở ${busy.name} — bấm tên rạp góc trên để sang gặp mọi người`, 'info', 7000);
 }
 
+/**
+ * Mở link phòng riêng mà máy này còn nhân vật cũ ở phòng chung (tab khác / vừa tải lại): server nối lại nhân vật đó TẠI
+ * CHỖ (welcome phòng chung) rồi báo vì sao không cho sang phòng riêng (cần mật khẩu / đã đóng / đầy / bị mời ra). Người xem
+ * đang ở màn vào rạp và muốn vào phòng riêng → bỏ nhân vật đó (leave: server coi là đứng xem), giữ màn vào rạp, báo lý do
+ * ngay trên thẻ — không bật trình phát (video phòng chung không chợt phát rồi tắt).
+ */
+function refusedWelcome() {
+  if ($('join').hidden || !wantJoin || !isPrivateRoomId(joinRoom) || store.roomId === joinRoom) return false;
+  send({ t: 'leave' });
+  store.joined = false;
+  wantJoin = false;
+  rejoining = false;
+  clearTimeout(refused?.timer);
+  // lý do thường tới ngay sau welcome (proom_need / proom_res). Có lúc server chỉ gửi một dòng cảnh báo (notice — có khi
+  // ngay TRƯỚC welcome): chờ chút cho lý do cụ thể, không có thì hiện dòng cảnh báo đó; không có gì cả (hiếm) → chung chung
+  const warned = !!joinWarn && performance.now() - joinWarn.at < 3000;
+  refused = {
+    room: joinRoom, rt: lastJoinRt,
+    timer: setTimeout(() => {
+      if (!refused) return;
+      refused = null;
+      const w = joinWarn && performance.now() - joinWarn.at < 6000 ? joinWarn.text : '';
+      joinWarn = null;
+      joinMsg(w || 'Chưa vào được phòng riêng — thử lại nhé.');
+    }, warned ? 400 : 2500),
+  };
+  return true;
+}
+const takeRefused = (room) => {
+  if (!refused || refused.room !== room) return null;
+  const r = refused;
+  clearTimeout(r.timer);
+  refused = null;
+  joinWarn = null;
+  return r;
+};
+/**
+ * cảnh báo của server khi màn vào rạp đang hiện (toast nằm DƯỚI lớp phủ): đang xin vào phòng riêng → đây là lý do không vào
+ * được (vd trùng tên trong phòng riêng) → báo ngay trên thẻ. true = đã xử lý (không toast)
+ */
+function joinNotice(text) {
+  if ($('join').hidden) return false;
+  if (refused) {
+    // server đã nối lại nhân vật cũ ở phòng khác (refusedWelcome): dòng này chính là lý do
+    takeRefused(refused.room);
+    joinMsg(text);
+    return true;
+  }
+  if (!wantJoin || !isPrivateRoomId(joinRoom)) return false;
+  joinWarn = { text, at: performance.now() }; // tới trước welcome: refusedWelcome dùng nếu không có lý do cụ thể hơn
+  return true;
+}
+
+/**
+ * Người xem đã bấm "Vào rạp chung thay thế" trong lúc chờ kết quả vào phòng riêng bằng vé mà server vẫn cho vào phòng đó →
+ * bỏ nhân vật vừa vào (leave: kết nối về đứng xem rạp chung, server gửi hello), giữ màn vào rạp; đã kịp bấm một rạp chung
+ * thì hello tới sẽ vào rạp đó (sendJoin). Server nối lại nhân vật cũ ở phòng chung → nhận luôn.
+ */
+function abandonedWelcome() {
+  if (!abandonedJoin) return false;
+  abandonedJoin = false;
+  if (!isPrivateRoomId(store.roomId) || store.roomId !== dismissedPriv) return false;
+  send({ t: 'leave' });
+  store.joined = false;
+  rejoining = false;
+  return true;
+}
+
 store.on('welcome', (msg) => {
+  if (abandonedWelcome()) return;
+  if (refusedWelcome()) return;
+  joinWarn = null;
   clearTimeout(switchTimer);
   switchTimer = 0;
+  rejoining = false;
+  cancelAuth();
+  pendingCreate = null;
+  if (privLink) setPrivLink('', false); // đã vào: màn vào rạp thôi chế độ phòng riêng
+  syncUrl(store.roomId);
+  if (leavingPriv && !store.inPrivate()) toast('Đã rời phòng riêng — mở lại link để vào lại.', 'info', 5000);
+  leavingPriv = false;
   setTimeout(hintBusyRoom, 1500);
   ssSet('vc.token', store.token);
   rememberJoin(store.roomId); // lần sau mở trang: vào thẳng, khỏi đặt tên / tạo nhân vật lại
-  joinRoom = store.roomId; // rớt mạng quá lâu phải vào lại thì về đúng phòng này
+  joinRoom = store.roomId; // rớt mạng quá lâu phải vào lại thì về đúng phòng này (phòng riêng: kèm vé vc.rt)
   join.hide();
   const mine = msg.snap?.players?.find((p) => p.id === store.myId);
   if (mine) placeMe(mine.x, mine.y, DIRS[mine.d] || 'up');
@@ -485,36 +775,85 @@ store.on('welcome', () => { awaySent = false; syncAway(); });
 function updateAddPill() { $('btn-add-video').hidden = !(store.joined && (!store.now || store.now.filler)); }
 store.on('now', updateAddPill);
 
-/** về màn vào rạp: tắt trình phát TRƯỚC (lớp phủ màn vào rạp không được nằm trên video đang chạy) */
-function backToJoin(text, busy = false) {
+/**
+ * về màn vào rạp: tắt trình phát TRƯỚC (lớp phủ màn vào rạp không được nằm trên video đang chạy). Đang ở trong rạp mà
+ * vào lại hỏng → hiện phòng kết nối đang đứng xem thay cho phòng cũ đứng hình. quick = thẻ chào lại (người quay lại),
+ * note = dòng thông tin thay vì lỗi
+ */
+function backToJoin(text, { busy = false, quick = false, note = false } = {}) {
+  const wasJoined = store.joined;
   wantJoin = false;
+  rejoining = false;
   me.active = false;
-  store.joined = false;
   player.disable();
+  if (wasJoined) backToSpectate();
+  store.joined = false;
+  closeSheet(); // tấm nổi trên lớp phủ màn vào rạp — đóng cho khỏi lạc chỗ
+  userCard.close();
+  wheel.close();
   $('joystick').hidden = true;
   updateAddPill();
   chat.enable(false);
-  join.show();
-  showJoinError(text);
+  if (quick) { join.showQuick(); joinMsg(text, note); } else { join.show(note ? '' : text); if (note) showJoinError(text, true); }
   if (busy) setJoinBusy(true);
 }
 
+/** vào phòng riêng bị từ chối: cần mật khẩu (vé hết hiệu lực — mật khẩu đã đổi) / phòng đã đóng / bị chủ phòng mời ra */
+function onPrivJoinError(e, room, wasRejoin) {
+  const target = isPrivateRoomId(room) ? room : privLink;
+  wantJoin = false;
+  joinRoom = ''; // đã xử lý xong: proom_need theo sau (cùng phòng) không ghi đè câu báo cụ thể hơn
+  if (target) dropRt(target);
+  let text, note = false;
+  if (e.code === 'priv_need') {
+    setPrivLink(target, false);
+    text = lastJoinRt ? 'Mật khẩu phòng đã đổi — nhập mật khẩu mới để vào lại.' : e.text || 'Phòng riêng này cần mật khẩu.';
+  } else if (e.code === 'priv_gone') {
+    clearPrivLink();
+    text = wasRejoin ? 'Phòng riêng đã đóng trong lúc bạn mất kết nối.' : CLOSED_LINE;
+    note = true;
+  } else {
+    clearPrivLink();
+    text = e.text || 'Chủ phòng đã mời bạn ra khỏi phòng này.';
+  }
+  if (store.joined) backToJoin(text, { quick: isReturning(), note });
+  else joinMsg(text, note);
+  if (e.code === 'priv_need') join.focusPass();
+}
+
 store.on('joinError', (e) => {
+  // kết quả của lượt vào phòng riêng người xem đã bỏ ("Vào rạp chung thay thế") — không còn liên quan (server trả lời theo
+  // thứ tự: lượt vào rạp chung bấm sau đó có kết quả riêng tới sau)
+  if (abandonedJoin) { abandonedJoin = false; return; }
+  joinWarn = null;
+  const wasRejoin = rejoining;
+  rejoining = false;
+  const wasJoined = store.joined;
+  const room = joinRoom;
+  if (sheetOpen('create')) closeSheet(); // tạo phòng xong mà vào không được: lỗi hiện trên màn vào rạp
+  if (e.code === 'priv_need' || e.code === 'priv_gone' || e.code === 'priv_kicked') { onPrivJoinError(e, room, wasRejoin); return; }
+  // vào phòng riêng hỏng vì lý do khác (đầy, trùng tên…): màn vào rạp vẫn ở chế độ phòng riêng của phòng đó
+  if (isPrivateRoomId(room) && privLink !== room) setPrivLink(room, !!rtFor(room) || store.admin);
   // tên đã nhớ bị trùng / không hợp lệ → về màn đặt tên; lỗi khác giữ thẻ chào lại, báo ngay trên thẻ
   if (join.isQuick && !['name', 'name_taken', 'banned', 'kicked'].includes(e.code)) {
     wantJoin = false;
     join.quickError(e.text);
     return;
   }
+  if (['banned', 'kicked', 'name', 'name_taken', 'full', 'rate'].includes(e.code)) {
+    // đang ở phòng riêng mà nối lại bị từ chối (đầy…): thẻ chào lại ở chế độ phòng riêng
+    const quick = wasJoined && !!privLink && isReturning() && !['name', 'name_taken'].includes(e.code);
+    backToJoin(e.text, { quick });
+    return;
+  }
   if (!$('join').hidden) showJoinError(e.text);
   else toast(e.text, 'err', 6000);
-  if (['banned', 'kicked', 'name', 'name_taken', 'full', 'rate'].includes(e.code)) backToJoin(e.text);
 });
 
 store.on('kicked', (e) => {
   ssSet('vc.token', null);
   toast(e.text, 'err', 8000);
-  backToJoin(`${e.text} Tải lại trang để vào lại sau.`, true);
+  backToJoin(`${e.text} Tải lại trang để vào lại sau.`, { busy: true });
 });
 
 // mở rạp ở tab / máy khác (cùng nhân vật): tab này nhường, không tự nối lại
@@ -526,22 +865,168 @@ store.on('replaced', () => {
   setText(banner, 'Bạn đang xem rạp ở tab khác — tải lại trang để xem ở đây.');
 });
 
+// ---------------------------------------------------------------- phòng riêng: kết quả từ server
+store.on('proomOk', (o) => {
+  privateOk(o); // tạo phòng: nhớ mật khẩu (trong bộ nhớ) cho thẻ mời
+  if (pendingAuth && pendingAuth.room === o.room) {
+    // mật khẩu đúng → vào phòng bằng vé vừa nhận (giữ chế độ phòng riêng qua lỗi tên)
+    const a = pendingAuth;
+    cancelAuth();
+    setPrivLink(o.room, true);
+    if (store.joined) return; // đang có nhân vật: server tự chuyển sang (welcome)
+    wantJoin = true;
+    joinName = a.name;
+    joinLook = a.look;
+    joinRoom = o.room;
+    if (a.quick) join.setQuickBusy(o.room); else setJoinBusy(true);
+    sendJoin();
+    return;
+  }
+  if (o.created && !store.joined && pendingCreate) {
+    // tạo phòng từ màn vào rạp → vào thẳng phòng mới (không đi qua phòng chung)
+    setPrivLink(o.room, true);
+    wantJoin = true;
+    joinName = pendingCreate.name;
+    joinLook = pendingCreate.look;
+    joinRoom = o.room;
+    if (join.isQuick) join.setQuickBusy(o.room); else setJoinBusy(true);
+    sendJoin();
+    return;
+  }
+  // đang ở trong rạp: server chuyển nhân vật sang phòng riêng ngay (welcome) — tối dần sang khung cảnh phòng đó
+  if (store.joined) fadeTo(o.venue, `Đang vào 🔒 ${o.name || 'phòng riêng'}…`);
+});
+
+store.on('proomNeed', ({ room, exists }) => {
+  if (pendingAuth && pendingAuth.room === room) {
+    // đang chờ kiểm mật khẩu: chỉ "phòng không còn" mới là kết quả (nhắc "cần mật khẩu" thì cứ chờ proom_ok / proom_res)
+    if (!exists) { cancelAuth(); clearPrivLink(); joinMsg(CLOSED_LINE, true); }
+    return;
+  }
+  // phòng người xem vừa bỏ ("Vào rạp chung thay thế"): lời nhắc tới muộn không bật lại chế độ phòng riêng
+  if (room === dismissedPriv) return;
+  if (store.joined) {
+    if (rejoining) return; // nối lại: chờ kết quả join (join_err priv_*)
+    // chuyển sang phòng riêng bị từ chối
+    cancelSwitch();
+    toast(exists ? 'Phòng riêng này cần mật khẩu — mở link bạn bè gửi để vào nhé.' : 'Phòng riêng này đã đóng.', 'warn', 5000);
+    return;
+  }
+  const ref = takeRefused(room);
+  if (!exists) {
+    // link mở ra phòng đã đóng (mọi người rời đi quá lâu / chủ phòng đóng) → màn vào rạp thường + dòng giải thích
+    if (ref || privLink === room || joinRoom === room) {
+      wantJoin = false;
+      clearPrivLink();
+      joinMsg(CLOSED_LINE, true);
+    }
+    return;
+  }
+  if (ref) {
+    // vé không còn hiệu lực (mật khẩu đã đổi) / chưa có vé → nhập mật khẩu
+    if (ref.rt) dropRt(room);
+    setPrivLink(room, false);
+    joinMsg(ref.rt ? 'Mật khẩu phòng đã đổi — nhập mật khẩu mới để vào lại.' : 'Phòng riêng này cần mật khẩu.');
+    join.focusPass();
+  }
+  // còn lại: server nhắc phòng cần mật khẩu ngay sau hello khi mở link — chế độ phòng riêng đã bật từ lúc mở trang (đọc
+  // link), đang tự vào bằng vé thì chờ kết quả. Không bật lại ở đây (người xem có thể vừa chọn rạp chung)
+});
+
+/** bị đưa ra khỏi phòng riêng (chủ phòng mời ra / phòng đóng): server đã xếp kết nối về rạp chung (welcome hoặc hello) */
+function onOut(r) {
+  outText = r.text || 'Bạn đã ra khỏi phòng riêng.';
+  outAt = performance.now();
+  dropRt(r.room || store.lastPrivRoom);
+  privateReset();
+  if (sheetOpen()) closeSheet(); // tấm của phòng cũ (thành viên, công cụ chủ phòng…) không còn đúng
+  if (rejoining) { clearPrivLink(); backToJoin(outText, { quick: isReturning() }); return; }
+  if (!$('join').hidden) { joinMsg(outText); return; } // server đã gửi hello trước: đang ở màn vào rạp
+  toast(outText, 'warn', 7000);
+}
+
+store.on('proomRes', (r) => {
+  if (r.code === 'out') { onOut(r); return; }
+  if (pendingAuth) {
+    // mật khẩu sai / thử nhiều quá / máy chủ bận / phòng đầy / bị mời ra…: báo ngay trên thẻ, giữ chế độ phòng riêng
+    const a = pendingAuth;
+    cancelAuth();
+    if (r.code === 'kicked' || r.code === 'gone') {
+      dropRt(a.room);
+      clearPrivLink();
+      joinMsg(r.code === 'gone' ? CLOSED_LINE : r.text || 'Chủ phòng đã mời bạn ra khỏi phòng này.', r.code === 'gone');
+      return;
+    }
+    joinMsg(r.text || 'Chưa vào được phòng, thử lại nhé.');
+    join.focusPass();
+    return;
+  }
+  if (privateResult(r)) return; // tấm tạo phòng / công cụ chủ phòng
+  if (r.room && r.room === dismissedPriv && !store.inPrivate()) return; // phòng người xem vừa bỏ: kết quả tới muộn
+  if (!r.ok) cancelSwitch();
+  // lý do không cho sang phòng riêng (đầy / bị mời ra / trùng tên…) — báo ngay dưới
+  const ref = r.room ? takeRefused(r.room) : null;
+  if (ref && NAME_CODES.includes(r.code) && !$('join').hidden) {
+    // tên đang dùng bị trùng trong phòng riêng: về form đặt tên (vẫn chế độ phòng riêng, có vé thì khỏi mật khẩu)
+    join.show(r.text || 'Tên này đang có người dùng trong phòng riêng — đổi tên rồi vào nhé.');
+    return;
+  }
+  if (r.code === 'kicked' && r.room) {
+    // bị chủ phòng mời ra: vé vô dụng, link không vào được nữa
+    dropRt(r.room);
+    if (privLink === r.room) clearPrivLink();
+  }
+  if (!r.text) return;
+  if (!$('join').hidden) joinMsg(r.text);
+  else toast(r.text, r.ok ? 'ok' : 'warn', 5000);
+});
+
+// server tách nhân vật khỏi phòng riêng mà không xếp được vào phòng chung nào → chỉ còn đứng xem: về màn vào rạp
+store.on('detached', () => {
+  const text = outText && performance.now() - outAt < 5000 ? outText : 'Bạn đã ra khỏi phòng riêng.';
+  privateReset();
+  clearPrivLink();
+  backToJoin(text, { quick: isReturning() });
+});
+
 store.on('correct', (c) => applyCorrection(c.x, c.y));
 store.on('notice', (n) => {
-  if (switchTimer && n.kind === 'warn') { clearTimeout(switchTimer); switchTimer = 0; stage.setVenue(store.venue); }
+  if (switchTimer && n.kind === 'warn') cancelSwitch();
+  if ((n.kind === 'warn' || n.kind === 'err') && joinNotice(n.text)) return; // đang ở màn vào rạp: báo trên thẻ
   if (n.kind === 'info') systemLine(n.text);
   toast(n.text, n.kind === 'info' ? 'info' : n.kind, n.kind === 'info' ? 3200 : 4500);
 });
 store.on('now', () => player.sync());
 
 function updateRoomPill() {
+  const pill = $('room-pill');
+  const priv = isPrivateRoomId(store.roomId) ? store.priv : null;
+  if (isPrivateRoomId(store.roomId)) {
+    // phòng riêng: "🔒 <tên>" (tên dài tự rút gọn "…", đủ tên khi rê chuột), số người = thành viên (kể cả đang ẩn; quản trị
+    // viên rạp không chiếm chỗ) / tối đa. Quản trị viên rạp đang xem phòng → dấu 🛡 luôn hiện (không chỉ một dòng báo lúc vào)
+    const name = priv?.name || store.roomName;
+    const adm = store.adminWatching();
+    setText($('room-name'), `🔒 ${name}`);
+    setText($('room-count'), String(priv ? store.memberCount() : store.present()));
+    setText($('room-cap'), String(priv?.cap || '?'));
+    $('room-adm').hidden = !adm;
+    pill.title = adm ? `${name} — ${ADMIN_WATCHING}` : name;
+    pill.setAttribute('aria-label', adm ? `Chọn phòng — ${ADMIN_WATCHING}` : 'Chọn phòng');
+    pill.classList.add('priv');
+    return;
+  }
   const r = store.rooms.find((x) => x.id === store.roomId);
   setText($('room-name'), `${venueById(store.venue)?.emoji || '🎬'} ${store.roomName}`);
   setText($('room-count'), String(r ? r.count : store.present()));
   setText($('room-cap'), String(r ? r.cap : store.cfg.capacity));
+  $('room-adm').hidden = true;
+  pill.title = 'Phòng đang xem — bấm để đổi phòng';
+  pill.setAttribute('aria-label', 'Chọn phòng');
+  pill.classList.remove('priv');
 }
 store.on('rooms', updateRoomPill);
 store.on('players', updateRoomPill);
+store.on('priv', updateRoomPill);
 // rạp đổi (xem rạp khác trước khi vào, hoặc vào rạp) → đổi khung cảnh
 store.on('venue', (v) => { stage.setVenue(v); updateRoomPill(); });
 
@@ -570,13 +1055,26 @@ store.on('conn', (state) => {
   if (state === 'closed') { banner.hidden = false; setText(banner, 'Mất kết nối — đang nối lại…'); }
 });
 
-// mở trang: vừa chuyển phòng / link thẳng tới một rạp (?phong=…) → vào luôn; đã từng vào rạp → thẻ "Chào mừng quay lại"
-// (bấm một rạp là vào, khỏi đặt tên / tạo nhân vật lại); lần đầu → màn đặt tên + chọn nhân vật
+// mở trang: vừa chuyển phòng / link thẳng tới một rạp (?phong=<rạp>) → vào luôn; đã từng vào rạp → thẻ "Chào mừng quay lại"
+// (bấm một rạp là vào, khỏi đặt tên / tạo nhân vật lại); lần đầu → màn đặt tên + chọn nhân vật.
+// Link phòng riêng (#phong=p-…; link cũ ?phong=p-… đã đổi sang # ở đầu file): chế độ phòng riêng NGAY (không chờ server) —
+// có vé vc.rt thì người quay lại tự vào luôn ("Đang vào phòng riêng…"), người mới thì form không cần ô mật khẩu; chưa có
+// vé → ô mật khẩu
 {
-  const urlRoom = new URLSearchParams(location.search).get('phong') || '';
+  const urlRoom = linkRoom();
   const switching = ssGet('vc.autojoin') === '1';
   if (switching) { ssSet('vc.autojoin', null); ssSet('vc.token', null); }
-  if (isReturning()) {
+  if (isPrivateRoomId(urlRoom)) {
+    const rt = rtFor(urlRoom);
+    setPrivLink(urlRoom, !!rt);
+    if (isReturning()) {
+      join.showQuick();
+      if (rt) {
+        join.setQuickBusy(urlRoom);
+        const off = store.on('hello', () => { off(); if (!wantJoin && privLink === urlRoom) quickJoin(urlRoom); });
+      } else join.focusPass();
+    }
+  } else if (isReturning()) {
     join.showQuick();
     if (switching || ROOM_ID_RE.test(urlRoom)) {
       join.setQuickBusy(urlRoom || 'auto');

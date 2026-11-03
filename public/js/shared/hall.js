@@ -134,8 +134,18 @@ export const VENUES = Object.freeze([
   Object.freeze({ id: 'bien', name: 'Rạp Bãi Biển', emoji: '🏖️', desc: 'Ghế xếp trên cát, hàng dừa, đuốc tiki, trăng trên biển' }),
 ]);
 export const DEFAULT_VENUE = 'nhung';
-/** id phòng: "<rạp>" (bản chính) hoặc "<rạp>-2" … "<rạp>-9" (bản sao khi rạp đầy) */
+/** id phòng CHUNG: "<rạp>" (bản chính) hoặc "<rạp>-2" … "<rạp>-9" (bản sao khi rạp đầy). parseRoomId chỉ nhận loại này */
 export const ROOM_ID_RE = /^[a-z]{3,10}(?:-[2-9])?$/;
+/**
+ * id PHÒNG RIÊNG (có mật khẩu, chủ phòng tạo): "p-" + 10 ký tự [a-z0-9] ngẫu nhiên (crypto, không đoán được). Rạp (khung
+ * cảnh) của phòng riêng do chủ phòng chọn → lấy từ snapshot (`snap.venue`), KHÔNG suy ra từ id được.
+ */
+export const PRIVATE_ROOM_RE = /^p-[a-z0-9]{10}$/;
+/** id phòng bất kỳ (chung hoặc riêng) — dùng khi kiểm id từ URL / thông điệp */
+export const ANY_ROOM_ID_RE = /^(?:[a-z]{3,10}(?:-[2-9])?|p-[a-z0-9]{10})$/;
+export function isPrivateRoomId(id) {
+  return typeof id === 'string' && PRIVATE_ROOM_RE.test(id);
+}
 
 export function venueById(id) {
   return VENUES.find((v) => v.id === id) || null;

@@ -5,11 +5,11 @@ import { checkMeta, metaFromItem, parseIsoDuration, parseVideoId, VideoCache } f
 import { Bucket, checkChat, checkName, cleanText, hasLink, maskProfanity, nameKey, WindowCounter } from '../src/moderation.js';
 import { parseClientMsg } from '../src/protocol.js';
 import {
-  ACTIONS, HALL, ROOM_ID_RE, SEATS, VENUES, clampToWalkable, isWalkable, moveWithCollision, nearestSeat, normalizeLook, parseRoomId,
-  randomLook, roomName, seatAt, spawnPoint,
+  ACTIONS, ANY_ROOM_ID_RE, HALL, PRIVATE_ROOM_RE, ROOM_ID_RE, SEATS, VENUES, clampToWalkable, isPrivateRoomId, isWalkable,
+  moveWithCollision, nearestSeat, normalizeLook, parseRoomId, randomLook, roomName, seatAt, spawnPoint,
 } from '../public/js/shared/hall.js';
 import { FIXTURES } from './fake-youtube.js';
-import { httpsRedirectUrl, pickEncoding } from '../src/app.js';
+import { httpsRedirectUrl, networkOf, pickEncoding, subnetOf } from '../src/app.js';
 import type { IncomingMessage } from 'node:http';
 
 let passed = 0;
@@ -132,6 +132,11 @@ test('Bucket + WindowCounter', () => {
   assert.ok(b.take(1, 1000));
   const w = new WindowCounter(1000, 2);
   assert.ok(w.hit('a', 0)); assert.ok(w.hit('a', 10)); assert.ok(!w.hit('a', 20)); assert.ok(w.hit('a', 1500));
+  // clear: quên lượt của MỘT khoá (phòng riêng vừa đổi mật khẩu), khoá khác giữ nguyên
+  const r = new WindowCounter(1000, 1);
+  assert.ok(r.hit('p', 0)); assert.ok(r.hit('q', 0)); assert.ok(!r.hit('p', 10));
+  r.clear('p');
+  assert.ok(r.hit('p', 20)); assert.ok(!r.hit('q', 20));
 });
 
 // ---------------------------------------------------------------- giao thức
@@ -159,6 +164,110 @@ test('parseClientMsg: nhận đúng dạng, bỏ rác', () => {
   assert.deepEqual(parseClientMsg('{"t":"adm","op":"ban","pid":3,"hours":24}'), { t: 'adm', op: 'ban', pid: 3, hours: 24 });
   assert.equal(parseClientMsg('not json'), null);
   assert.equal(parseClientMsg('[]'), null);
+});
+
+// ---------------------------------------------------------------- phòng riêng: id + thông điệp
+test('phòng riêng: id "p-" + 10 ký tự — parseRoomId / ROOM_ID_RE chỉ nhận phòng chung, ANY_ROOM_ID_RE nhận cả hai', () => {
+  const id = 'p-abcdefghij';
+  assert.equal(parseRoomId(id), null, 'parseRoomId cố ý chỉ nhận phòng chung');
+  assert.equal(ROOM_ID_RE.test(id), false);
+  assert.ok(PRIVATE_ROOM_RE.test(id));
+  assert.ok(ANY_ROOM_ID_RE.test(id));
+  assert.ok(isPrivateRoomId(id));
+  assert.ok(PRIVATE_ROOM_RE.test('p-0a1b2c3d4e'));
+  for (const bad of ['p-abcdefgh', 'p-abcdefghijk', 'p-ABCDEFGHIJ', 'p-abc_defghi', 'P-abcdefghij', 'pabcdefghijk', '']) {
+    assert.equal(PRIVATE_ROOM_RE.test(bad), false, bad);
+    assert.equal(ANY_ROOM_ID_RE.test(bad), false, bad);
+  }
+  assert.equal(isPrivateRoomId(42), false);
+  assert.equal(isPrivateRoomId('nhung'), false);
+  for (const ok of ['nhung', 'congvien-2', 'bien-9']) assert.ok(ANY_ROOM_ID_RE.test(ok), ok);
+  assert.equal(roomName(id), 'Rạp', 'tên phòng riêng đến từ server (snapshot), không suy ra từ id');
+});
+test('parseClientMsg: spec / switch / join nhận id phòng riêng + vé rt (sai dạng thì bỏ vé, không bỏ tin)', () => {
+  const id = 'p-abcdefghij';
+  const rt = 'Ab_-0123456789xyzXYZ_-ab'; // base64url 24 ký tự (như server cấp)
+  assert.deepEqual(parseClientMsg(`{"t":"spec","room":"${id}"}`), { t: 'spec', room: id });
+  assert.equal(parseClientMsg('{"t":"spec","room":"p-abcdefgh"}'), null);
+  assert.deepEqual(parseClientMsg(`{"t":"switch","room":"${id}","rt":"${rt}"}`), { t: 'switch', room: id, rt });
+  assert.deepEqual(parseClientMsg(`{"t":"switch","room":"${id}","rt":"ngắn"}`), { t: 'switch', room: id });
+  assert.deepEqual(parseClientMsg(`{"t":"switch","room":"${id}","rt":"${'a'.repeat(65)}"}`), { t: 'switch', room: id });
+  assert.equal(parseClientMsg('{"t":"switch","room":"p-zzz"}'), null);
+  const j = parseClientMsg(`{"t":"join","name":"Ab","look":{},"room":"${id}","token":"","ck":"${'a'.repeat(16)}","rt":"${rt}"}`) as Record<string, unknown>;
+  assert.equal(j.room, id);
+  assert.equal(j.rt, rt);
+  assert.equal(j.ck, 'a'.repeat(16));
+  const j2 = parseClientMsg('{"t":"join","name":"Ab","look":{},"room":"p-abc","token":"","ck":"XYZ","rt":5}') as Record<string, unknown>;
+  assert.equal(j2.room, '');
+  assert.equal(j2.ck, '');
+  assert.ok(!('rt' in j2));
+});
+test('parseClientMsg: proom_new / proom_auth / proom_op / adm close_room', () => {
+  const ck = 'f'.repeat(32);
+  assert.deepEqual(parseClientMsg(`{"t":"proom_new","pass":" mật khẩu ","cap":4,"venue":"bien","name":"Hào","ck":"${ck}"}`),
+    { t: 'proom_new', pass: ' mật khẩu ', cap: 4, venue: 'bien', name: 'Hào', ck }); // mật khẩu: hub mới chuẩn hoá NFC + trim
+  assert.deepEqual(parseClientMsg('{"t":"proom_new","pass":"abcd","cap":2,"venue":"nhung"}'),
+    { t: 'proom_new', pass: 'abcd', cap: 2, venue: 'nhung', name: '', ck: '' });
+  for (const bad of [
+    '{"t":"proom_new","cap":2,"venue":"nhung"}', // thiếu mật khẩu
+    `{"t":"proom_new","pass":"${'x'.repeat(201)}","cap":2,"venue":"nhung"}`,
+    '{"t":"proom_new","pass":"abcd","cap":2.5,"venue":"nhung"}',
+    '{"t":"proom_new","pass":"abcd","cap":"4","venue":"nhung"}',
+    '{"t":"proom_new","pass":"abcd","cap":4,"venue":"rạp-quá-dài-luôn"}',
+    '{"t":"proom_new","pass":"abcd","cap":4,"venue":"bien","name":7}',
+    `{"t":"proom_new","pass":"abcd","cap":4,"venue":"bien","name":"${'n'.repeat(41)}"}`,
+  ]) assert.equal(parseClientMsg(bad), null, bad);
+  assert.deepEqual(parseClientMsg(`{"t":"proom_auth","room":"p-abcdefghij","pass":"1234","ck":"${ck}"}`),
+    { t: 'proom_auth', room: 'p-abcdefghij', pass: '1234', ck });
+  assert.equal((parseClientMsg('{"t":"proom_auth","room":"p-abcdefghij","pass":"1234","ck":"nope"}') as { ck: string }).ck, '');
+  assert.equal(parseClientMsg('{"t":"proom_auth","room":"nhung","pass":"1234"}'), null, 'chỉ id phòng riêng');
+  assert.equal(parseClientMsg('{"t":"proom_auth","room":"p-abcdefghij"}'), null);
+  assert.equal(parseClientMsg(`{"t":"proom_auth","room":"p-abcdefghij","pass":"${'x'.repeat(201)}"}`), null);
+  assert.deepEqual(parseClientMsg('{"t":"proom_op","op":"pause","pid":3}'), { t: 'proom_op', op: 'pause' }, 'bỏ trường thừa');
+  for (const op of ['resume', 'skip', 'close']) assert.deepEqual(parseClientMsg(`{"t":"proom_op","op":"${op}"}`), { t: 'proom_op', op });
+  assert.deepEqual(parseClientMsg('{"t":"proom_op","op":"remove","qid":12}'), { t: 'proom_op', op: 'remove', qid: 12 });
+  assert.deepEqual(parseClientMsg('{"t":"proom_op","op":"kick","pid":7}'), { t: 'proom_op', op: 'kick', pid: 7 });
+  assert.deepEqual(parseClientMsg('{"t":"proom_op","op":"pass","pass":"mới nè"}'), { t: 'proom_op', op: 'pass', pass: 'mới nè' });
+  assert.deepEqual(parseClientMsg('{"t":"proom_op","op":"cap","cap":6}'), { t: 'proom_op', op: 'cap', cap: 6 });
+  for (const bad of [
+    '{"t":"proom_op","op":"nuke"}', '{"t":"proom_op"}', '{"t":"proom_op","op":"remove"}', '{"t":"proom_op","op":"remove","qid":0}',
+    '{"t":"proom_op","op":"kick","pid":"7"}', '{"t":"proom_op","op":"pass"}', `{"t":"proom_op","op":"pass","pass":"${'x'.repeat(201)}"}`,
+    '{"t":"proom_op","op":"cap","cap":2.5}', '{"t":"proom_op","op":"cap"}',
+  ]) assert.equal(parseClientMsg(bad), null, bad);
+  assert.deepEqual(parseClientMsg('{"t":"adm","op":"close_room","room":"p-abcdefghij"}'), { t: 'adm', op: 'close_room', room: 'p-abcdefghij' });
+  assert.equal(parseClientMsg('{"t":"adm","op":"close_room","room":"nhung"}'), null);
+  assert.equal(parseClientMsg('{"t":"adm","op":"close_room"}'), null);
+});
+test('networkOf: IPv4 = /32, IPv6 = /64, IPv4 trong IPv6 = IPv4', () => {
+  assert.equal(networkOf('1.2.3.4'), '1.2.3.4');
+  assert.equal(networkOf(' 1.2.3.4 '), '1.2.3.4');
+  assert.equal(networkOf('::ffff:1.2.3.4'), '1.2.3.4');
+  assert.equal(networkOf('::FFFF:10.0.0.7'), '10.0.0.7');
+  assert.equal(networkOf('0:0:0:0:0:ffff:0102:0304'), '1.2.3.4');
+  const net = networkOf('2001:db8:1:2:3:4:5:6');
+  assert.equal(net, '2001:db8:1:2::/64');
+  for (const same of ['2001:db8:1:2::7', '2001:DB8:0001:0002:aaaa::1', '[2001:db8:1:2::9]', '2001:db8:1:2:ffff:ffff:ffff:ffff']) {
+    assert.equal(networkOf(same), net, same);
+  }
+  assert.notEqual(networkOf('2001:db8:1:3::1'), net, 'dải /64 khác là mạng khác');
+  assert.equal(networkOf('fe80::1%eth0'), 'fe80:0:0:0::/64');
+  assert.equal(networkOf('::1'), '0:0:0:0::/64');
+  assert.equal(networkOf('unknown'), 'unknown');
+});
+test('subnetOf: IPv4 = /24, IPv6 = /48, IPv4 trong IPv6 = /24 của IPv4 đó (giới hạn phòng riêng / dải mạng)', () => {
+  assert.equal(subnetOf('1.2.3.4'), '1.2.3.0/24');
+  assert.equal(subnetOf('1.2.3.250'), subnetOf('1.2.3.4'));
+  assert.notEqual(subnetOf('1.2.4.4'), subnetOf('1.2.3.4'), '/24 khác');
+  assert.equal(subnetOf('::ffff:1.2.3.99'), '1.2.3.0/24');
+  const sub = subnetOf('2001:db8:aa:1::1');
+  assert.equal(sub, '2001:db8:aa::/48');
+  // cùng /48, khác /64 (một thuê bao / tunnel được cấp cả /56 hay /48): chung dải mạng, khác mạng
+  for (const same of ['2001:db8:aa:2::1', '2001:DB8:00AA:ffff:1:2:3:4', '[2001:db8:aa::9]']) {
+    assert.equal(subnetOf(same), sub, same);
+    assert.notEqual(networkOf(same), networkOf('2001:db8:aa:1::1'), same);
+  }
+  assert.notEqual(subnetOf('2001:db8:ab:1::1'), sub, '/48 khác');
+  assert.equal(subnetOf('unknown'), 'unknown');
 });
 
 // ---------------------------------------------------------------- sơ đồ rạp

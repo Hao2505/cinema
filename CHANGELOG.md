@@ -1,5 +1,35 @@
 # Lịch sử thay đổi
 
+## 0.5.0 — 2026-11-04 · 🔒 Phòng riêng
+
+Xem chung với người yêu / bạn bè ở xa trong **phòng riêng có mật khẩu — luôn miễn phí**. Bấm "🔒 Tạo phòng riêng" (màn
+vào rạp, thẻ chào lại hoặc đầu bảng chọn rạp) → đặt mật khẩu, số người tối đa (2–20), khung cảnh → thẻ mời có link + mật
+khẩu để sao chép / gửi qua Zalo, Messenger. Bạn bè mở link, nhập mật khẩu là vào; lần sau (tải lại trang, rớt mạng, mở lại
+link) vào thẳng bằng "vé" lưu trên máy, khỏi nhập lại. Phòng không hiện trong danh sách rạp, tự đóng khi không còn ai
+trong 10 phút.
+
+Trong phòng riêng: video không giới hạn 15 phút (tối đa 12 giờ — với video rạp kiểm đủ qua YouTube Data API; lúc rạp chỉ
+kiểm cơ bản được thì vẫn tối đa 15 phút như rạp chung, rạp chưa có key thì tấm tạo phòng ghi đúng 15 phút), mỗi người
+chờ 10 video, ai cũng **dừng / phát tiếp cho cả phòng** bằng nút ⏸ dưới màn hình (tự dừng trên thanh YouTube thì chỉ
+dừng máy mình, bấm ▶ là xem tiếp đúng giờ chung); chủ phòng bỏ qua ngay, xoá bài, mời ra, đổi mật khẩu (người đang trong
+phòng ở lại và giữ vé, ai vào sau cần mật khẩu mới), đổi số người, đóng phòng. Vẫn chỉ chiếu video YouTube cho nhúng,
+kiểm như rạp chung; gỡ video vì bản quyền tới cả phòng riêng; đủ người báo cáo thì chỉ bỏ qua video trong phòng đó + báo
+admin. Quản trị viên rạp vào được khi xử lý báo cáo — không chiếm chỗ của ai, cả phòng (kể cả người vào sau) được báo "🛡
+Quản trị viên rạp đang xem phòng này." và thấy dấu 🛡 suốt lúc đó; chủ rạp tạo phòng riêng của mình bằng trình duyệt
+admin thì vẫn tính như thành viên (ngồi chờ bạn bè một mình phòng không tự đóng).
+
+Riêng tư: link mời dạng `/#phong=p-…` — mã phòng nằm sau dấu `#` nên không bao giờ tới máy chủ web hay YouTube (link cũ
+`?phong=p-…` vẫn mở được, tự đổi sang `#`); rạp tự dựng khung trình phát YouTube để IFrame API không gắn địa chỉ trang
+vào link nhúng. Mật khẩu chỉ lưu dạng băm scrypt; vé vào lại, khoá máy chủ phòng, người bị mời ra và người thêm video
+(mọi phòng) chỉ lưu dạng băm. Một mạng thử mật khẩu quá 10 lần / 10 phút (đúng hay sai đều tính; mỗi phòng tối đa 20
+lần) là phải đợi; chủ phòng đổi mật khẩu tối đa 5 lần / 10 phút. Mỗi mạng tối đa 3 phòng đang mở, mỗi dải mạng 6, cả rạp
+400 — rạp đầy thì lấy lại phòng của dải đang giữ nhiều nhất, một người không chiếm hết được. Nhật ký của rạp không ghi
+phòng riêng xem gì; nhật ký máy chủ web (nginx) không còn ghi IP hay phần `?…` của link (cần chạy `bash deploy/deploy.sh
+--setup` một lần). Chính sách quyền riêng tư có mục mới "Phòng riêng" và mục nhật ký máy chủ web.
+
+Cả rạp: lỡ bấm video gợi ý của YouTube không còn bị kéo về ngay — có nút "↩ Về video của rạp" dưới màn hình. Sửa: thông
+báo nổi trong 2,5 giây đầu sau khi tải trang bị nuốt mất.
+
 ## 0.4.9 — 2026-11-04 · Cụm nút dưới màn hình gọn lại
 
 Bỏ thanh âm lượng riêng của rạp (thanh điều khiển YouTube đã có âm lượng + phụ đề). Dưới màn hình chỉ còn một viên gọn

@@ -27,7 +27,7 @@ vibe-cinema/
 │       ├── shared/hall.js + hall.d.ts     ◄── DÙNG CHUNG server + trình duyệt
 │       ├── render/  stage.js persp.js hall.js character.js anims.js bubbles.js draw.js
 │       │   └── venues/  index.js nhung.js congvien(-band,-floor,-art).js doxe(-band,-floor,-car,-props).js bien(-art).js
-│       └── ui/      join.js queue.js chat.js wheel.js usercard.js sheet.js toasts.js admin.js
+│       └── ui/      join.js queue.js chat.js wheel.js usercard.js sheet.js toasts.js admin.js private.js
 ├── scripts/                 test-unit, smoke, fake-youtube, qa, qa-server, cdp, bots, qa-characters, share-images, seo-check
 ├── deploy/                  deploy.sh, logs.sh, nginx.site.conf, nginx.limit.conf (+ vps.env, .env.production: BÍ MẬT)
 ├── docs/                    tài liệu (README.md = mục lục)
@@ -41,10 +41,10 @@ vibe-cinema/
 | File | Vai trò | Export chính | Ai dùng |
 |---|---|---|---|
 | `server.ts` | điểm vào: `dotenv`, `loadConfig`, `setExtraBadWords(BLOCK_WORDS)`, `createYouTubeClient`, `createApp`, `listen`, tắt êm (SIGINT / SIGTERM → lưu), bắt lỗi lẻ | — | `npm start` (`tsx src/server.ts`), `npm run dev` (`tsx watch`) |
-| `app.ts` | HTTP: trang + file tĩnh có phiên bản `/v/<băm>/`, CSP, `/api/health`, đăng nhập admin (cookie), nâng cấp `/ws` (kiểm Origin), IP người xem, nhịp tim | `createApp(cfg, deps) → App { server, hub, listen, close }`, `AppDeps`, `App` | `server.ts`, `scripts/smoke.ts`, `qa.ts`, `qa-server.ts` |
-| `hub.ts` | toàn bộ nghiệp vụ rạp: phòng / rạp / bản sao, kết nối, vào rạp, nối lại, di chuyển, động tác, chat, emoji, hàng chờ, đồng hồ video, phiếu, báo cáo, lỗi trình phát, admin, video mặc định, lưu / nạp | `Hub`, `Room`, `Conn`, `Player`, `Sock`, `HubDeps` | `app.ts` |
+| `app.ts` | HTTP: trang + file tĩnh có phiên bản `/v/<băm>/`, CSP, `/api/health`, đăng nhập admin (cookie), nâng cấp `/ws` (kiểm Origin), IP người xem → IP băm + mạng / dải mạng băm (giới hạn phòng riêng), nhịp tim | `createApp(cfg, deps) → App { server, hub, listen, close }`, `AppDeps`, `App`; `networkOf` (IPv4 /32, IPv6 /64), `subnetOf` (IPv4 /24, IPv6 /48), `pickEncoding`, `httpsRedirectUrl` (có test) | `server.ts`, `scripts/smoke.ts`, `qa.ts`, `qa-server.ts`, `test-unit.ts` |
+| `hub.ts` | toàn bộ nghiệp vụ rạp: phòng / rạp / bản sao, kết nối, vào rạp, nối lại, di chuyển, động tác, chat, emoji, hàng chờ, đồng hồ video, phiếu, báo cáo, lỗi trình phát, admin, video mặc định, lưu / nạp; phòng riêng (cổng `privEntry`, mật khẩu scrypt, vé, khoá máy chỉ lưu băm, admin có mặt = trạng thái 🛡, không chiếm chỗ) | `Hub`, `Room`, `Conn`, `Player`, `Sock`, `HubDeps`, `PrivState`, `PrivToken`, `PrivVerdict` | `app.ts` |
 | `protocol.ts` | kiểm dạng + giới hạn từng `ClientMsg` (không tin client) | `parseClientMsg`, `rawToString`, `MAX_MSG_BYTES` (4096) | `app.ts`, `test-unit.ts` |
-| `types.ts` | kiểu `ServerMsg`, `ClientMsg`, `AdminOp`, `PlayerInfo`, `FrameEntry`, `QueueItemInfo`, `NowInfo`, `ChatInfo`, `RoomInfo`, `RoomSnapshot`, `PublicSettings` | chỉ kiểu | `hub.ts`, `protocol.ts` |
+| `types.ts` | kiểu `ServerMsg`, `ClientMsg`, `AdminOp`, `PlayerInfo`, `FrameEntry`, `QueueItemInfo`, `NowInfo`, `ChatInfo`, `RoomInfo`, `RoomSnapshot`, `PublicSettings`, `PrivMember`, `PrivInfo` | chỉ kiểu | `hub.ts`, `protocol.ts` |
 | `config.ts` | đọc / kẹp biến môi trường | `loadConfig(overrides)`, `Config` | `server.ts`, `app.ts`, `hub.ts`, scripts |
 | `moderation.ts` | `cleanText`, lọc bậy (`maskProfanity`), link (`hasLink`), tên (`checkName`, `nameKey`), chat (`checkChat`), `Bucket`, `WindowCounter`, `hashIp`, `loadOrCreateSalt`, `BanList`, `writeJsonAtomic`, `readJson` | (như trái) + `fold`, `codeLength`, `setExtraBadWords`, `isYouTubeLink`, `hasProfanity` | `hub.ts`, `app.ts`, `server.ts`, `test-unit.ts` |
 | `youtube.ts` | `parseVideoId`, `parseIsoDuration`, `metaFromItem`, `checkMeta` (luật bắt buộc), `createYouTubeClient` (`fetchVideo`, `fetchOEmbed`), `VideoCache`, `fmtDuration` | + kiểu `VideoMeta`, `FetchResult`, `OEmbedResult`, `YouTubeClient` | `hub.ts`, `server.ts`, `fake-youtube.ts`, `test-unit.ts` |
@@ -53,7 +53,7 @@ vibe-cinema/
 
 | File | Vai trò | Ai dùng |
 |---|---|---|
-| `hall.js` | **thuần JS, không DOM / Node**: `PROTOCOL`; sơ đồ `HALL` (34 × 16 ô, sân khấu, sàn nhảy, 5 hàng ghế × 3 dãy, loa, quầy, biển lối ra), `HOME`; `isWalkable`, `clampToWalkable`, `moveWithCollision`, `SPEED` (3,4 ô/s); `SEATS` (130), `nearestSeat`, `seatAt`, `spawnPoint`; `VENUES`, `DEFAULT_VENUE`, `ROOM_ID_RE`, `venueById`, `parseRoomId`, `roomName`; `DIRS`, `dirIndex`; `ACTIONS` (8), `ACTION_IDS`, `actionById`; `REACTIONS` (8 emoji); bảng ngoại hình `SKINS`, `HAIR_COLORS`, `HAIR_STYLES`, `SHIRTS`, `PANTS`, `ACCESSORIES`, `BODIES`, `FACIALS`, `normalizeLook`, `randomLook`; `LIMITS` (tên 2–20, chat 140, gửi 30 Hz) | server (`hub.ts`, `protocol.ts`, `app.ts`, `server.ts`), client (`main`, `store`, `me`, `input`, `render/*`, `ui/*`), scripts |
+| `hall.js` | **thuần JS, không DOM / Node**: `PROTOCOL`; sơ đồ `HALL` (34 × 16 ô, sân khấu, sàn nhảy, 5 hàng ghế × 3 dãy, loa, quầy, biển lối ra), `HOME`; `isWalkable`, `clampToWalkable`, `moveWithCollision`, `SPEED` (3,4 ô/s); `SEATS` (130), `nearestSeat`, `seatAt`, `spawnPoint`; `VENUES`, `DEFAULT_VENUE`, `ROOM_ID_RE` (phòng chung), `PRIVATE_ROOM_RE` / `ANY_ROOM_ID_RE` / `isPrivateRoomId` (phòng riêng `p-…`), `venueById`, `parseRoomId` / `roomName` (chỉ phòng chung); `DIRS`, `dirIndex`; `ACTIONS` (8), `ACTION_IDS`, `actionById`; `REACTIONS` (8 emoji); bảng ngoại hình `SKINS`, `HAIR_COLORS`, `HAIR_STYLES`, `SHIRTS`, `PANTS`, `ACCESSORIES`, `BODIES`, `FACIALS`, `normalizeLook`, `randomLook`; `LIMITS` (tên 2–20, chat 140, gửi 30 Hz) | server (`hub.ts`, `protocol.ts`, `app.ts`, `server.ts`), client (`main`, `store`, `me`, `input`, `render/*`, `ui/*`), scripts |
 | `hall.d.ts` | kiểu TypeScript cho `hall.js` — **viết tay, phải sửa cùng lúc** với `hall.js` (server không phục vụ `.d.ts`) | `tsc` |
 
 ## 4. Client — `public/js/`
@@ -63,10 +63,10 @@ vibe-cinema/
 | File | Vai trò | Export chính | Ai dùng |
 |---|---|---|---|
 | `main.js` | điểm vào: khoá máy `ck`, đăng nhập admin, dựng stage + trình phát + mọi UI, `syncInsets` (chừa chỗ cho DOM nổi), ngăn kéo, dock, 📺 góc xem, ⛶, ⚙️ tùy chọn, tự mờ nút, hướng dẫn, 🎨, chọn rạp, luồng vào rạp (form / vào nhanh cho người quay lại) / bị mời ra / nối lại, `window.__vc` | — (module gốc) | `index.html` |
-| `net.js` | WebSocket `/ws?room=` (từ `/?phong=`), nối lại backoff, ping đo giờ, mã đóng 4001 / 4002; `#admin=` → `POST /api/admin/login` | `connect`, `send`, `isOpen`, `adminLoginFromUrl`, `adminLogout` | `main`, `me`, `player`, `ui/*` |
-| `store.js` | trạng thái client, `handleMessage` (mọi `ServerMsg`), bus sự kiện, đồng hồ server (`onPong`, `serverNow`), **nội suy người khác** (`pushSample`, `actorPos`, bộ đệm thích ứng), bong bóng, emoji bay | `store`, `handleMessage`, `onPong`, `setConn`, `actorPos`, `setAction`, `spawnFx`, `bubbleDuration` | `net`, `main`, `me`, `player`, `render/stage`, `ui/*` |
+| `net.js` | WebSocket `/ws?room=` (phòng trong link: `?phong=<rạp>` phòng chung, `#phong=p-…` phòng riêng — `linkRoom`; link cũ `?phong=p-…` → `privLinkToHash` đổi sang `#`), nối lại backoff, ping đo giờ, mã đóng 4001 / 4002; `#admin=` → `POST /api/admin/login` | `connect`, `send`, `isOpen`, `linkRoom`, `privLinkToHash`, `adminLoginFromUrl`, `adminLogout` | `main`, `me`, `player`, `ui/*` |
+| `store.js` | trạng thái client, `handleMessage` (mọi `ServerMsg`), bus sự kiện, đồng hồ server (`onPong`, `serverNow`), **nội suy người khác** (`pushSample`, `actorPos`, bộ đệm thích ứng), bong bóng, emoji bay; phòng riêng: `priv`, vé `localStorage vc.rt` (tối đa 10 phòng) | `store`, `handleMessage`, `onPong`, `setConn`, `actorPos`, `setAction`, `spawnFx`, `bubbleDuration`, `rtFor`, `saveRt`, `dropRt`, `backToSpectate` | `net`, `main`, `me`, `player`, `render/stage`, `ui/*` |
 | `me.js` | nhân vật của mình: dự đoán + va chạm chung, gửi `move` ≤ 30 Hz kèm giờ máy, sửa mượt khi `corr`, tự ngồi ghế, đi tới điểm chạm, động tác, emoji | `me`, `tickMe`, `placeMe`, `myRenderPos`, `applyCorrection`, `walkTo`, `doAction`, `react`, `mySeat`, `setKey`, `clearKeys`, `setJoy` | `main`, `input`, `stage`, `ui/wheel`, `ui/chat`, `ui/usercard` |
-| `player.js` | trình phát YouTube chính thức + đồng bộ đồng hồ phòng (tua / dừng / tốc độ riêng tự về giờ chung), mời bật tiếng khi trình duyệt tự tắt, toàn màn hình video, báo lỗi `vid_err`, đo độ dài `vid_dur` | `createPlayer(slot, host, hooks)` → `{ enable, disable, sync, setVolume, toggleMute, fullscreen, userPlay, status, debug, … }` | `main` |
+| `player.js` | trình phát YouTube chính thức — **tự dựng `<iframe>`** (`buildFrame`: `src` chỉ có gốc trang, IFrame API không gắn `forigin` / `gporigin`) — + đồng bộ đồng hồ phòng (tua / tốc độ riêng tự về giờ chung; tự dừng: phòng chung phát lại ngay, phòng riêng giữ dừng trên máy đó), bấm video gợi ý → `offVideo` + nút "↩ Về video của rạp" (không tự quay lại), mời bật tiếng khi trình duyệt tự tắt, toàn màn hình video, báo lỗi `vid_err`, đo độ dài `vid_dur` | `createPlayer(slot, host, hooks)` → `{ enable, disable, sync, fullscreen, userPlay, backToRoom, status, enabled, debug }` (âm lượng: thanh của YouTube, 0.4.9) | `main` |
 | `input.js` | phím WASD / mũi tên / E / 1–8 / Enter / Esc, nhả phím khi mất focus, trả focus khỏi iframe, cần điều khiển ảo | `initInput(hooks)` | `main` |
 | `prefs.js` | tùy chọn người xem (⚙️) trong `localStorage vc.prefs` + ẩn riêng từng người theo tên | `prefs`, `DEFAULT_PREFS`, `DIM_LEVELS`, `setPref`, `onPrefs`, `resetPrefs`, `personFlags`, `setPersonFlag`, `unhidePerson`, `hiddenList`, `showPerson`, `showChatFrom`, `showActsFrom`, `showEmojiFrom` | `main`, `store`, `render/stage`, `ui/chat`, `ui/usercard` |
 | `util.js` | `el()` / `setKids` / `setText` (**chỉ textContent**), `safeColor`, `lsGet/lsSet`, `ssGet/ssSet`, `randomHex`, `clamp`, `lerp`, ease, `fmtTime`, `hash2`, `initial`, `isTouch`, `reducedMotion`, `warnOnce` | (như trái) | gần như mọi module client |
@@ -93,25 +93,26 @@ vibe-cinema/
 
 | File | Vai trò | Export chính | Ai dùng |
 |---|---|---|---|
-| `join.js` | màn vào rạp: lần đầu = chọn rạp (`spec`), tên, `lookEditor` (dùng lại cho 🎨), nhân vật xem trước, 🎲; người quay lại = thẻ "Chào mừng quay lại" (danh sách phòng, bấm là vào); lưu tên / ngoại hình / phòng lần trước | `initJoin(onSubmit, onQuick)` → `{ hide, show, showQuick, isQuick, setQuickBusy, quickError, look }`, `lookEditor`, `startPreview`, `savedLook`, `saveLook`, `savedName`, `saveName`, `rememberJoin`, `isReturning`, `lastRoom`, `showJoinError`, `setJoinBusy` | `main` |
+| `join.js` | màn vào rạp: lần đầu = chọn rạp (`spec`), tên, `lookEditor` (dùng lại cho 🎨), nhân vật xem trước, 🎲; người quay lại = thẻ "Chào mừng quay lại" (danh sách phòng, bấm là vào); 🔒 Tạo phòng riêng; **chế độ phòng riêng** (link mời: ô mật khẩu, "Vào rạp chung thay thế"); lưu tên / ngoại hình / phòng lần trước | `initJoin({ onSubmit, onQuick, onQuickPass, onCreate, onPublic })` → `{ hide, show, showQuick, isQuick, setQuickBusy, quickError, quickNote, look, validName, setPrivate, privateRoom, privateAuthorized, focusPass }`, `normPass`, `passError`, `lookEditor`, `startPreview`, `savedLook`, `saveLook`, `savedName`, `saveName`, `rememberJoin`, `isReturning`, `lastRoom`, `showJoinError`, `setJoinBusy` | `main`, `ui/private` (`normPass`, `passError`) |
 | `queue.js` | thẻ Đang chiếu (tiến độ, bỏ phiếu, 🚩), ô dán link + `q_res`, danh sách chờ, báo cáo video, nút dưới màn hình ⏭ 🚩 | `initQueue`, `registerAdminHooks` | `main`, `ui/admin` |
 | `chat.js` | khung chat (bám cuối, "↓ N tin mới"), ô nhập dock, bảng emoji, khung chat nổi, lọc theo ⚙️ | `initChat`, `systemLine` | `main` |
 | `wheel.js` | vòng 8 động tác quanh nhân vật mình | `initWheel(stage)` | `main` |
 | `usercard.js` | thẻ khi bấm vào nhân vật: vẫy chào, báo cáo, ẩn riêng (⚙️), công cụ admin | `initUserCard(stage)`, `registerUserAdmin` | `main`, `ui/admin` |
 | `sheet.js` | "tấm" dùng chung (thẻ phải / trượt từ dưới) | `initSheet`, `openSheet`, `closeSheet`, `sheetOpen`, `onSheetChange` | `main`, `ui/*` |
 | `toasts.js` | thông báo nhỏ dưới màn hình | `initToasts`, `toast` | `main`, `ui/*` |
-| `admin.js` | bảng 🛠 + nút admin gắn vào Đang chiếu / hàng chờ / thẻ người — **chỉ `import()` khi `hello.admin`** | `initAdmin` | `main` (import động) |
+| `admin.js` | bảng 🛠 + nút admin gắn vào Đang chiếu / hàng chờ / thẻ người, tab 🔒 Phòng riêng (đóng phòng) — **chỉ `import()` khi `hello.admin`** | `initAdmin` | `main` (import động) |
+| `private.js` | phòng riêng: tấm "🔒 Tạo phòng riêng", thẻ mời (link `/#phong=p-…` + mật khẩu; sao chép / gửi lời mời), phần phòng riêng đầu bảng chọn rạp (thành viên, dòng 🛡 khi quản trị viên rạp đang xem, công cụ chủ phòng), hỏi lại "Mời ra" từ thẻ người xem — mật khẩu chỉ giữ trong bộ nhớ trang | `initPrivate`, `openCreateSheet`, `openShareCard`, `privateSection`, `createRow`, `confirmKick`, `privateOk`, `privateResult`, `privateReset`, `ADMIN_WATCHING` (chữ của dấu 🛡) | `main`, `ui/usercard` |
 
 ## 5. Scripts — `scripts/` (chạy bằng `tsx`)
 
 | File | Vai trò | Lệnh |
 |---|---|---|
-| `test-unit.ts` | 22 test hàm thuần (YouTube, kiểm duyệt, giao thức, sơ đồ rạp, ngoại hình, rạp, động tác) | `npm run test:unit` |
-| `smoke.ts` | 32 bước toàn hệ thống: app thật + WebSocket + YouTube giả + thư mục tạm | `npm run smoke` |
+| `test-unit.ts` | 29 test hàm thuần (YouTube, kiểm duyệt, giao thức, phòng riêng + khoá mạng / dải mạng, sơ đồ rạp, ngoại hình, rạp, động tác, chuyển https, nén) | `npm run test:unit` |
+| `smoke.ts` | 64 bước toàn hệ thống (từ bước 38: phòng riêng + riêng tư): app thật + WebSocket + YouTube giả + thư mục tạm | `npm run smoke` |
 | `fake-youtube.ts` | `createFakeYouTube()` + `FIXTURES` — YouTube giả, không ra Internet | dùng bởi smoke, qa, qa-server |
 | `qa-server.ts` | server QA cổng 3399, YouTube giả, không ghi đĩa, admin `qa-local-admin` | `npx tsx scripts/qa-server.ts` |
 | `bots.ts` | người xem giả (`startBots`) — đi, ngồi, nhảy, chat, emoji, thêm video | `npm run bots -- --url … --n 20` |
-| `qa.ts` | QA hình: Chrome headless, ảnh máy tính + điện thoại, `checkOverlap` (không gì đè video), đo mượt, bắt lỗi console | `npm run qa -- --out <dir>` |
+| `qa.ts` | QA hình: Chrome headless, ảnh máy tính + điện thoại + phòng riêng, `checkOverlap` (không gì đè video), `checkIframe` (khung YouTube không mang id phòng), đo mượt, bắt lỗi console | `npm run qa -- --out <dir>` |
 | `cdp.ts` | điều khiển Chrome qua DevTools Protocol chỉ bằng `ws` (`launch`, `Page`) | dùng bởi qa, qa-characters, share-images |
 | `qa-characters.ts` | bảng 8 động tác × 4 hướng + bảng dáng nam / nữ | `npx tsx scripts/qa-characters.ts --url … --out …` |
 | `share-images.ts` | vẽ `og-image.jpg`, ảnh app, icon, favicon | `npm run share-images -- --url …` |
@@ -123,10 +124,10 @@ Chi tiết: [06](06-kiem-thu-qa.md).
 
 | File | Vai trò |
 |---|---|
-| `deploy.sh` | `--setup` (lần đầu: kiểm cổng 3300, tạo `/opt/vibecinema`, nginx site + zone `vcin_api`, chứng chỉ Let's Encrypt, pm2 startup) / thường (rsync, `.env`, npm install, pm2 restart, health) |
+| `deploy.sh` | `--setup` (lần đầu / đổi `nginx.*.conf`: kiểm cổng 3300, tạo `/opt/vibecinema`, nginx site + `conf.d` (zone `vcin_api`, log `vcin_noip`) — `nginx -t` trước khi reload, chứng chỉ Let's Encrypt, pm2 startup) / thường (rsync, `.env`, npm install, pm2 restart, health) |
 | `logs.sh` | `pm2 logs vibecinema --lines N` |
-| `nginx.site.conf` | mẫu site (`__DOMAIN__`, `__PORT__`, dòng `# __SSL__`): realip chỉ tin Cloudflare, `/ws`, `/api/` (limit), `/` |
-| `nginx.limit.conf` | `limit_req_zone … zone=vcin_api:10m rate=2r/s` → `/etc/nginx/conf.d/vibecinema-limit.conf` |
+| `nginx.site.conf` | mẫu site (`__DOMAIN__`, `__PORT__`, dòng `# __SSL__`): log riêng không IP (`access_log vibecinema.access.log vcin_noip`, `error_log … crit`), realip chỉ tin Cloudflare, `/ws` (không access log), `/api/` (limit), `/` |
+| `nginx.limit.conf` | phần `http{}` → `/etc/nginx/conf.d/vibecinema-limit.conf`: `limit_req_zone … zone=vcin_api:10m rate=2r/s` + `log_format vcin_noip` (giờ, phương thức, `$uri`, mã, dung lượng, thời gian — không IP / `?…` / Referer) |
 | `vps.env`, `.env.production` | **BÍ MẬT** — không đọc ra, không commit, không chép vào tài liệu |
 
 Chi tiết: [05](05-van-hanh-deploy.md).
@@ -148,8 +149,8 @@ server.ts ─► dotenv ─► loadConfig ─► setExtraBadWords ─► createY
 
 ```
 GET / ─► app.sendHtml (viết lại /v/<ver>/, điền %SITE_URL%) ─► main.js
-main.js: ck ─► adminLoginFromUrl ─► createStage + createPlayer + UI ─► initJoin ─► net.connect()
-WS /ws?room ─► app (Origin, IP băm, cookie admin) ─► hub.connect ─► hello ─► store.onHello ─► emit hello/rooms/players/queue/now…
+main.js: ck ─► privLinkToHash (link cũ ?phong=p-… → #phong=) ─► adminLoginFromUrl ─► createStage + createPlayer + UI ─► initJoin ─► net.connect()
+WS /ws?room ─► app (Origin, IP + mạng + dải mạng băm, cookie admin) ─► hub.connect ─► hello ─► store.onHello ─► emit hello/rooms/players/queue/now…
                                                                     ├─► stage.setVenue(venue) ─► loadTheme
                                                                     └─► join.js thẻ rạp, dòng "Đang chiếu…"
 Bấm "Vào rạp" (form) hoặc một phòng trên thẻ "Chào mừng quay lại" (quickJoin: tên + nhân vật đã nhớ)
@@ -193,8 +194,8 @@ có bài mới ─► Room.tick ─► next() (nhường ngay) · vote ─► no
 ### 7.7 Báo cáo / lỗi trình phát / admin
 
 ```
-🚩 ─► report ─► hub.onReport ─► reports.jsonl + adm note ─► (đủ IP) blockVideo + next
-player.onError 2/100/101/150 ─► vid_err ─► hub.onVideoError ─► (đủ IP) embedFail + next
+🚩 ─► report ─► hub.onReport ─► reports.jsonl + adm note ─► (đủ IP) blockVideo + next   (phòng riêng: chỉ next trong phòng + adm note)
+player.onError 2/100/101/150 ─► vid_err ─► hub.onVideoError ─► (đủ IP) embedFail + next   (phòng riêng: chỉ next, không log)
 🛠 (ui/admin.js) ─► adm {op} ─► hub.onAdmin (chỉ conn.admin) ─► notice + adm state
 ```
 
@@ -227,6 +228,7 @@ player.onError 2/100/101/150 ─► vid_err ─► hub.onVideoError ─► (đ�
 | Bảng tên, bong bóng | `stage.js drawOverlays`, `render/bubbles.js` | |
 | Nhân vật (bộ phận, dáng) | `render/character.js` | soi bằng `qa-characters.ts` |
 | Màn vào rạp | `ui/join.js`, `index.html #join` | |
+| Phòng riêng | server: `hub.ts` (`privEntry`, `onPrivNew` / `onPrivAuth` / `onPrivOp`, `evictPrivate`, `closePrivate`, `privLifecycle`), `protocol.ts`, `config.ts PRIVATE_*`; client: `ui/private.js`, `main.js` (link `/#phong=p-…` — `net.js linkRoom`, thanh địa chỉ `syncUrl`; vé `vc.rt` trong `store.js`), `ui/join.js` (chế độ phòng riêng), `player.js` (iframe tự dựng) | [07](07-server.md) §20, [03](03-frontend.md) §16; đổi dữ liệu lưu → `chinh-sach.html` |
 | Hàng chờ / Đang chiếu (giao diện) | `ui/queue.js` | |
 | Khung chat | `ui/chat.js` | chữ chỉ qua `textContent` |
 | Trang chính sách | `public/chinh-sach.html` | đổi dữ liệu thu thập → cập nhật trang này |

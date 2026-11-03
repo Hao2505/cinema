@@ -193,6 +193,10 @@ export class WindowCounter {
     if (this.hits.size > 5000) this.prune(now);
     return true;
   }
+  /** quên mọi lượt của một khoá (vd phòng riêng vừa đổi mật khẩu: các lần đoán mật khẩu cũ không còn ý nghĩa) */
+  clear(key: string): void {
+    this.hits.delete(key);
+  }
   private prune(now: number): void {
     for (const [k, v] of this.hits) if (!v.some((t) => now - t < this.windowMs)) this.hits.delete(k);
   }

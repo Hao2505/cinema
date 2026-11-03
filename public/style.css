@@ -69,7 +69,8 @@ kbd {
   display: flex; align-items: center; gap: 6px; pointer-events: none;
 }
 .hud > * { pointer-events: auto; }
-.hud-l { left: calc(8px + env(safe-area-inset-left)); }
+.hud-l { left: calc(8px + env(safe-area-inset-left)); max-width: var(--hud-l-max, none); } /* main.js đo: không chạm cụm phải */
+.hud-l > .hud-brand { flex: none; }
 .hud-r { right: calc(var(--right-inset) + 8px + env(safe-area-inset-right)); }
 .hud-btn {
   width: 34px; height: 34px; border-radius: 11px; display: inline-grid; place-items: center; padding: 0; line-height: 1;
@@ -98,11 +99,17 @@ kbd {
 .vo-text b { font-size: 13px; }
 .vo-text small { font-size: 11.5px; color: var(--muted); }
 .room-pill {
-  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 999px; min-width: 0;
   background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
   font-weight: 600; font-size: 12.5px; color: var(--ink-2); white-space: nowrap;
 }
 .room-pill:hover { border-color: var(--accent); }
+.room-pill.priv { border-color: rgba(255, 193, 77, 0.42); }
+/* tên phòng riêng tới 30 ký tự ("Phòng của …"): rút gọn "…", đủ tên ở title + bảng phòng */
+.room-name { min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.room-count, .room-pill .live-dot { flex: none; }
+/* phòng riêng: quản trị viên rạp đang xem phòng — dấu 🛡 luôn hiện cạnh tên phòng */
+.room-adm { flex: none; font-size: 13px; line-height: 1; }
 .room-count { color: var(--muted); font-weight: 500; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 0 rgba(255, 79, 109, 0.7); animation: live 1.8s infinite; }
 @keyframes live { 0% { box-shadow: 0 0 0 0 rgba(255, 79, 109, 0.65); } 70% { box-shadow: 0 0 0 8px rgba(255, 79, 109, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 79, 109, 0); } }
@@ -448,7 +455,18 @@ kbd {
 .vc-count { font-size: 11px; color: var(--muted); }
 .join-err { color: var(--err); font-size: 13px; min-height: 18px; margin: 10px 0 2px; }
 .join-err:empty { min-height: 0; margin: 6px 0 0; }
-.join-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.join-err.note { color: var(--warn); }
+/* chế độ phòng riêng: dòng lỗi nằm ngay dưới ô tên / mật khẩu (join.js dời chỗ) */
+#join-pass-field + .join-err { margin: -6px 0 12px; }
+#join-pass-field + .join-err:empty { margin: 0; }
+.join-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.join-actions .btn-big { margin-left: auto; }
+/* nút dạng chữ nhỏ ("Vào rạp chung thay thế") */
+.link-btn {
+  display: block; margin: 10px auto 0; padding: 4px 8px; border: 0; background: none; color: var(--muted); font-size: 12.5px;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.link-btn:hover { color: var(--ink); }
 .join-legal { color: var(--muted); font-size: 11.5px; margin: 12px 0 0; text-align: center; }
 
 /* mở trang: chỉ hiện giao diện khi đã dựng xong (main.js bỏ lớp .booting ở <html>); JS hỏng thì 6 s sau vẫn hiện */
@@ -475,6 +493,17 @@ kbd {
 .jq-hello span { color: var(--muted); font-size: 13px; }
 .jq-hello b { font-size: 24px; line-height: 1.2; overflow-wrap: anywhere; }
 .jq-sub { margin: 8px 0; color: var(--ink-2); font-size: 13px; }
+.jq-sub.note { color: var(--warn); }
+/* link phòng riêng: ô mật khẩu + nút vào (thay cho danh sách rạp) */
+.jq-pass { display: flex; gap: 8px; margin: 4px 0 2px; }
+.jq-pass input {
+  flex: 1; min-width: 0; height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-2);
+  background: var(--bg-2); color: var(--ink); font-size: 16px;
+}
+.jq-pass input:focus { border-color: var(--accent); outline: none; }
+.jq-pass .btn { height: 46px; border-radius: 12px; padding: 0 18px; flex: 1 0 auto; max-width: 100%; }
+.jq-pass input:not([hidden]) + .btn { flex: none; }
+.join-quick .join-actions .btn { flex: 1 1 auto; }
 .jq-rooms { display: grid; gap: 8px; }
 .jq-room {
   display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px;
@@ -495,6 +524,17 @@ kbd {
 
 /* ------------------------------------------------------------- tấm trượt */
 .sheet { position: fixed; z-index: 40; right: 10px; top: 10px; bottom: 10px; width: var(--side-w); display: flex; }
+/* tấm mở lúc màn vào rạp đang hiện (tạo phòng riêng trước khi vào): nổi TRÊN lớp phủ, giữa màn hình. Lúc này trình phát
+   chưa bật (khung video ẩn) nên không che gì */
+.join:not([hidden]) ~ .sheet {
+  z-index: 55; left: 50%; right: auto; top: 50%; bottom: auto; width: min(440px, calc(100% - 16px));
+  max-height: calc(100% - 16px); transform: translate(-50%, -50%);
+}
+/* làm tối thẻ vào rạp phía sau (bóng lan rộng — không cần :has()); nền đặc hẳn: chữ sáng của thẻ phía sau không lộ qua */
+.join:not([hidden]) ~ .sheet .sheet-card {
+  background: #17121f; border-width: 1px; border-radius: 18px;
+  box-shadow: 0 0 0 100vmax rgba(8, 5, 12, 0.7), 0 30px 80px rgba(0, 0, 0, 0.6);
+}
 .sheet-card {
   flex: 1; display: flex; flex-direction: column; background: rgba(23, 18, 31, 0.98); border: 1px solid var(--line-2);
   border-radius: 18px; box-shadow: var(--shadow); min-height: 0; overflow: hidden; animation: slide-in 0.18s ease-out both;
@@ -529,6 +569,70 @@ kbd {
 .adm-list li .row { margin: 6px 0 0; }
 .adm-list li .btn { height: 28px; font-size: 12px; padding: 0 9px; }
 .adm-empty { color: var(--muted); font-size: 12.5px; }
+
+/* ------------------------------------------------------------- phòng riêng: tấm tạo phòng, thẻ mời, phần đầu bảng phòng */
+.pr-form { display: grid; gap: 8px; }
+.pr-label { font-weight: 700; font-size: 13px; color: var(--ink); margin-top: 4px; }
+.pr-sub { font-weight: 500; color: var(--muted); }
+.pr-input {
+  width: 100%; min-width: 0; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-2);
+  background: var(--bg-2); color: var(--ink); font-size: 16px; /* ≥ 16px: iPhone không tự phóng to khi gõ */
+}
+.pr-input:focus { border-color: var(--accent); outline: none; }
+.sheet-body .pr-hint { margin: 0; font-size: 12px; line-height: 1.4; color: var(--muted); }
+.pr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pr-chips .chip { min-width: 44px; height: 34px; font-size: 14px; }
+.pr-chips .chip:disabled { opacity: 0.38; cursor: not-allowed; }
+.pr-notes { margin: 2px 0 0; padding: 0 0 0 16px; display: grid; gap: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.pr-err { color: var(--err); font-size: 13px; }
+.pr-err:empty { display: none; }
+.pr-owned {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-radius: 10px; font-size: 13px;
+  border: 1px solid rgba(255, 193, 77, 0.45); background: var(--accent-soft); color: var(--ink);
+}
+.pr-owned .btn { height: 32px; padding: 0 12px; }
+.pr-go { width: 100%; height: 44px; margin-top: 2px; font-size: 15px; }
+.invite-box {
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; cursor: text;
+  padding: 10px 12px; margin-bottom: 10px; border-radius: 10px; border: 1px dashed rgba(255, 193, 77, 0.5);
+  background: var(--bg-2); color: var(--ink); font-size: 13.5px; line-height: 1.55;
+}
+.sheet-body .pr-status { margin: 0 0 8px; font-size: 12.5px; color: var(--ok); }
+.sheet-body .pr-status.err { color: var(--warn); }
+.pr-status:empty { display: none; }
+.sheet-body .pr-note { font-size: 12px; color: var(--muted); }
+.sheet-body .pr-lead { color: var(--ink); }
+.pr-share-btns .btn { flex: 1 1 auto; }
+/* phần phòng riêng đầu bảng chọn rạp */
+.pr-sec {
+  display: grid; gap: 6px; padding: 10px 12px; margin-bottom: 12px; border-radius: 12px;
+  border: 1px solid rgba(255, 193, 77, 0.45); background: var(--bg-2);
+}
+.pr-head { display: grid; gap: 1px; font-size: 14px; color: var(--ink); min-width: 0; }
+.pr-name { overflow-wrap: anywhere; }
+.pr-head .pr-sub { font-size: 12.5px; }
+.pr-head .pr-adm { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.sheet-body .pr-actions { margin: 2px 0 0; }
+.pr-actions .btn { height: 34px; padding: 0 11px; font-size: 13px; }
+.pr-sec .pr-label { margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+.pr-members { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.pr-member { padding: 4px 8px; border-radius: 9px; background: rgba(255, 255, 255, 0.035); }
+.pr-mrow { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.pr-mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); }
+.pr-mname b { color: var(--ink); font-weight: 600; }
+.pr-mstate { flex: none; font-size: 11.5px; color: var(--muted); }
+.pr-sec .btn.pr-kick, .pr-confirm .btn { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
+.pr-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; font-size: 12.5px; color: var(--ink-2); }
+.pr-confirm > span { flex: 1 1 100%; }
+.pr-passrow { display: flex; gap: 6px; }
+.pr-passrow .pr-input { height: 38px; padding: 0 12px; border-radius: 10px; }
+.sheet-body .pr-close { margin: 6px 0 0; }
+.sheet-body h3.pr-split { margin-top: 2px; }
+.room-item.pr-create-row { width: 100%; text-align: left; color: var(--ink); border-color: rgba(255, 193, 77, 0.45); }
+.room-item.pr-create-row:hover { border-color: var(--accent); background: var(--accent-soft); }
+.pr-create-row .now-meta { display: block; }
+.pr-go-arrow { flex: none; font-size: 24px; line-height: 1; color: var(--accent); }
+.pr-create-list { margin-bottom: 12px; }
 
 .noscript { position: fixed; inset: 0; display: grid; place-items: center; align-content: center; gap: 6px; padding: 24px; text-align: center; background: var(--bg); color: var(--ink); font-size: 16px; z-index: 100; }
 .noscript h1 { font-size: 22px; margin: 0; }
@@ -599,6 +703,10 @@ body.ui-quiet .chat-feed { opacity: 0.4; }
   .venue-card { padding: 7px 4px; }
   .vc-name { font-size: 11.5px; }
   .screen-title { display: none; }
+  /* nhiều nút cùng hiện (🔊 Bật tiếng + ↩ Về video của rạp + cụm ⏭ Bỏ qua ngay · ⏸ · 🚩 · ⛶) → xuống hàng, mọc dần XUỐNG
+     (xa khỏi video, JS đặt mép trên), không tràn ra ngoài màn hình — nút nào cũng bấm được */
+  .screen-tools { flex-wrap: wrap; row-gap: 4px; align-content: flex-start; }
+  .room-name { max-width: min(160px, 34vw); }
   .wheel-btn { width: 58px; height: 58px; margin: -29px 0 0 -29px; font-size: 20px; }
 }
 /* tấm trượt từ dưới (điện thoại dọc): mép trên nằm dưới màn hình video, mép dưới sát dock (ô chat luôn hiện) */
@@ -630,6 +738,11 @@ body.ui-quiet .chat-feed { opacity: 0.4; }
 }
 @media (max-width: 719px) {
   #btn-theater { display: none; } /* điện thoại dọc: video đã rộng hết cỡ, nút Màn hình lớn không cần */
+}
+/* màn vào rạp trên điện thoại: 🎲 + 🔒 một hàng, nút vào rạp to chiếm hết hàng dưới khi không đủ chỗ */
+@media (max-width: 520px) {
+  .join-actions .btn-ghost { flex: 1 1 auto; padding: 0 10px; font-size: 13px; }
+  .join-actions .btn-big { flex: 1 0 auto; margin-left: 0; }
 }
 @media (max-width: 380px) {
   .react { width: 33px; font-size: 17px; }

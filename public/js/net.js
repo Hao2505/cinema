@@ -2,7 +2,7 @@
 // Mã admin: mở trang kèm #admin=<mã> (hoặc ?admin=<mã>) MỘT lần → gửi POST /api/admin/login → server đặt cookie HttpOnly
 // (JS không đọc được) → gỡ mã khỏi thanh địa chỉ. Mã không bao giờ được lưu ở localStorage, không hiện, không ghi log.
 import { handleMessage, onPong, setConn, store } from './store.js';
-import { ROOM_ID_RE } from './shared/hall.js';
+import { ANY_ROOM_ID_RE, isPrivateRoomId } from './shared/hall.js';
 
 let ws = null;
 let attempt = 0;
@@ -47,10 +47,41 @@ export function adminLogout() {
     .finally(() => location.reload());
 }
 
+/**
+ * id phòng trong link (`href`, mặc định trang đang mở): phòng riêng ở sau dấu # (`/#phong=p-…` — phần sau # không bao giờ
+ * được trình duyệt gửi tới máy chủ, nhật ký, Referer hay YouTube); phòng chung giữ `?phong=<rạp>`. '' = không có
+ */
+export function linkRoom(href = location.href) {
+  try {
+    const u = new URL(href);
+    return new URLSearchParams(u.hash.replace(/^#/, '')).get('phong') || u.searchParams.get('phong') || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * link phòng riêng kiểu cũ `/?phong=p-…` (trước 04/11/2026) → đổi ngay tại chỗ sang `/#phong=p-…` (không tải lại trang):
+ * từ đây tải lại trang, Referer của các yêu cầu sau… không còn mang id phòng riêng. Giữ nguyên các tham số khác (#admin=…)
+ */
+export function privLinkToHash() {
+  try {
+    const url = new URL(location.href);
+    const id = url.searchParams.get('phong') || '';
+    if (!isPrivateRoomId(id)) return;
+    url.searchParams.delete('phong');
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+    if (!hash.get('phong')) hash.set('phong', id);
+    history.replaceState(history.state, '', `${url.pathname}${url.search}#${hash}`);
+  } catch { /* bỏ qua */ }
+}
+
 function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const room = new URLSearchParams(location.search).get('phong');
-  return `${proto}//${location.host}/ws${room && ROOM_ID_RE.test(room) ? `?room=${room}` : ''}`;
+  // phòng trong link (#phong=p-… / ?phong=<rạp>): phòng chung hoặc phòng riêng. Phòng riêng: server cho đứng xem rạp chung
+  // trong lúc chờ mật khẩu (proom_need) — người chưa có quyền không bao giờ xem lén được phòng riêng
+  const room = linkRoom();
+  return `${proto}//${location.host}/ws${room && ANY_ROOM_ID_RE.test(room) ? `?room=${room}` : ''}`;
 }
 
 // đóng tab / rời trang: báo server bỏ nhân vật NGAY (khỏi để lại nhân vật "kẹt" trong rạp chờ hết hạn).
@@ -76,6 +107,7 @@ export function connect() {
     if (ws !== sock) return;
     attempt = 0;
     everOpened = true;
+    store.helloSeq = 0; // socket mới: hello đầu tiên là chào khi nối (store.js phân biệt với hello "bị tách khỏi phòng")
     setConn('open');
     clearInterval(pingTimer);
     let n = 0;

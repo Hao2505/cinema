@@ -1,7 +1,7 @@
 // Trạng thái phía client + xử lý thông điệp server (ServerMsg trong src/types.ts) + nội suy người khác chống giật.
-import { DEFAULT_VENUE, ROOM_ID_RE, SPEED, actionById, parseRoomId, roomName } from './shared/hall.js';
+import { ANY_ROOM_ID_RE, DEFAULT_VENUE, SPEED, actionById, isPrivateRoomId, parseRoomId, roomName, venueById } from './shared/hall.js';
 import { showEmojiFrom } from './prefs.js';
-import { clamp, num, str, arr, warnOnce } from './util.js';
+import { clamp, num, str, arr, lsGet, lsSet, warnOnce } from './util.js';
 
 const listeners = new Map();
 
@@ -12,11 +12,20 @@ export const store = {
   myId: 0,
   token: '',
   admin: false,
-  cfg: { maxVideoMin: 15, maxPerUser: 2, capacity: 60, liveMaxMin: 30, allowLive: true, skipRatio: 0.5, noCookie: true, ytReady: true },
+  cfg: {
+    maxVideoMin: 15, maxPerUser: 2, capacity: 60, liveMaxMin: 30, allowLive: true, skipRatio: 0.5, noCookie: true, ytReady: true,
+    privMax: 20, privMaxMin: 720, privPerUser: 10, privEmptyMin: 10,
+  },
   rooms: [],
   roomId: DEFAULT_VENUE,
   roomName: roomName(DEFAULT_VENUE),
-  venue: DEFAULT_VENUE, // chủ đề vẽ của phòng đang xem (render/venues)
+  venue: DEFAULT_VENUE, // chủ đề vẽ của phòng đang xem (render/venues) — phòng riêng: rạp chủ phòng chọn (snap.venue)
+  /** PrivInfo của phòng riêng đang xem ({ name, cap, ownerId, members[], admins }) — null = phòng chung */
+  priv: null,
+  /** phòng riêng gần nhất đã ở trong (để bỏ vé vào lại khi bị đưa ra mà thông điệp không ghi phòng) */
+  lastPrivRoom: '',
+  /** số hello đã nhận trên socket hiện tại (net.js đặt về 0 khi mở socket mới) */
+  helloSeq: 0,
   players: new Map(), // id -> actor
   queue: [],
   locked: false,
@@ -55,7 +64,80 @@ export const store = {
     for (const a of this.players.values()) if (!a.ghost && !a.goneAt) n++;
     return n;
   },
+  /** đang ở trong (đã vào) một phòng riêng */
+  inPrivate() {
+    return this.joined && isPrivateRoomId(this.roomId);
+  },
+  /** mình là chủ phòng riêng đang ở (server báo id nhân vật của chủ phòng trong priv.ownerId) */
+  isOwner() {
+    return this.inPrivate() && !!this.priv && this.myId > 0 && this.priv.ownerId === this.myId;
+  },
+  /**
+   * phòng riêng: số thành viên tính chỗ — quản trị viên rạp vào phòng (adm) không chiếm chỗ của ai, trừ khi chính họ là chủ
+   * phòng (chủ rạp dùng phòng của mình — server đếm y như vậy: Room.isMember)
+   */
+  memberCount() {
+    const p = this.priv;
+    return p ? p.members.filter((m) => !m.adm || m.id === p.ownerId).length : 0;
+  },
+  /** phòng riêng: quản trị viên rạp đang xem phòng (đứng xem — priv.admins — hoặc có nhân vật trong phòng) */
+  adminWatching() {
+    return !!this.priv && (this.priv.admins > 0 || this.priv.members.some((m) => m.adm));
+  },
 };
+
+// ---------------------------------------------------------------- vé vào lại phòng riêng (localStorage vc.rt)
+// Nhập đúng mật khẩu (hoặc tạo phòng) → server cấp "vé" rt cho thiết bị này: mở lại link / rớt mạng vào lại không phải nhập
+// lại mật khẩu. Giữ tối đa 10 phòng (bỏ phòng cũ nhất). Server chỉ lưu mã băm của vé; vé mất hiệu lực khi đổi mật khẩu.
+const RT_KEY = 'vc.rt';
+const RT_MAX = 10;
+const RT_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+function rtMap() {
+  let o = null;
+  try { o = JSON.parse(lsGet(RT_KEY, '{}')); } catch { o = null; }
+  const out = {};
+  if (o && typeof o === 'object' && !Array.isArray(o)) {
+    for (const [k, v] of Object.entries(o)) if (isPrivateRoomId(k) && typeof v === 'string' && RT_RE.test(v)) out[k] = v;
+  }
+  return out;
+}
+function rtWrite(m) {
+  const keys = Object.keys(m);
+  if (!keys.length) { try { localStorage.removeItem(RT_KEY); } catch { /* bỏ qua */ } return; }
+  lsSet(RT_KEY, JSON.stringify(m));
+}
+/** vé vào lại phòng `room` ('' = không có) */
+export function rtFor(room) {
+  return isPrivateRoomId(room) ? rtMap()[room] || '' : '';
+}
+export function saveRt(room, rt) {
+  if (!isPrivateRoomId(room) || typeof rt !== 'string' || !RT_RE.test(rt)) return;
+  const m = rtMap();
+  delete m[room]; // ghi lại ở cuối = mới nhất
+  m[room] = rt;
+  const keys = Object.keys(m);
+  for (let i = 0; i < keys.length - RT_MAX; i++) delete m[keys[i]];
+  rtWrite(m);
+}
+export function dropRt(room) {
+  const m = rtMap();
+  if (!(room in m)) return;
+  delete m[room];
+  rtWrite(m);
+}
+
+/** PrivInfo từ server → bản đọc phòng thủ */
+function normPriv(p) {
+  if (!p || typeof p !== 'object') return null;
+  const members = arr(p.members).filter((m) => m && Number.isInteger(m.id)).slice(0, 100)
+    .map((m) => ({ id: m.id, name: str(m.name, 40), away: !!m.away, ghost: !!m.ghost, adm: !!m.adm }));
+  return {
+    name: str(p.name, 40), cap: Math.max(0, Math.round(num(p.cap, 0))), ownerId: Number.isInteger(p.ownerId) ? p.ownerId : 0, members,
+    // số kết nối quản trị viên rạp đang đứng xem phòng (không có nhân vật) — hiện dấu 🛡 thường trực
+    admins: Math.max(0, Math.round(num(p.admins, 0))),
+  };
+}
 
 // ---------------------------------------------------------------- đồng bộ giờ server (ping/pong kiểu NTP)
 export function onPong(msg, sentAt) {
@@ -265,9 +347,13 @@ function setPlayers(list, now) {
 function setSnapshot(snap, now) {
   if (!snap || typeof snap !== 'object') return;
   const id = str(snap.id, 16);
-  store.roomId = ROOM_ID_RE.test(id) ? id : DEFAULT_VENUE;
-  store.roomName = str(snap.name, 40) || roomName(store.roomId);
-  const venue = parseRoomId(store.roomId)?.venue.id || DEFAULT_VENUE;
+  store.roomId = ANY_ROOM_ID_RE.test(id) ? id : DEFAULT_VENUE;
+  const priv = isPrivateRoomId(store.roomId);
+  store.priv = priv ? normPriv(snap.priv) : null;
+  if (priv) store.lastPrivRoom = store.roomId;
+  store.roomName = str(snap.name, 40) || store.priv?.name || roomName(store.roomId);
+  // rạp (khung cảnh): phòng riêng do chủ phòng chọn → chỉ biết qua snap.venue (id phòng riêng không chứa tên rạp)
+  const venue = venueById(str(snap.venue, 16))?.id || parseRoomId(store.roomId)?.venue.id || DEFAULT_VENUE;
   if (venue !== store.venue) { store.venue = venue; store.emit('venue', venue); }
   setPlayers(snap.players, now);
   store.queue = arr(snap.queue).filter((q) => q && typeof q.v === 'string');
@@ -318,18 +404,39 @@ export function spawnFx(pid, e, now = performance.now(), opts = {}) {
   });
 }
 
+let lastHelloSnap = null; // ảnh chụp phòng đang đứng xem trong hello gần nhất
+
 function onHello(msg) {
   const now = performance.now();
+  // hello thứ hai trên CÙNG một socket trong lúc đang ở trong rạp = server đã tách nhân vật khỏi phòng (bị đưa ra khỏi
+  // phòng riêng mà không phòng chung nào nhận được) → kết nối chỉ còn đứng xem. (Rớt mạng nối lại là socket MỚI.)
+  const detached = store.joined && store.helloSeq > 0;
+  store.helloSeq++;
+  if (detached) store.joined = false;
   store.ready = true;
   // ước lượng giờ server ngay từ hello (ping/pong sẽ chỉnh chính xác hơn)
   if (store.clock.samples === 0 && Number.isFinite(msg.s)) store.clock.offset = msg.s - now;
   store.admin = !!msg.admin;
   if (msg.cfg && typeof msg.cfg === 'object') store.cfg = { ...store.cfg, ...msg.cfg };
   store.rooms = arr(msg.rooms);
+  lastHelloSnap = msg.snap && typeof msg.snap === 'object' ? msg.snap : null;
   if (!store.joined) setSnapshot(msg.snap, now);
+  // báo TRƯỚC 'hello' để main.js thôi ý định vào lại (không tự gửi join vào phòng vừa bị đưa ra)
+  if (detached) store.emit('detached');
   store.emit('hello', msg);
   store.emit('rooms', store.rooms);
   if (!store.joined) emitAll();
+}
+
+/**
+ * thôi ở trong rạp mà socket vẫn sống (vào lại sau rớt mạng bị từ chối): hiện lại phòng kết nối đang đứng xem — ảnh chụp
+ * trong hello gần nhất (server gửi kèm mọi thay đổi của phòng đó từ lúc ấy) — thay cho phòng cũ đang đứng hình
+ */
+export function backToSpectate() {
+  store.joined = false;
+  if (!lastHelloSnap) return;
+  setSnapshot(lastHelloSnap, performance.now());
+  emitAll();
 }
 
 function onWelcome(msg) {
@@ -345,6 +452,7 @@ function onWelcome(msg) {
 }
 
 function emitAll() {
+  store.emit('priv', store.priv);
   store.emit('players', store.players);
   store.emit('queue', store.queue);
   store.emit('now', store.now);
@@ -416,6 +524,39 @@ export function handleMessage(msg) {
       case 'notice': store.emit('notice', { text: str(msg.text, 300), kind: str(msg.kind, 8) || 'info' }); break;
       case 'rooms': store.rooms = arr(msg.rooms); store.emit('rooms', store.rooms); break;
       case 'kicked': store.emit('kicked', { text: str(msg.text, 200) }); break;
+      // ---- phòng riêng
+      case 'priv':
+        // thành viên vào / ra / ẩn, chủ phòng có mặt, số người tối đa đổi — chỉ áp cho phòng riêng đang ở
+        if (!isPrivateRoomId(store.roomId) || !msg.priv) break;
+        store.priv = normPriv(msg.priv);
+        if (store.priv?.name) store.roomName = store.priv.name;
+        store.emit('priv', store.priv);
+        break;
+      case 'proom_need': {
+        const room = str(msg.room, 16);
+        if (!isPrivateRoomId(room)) break;
+        if (msg.exists === false) dropRt(room); // phòng đã đóng: vé vô dụng
+        store.emit('proomNeed', { room, exists: msg.exists !== false });
+        break;
+      }
+      case 'proom_ok': {
+        const room = str(msg.room, 16);
+        if (!isPrivateRoomId(room)) break;
+        saveRt(room, str(msg.rt, 80));
+        store.emit('proomOk', { room, venue: venueById(str(msg.venue, 16))?.id || '', name: str(msg.name, 40), created: !!msg.created });
+        break;
+      }
+      case 'proom_res': {
+        const room = str(msg.room, 16);
+        store.emit('proomRes', { ok: !!msg.ok, text: str(msg.text, 300), code: str(msg.code, 20), room: isPrivateRoomId(room) ? room : '' });
+        break;
+      }
+      case 'proom_rt': {
+        // mật khẩu vừa đổi: vé mới cho người đang ở trong phòng (vé cũ hết hiệu lực)
+        const room = str(msg.room, 16);
+        if (isPrivateRoomId(room)) saveRt(room, str(msg.rt, 80));
+        break;
+      }
       case 'adm': if (store.admin) store.emit('admin', msg); break;
       default: break;
     }

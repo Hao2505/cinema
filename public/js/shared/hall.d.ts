@@ -33,6 +33,11 @@ export interface Venue { readonly id: string; readonly name: string; readonly em
 export declare const VENUES: readonly Venue[];
 export declare const DEFAULT_VENUE: string;
 export declare const ROOM_ID_RE: RegExp;
+/** id phòng riêng: "p-" + 10 ký tự [a-z0-9] */
+export declare const PRIVATE_ROOM_RE: RegExp;
+/** id phòng chung hoặc riêng */
+export declare const ANY_ROOM_ID_RE: RegExp;
+export declare function isPrivateRoomId(id: unknown): boolean;
 export declare function venueById(id: string): Venue | null;
 export declare function parseRoomId(id: unknown): { venue: Venue; n: number } | null;
 export declare function roomName(id: string): string;

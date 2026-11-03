@@ -4,7 +4,8 @@
 cùng nhau. Trình phát YouTube **chính thức** đặt khít vào màn hình vẽ trên canvas; khán phòng phối cảnh phía dưới; mỗi
 người xem điều khiển một nhân vật (tên + ngoại hình, không đăng nhập), đi lại, 8 động tác, chat bong bóng, emoji; hàng
 chờ do người xem dán link (server kiểm bằng YouTube Data API); cả phòng xem cùng một "đồng hồ phòng"; 4 rạp (cùng sơ đồ,
-khác hình), mỗi rạp nhiều phòng; admin bằng mã bí mật → cookie HttpOnly.
+khác hình), mỗi rạp nhiều phòng; phòng riêng có mật khẩu (luôn miễn phí, không hiện trong danh sách, link
+`/#phong=p-…` — id sau dấu `#`); admin bằng mã bí mật → cookie HttpOnly.
 
 Yêu cầu gốc của chủ dự án: `CLAUDE.md` (đọc trước). Tài liệu chi tiết: `docs/README.md`.
 
@@ -17,8 +18,8 @@ Yêu cầu gốc của chủ dự án: `CLAUDE.md` (đọc trước). Tài liệ
    không đụng quảng cáo; trình phát ≥ 200×200; chỉ dùng tham số / hàm IFrame API có tài liệu; chỉ nhận video công khai,
    cho nhúng, không 18+, xem được ở VN; video không bao giờ đi qua server. Xem `docs/04-youtube-va-phap-ly.md`.
 3. **VPS dùng chung** với app khác (`vibecorp`, `tokivietnam.com`): không đụng tiến trình / site nginx / cấu hình của
-   chúng; mọi thứ của rạp có tên riêng (`/opt/vibecinema`, pm2 `vibecinema`, cổng 3300, zone `vcin_api`); luôn
-   `nginx -t` trước khi reload.
+   chúng; mọi thứ của rạp có tên riêng (`/opt/vibecinema`, pm2 `vibecinema`, cổng 3300, zone `vcin_api`, log_format
+   `vcin_noip`); luôn `nginx -t` trước khi reload.
 4. **Chỉ deploy, commit, push khi chủ dự án bảo.** Không `git add -A` mù — thêm đúng file. Commit tiếng Anh
    `<area>: <description>`, cuối thân commit: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 5. Chuỗi từ người dùng / server chỉ vào DOM qua `textContent` (`public/js/util.js el()`, `setText`) — không `innerHTML`.
@@ -30,11 +31,11 @@ Yêu cầu gốc của chủ dự án: `CLAUDE.md` (đọc trước). Tài liệ
 
 ```bash
 npm install
-npm test                                   # typecheck + 24 test đơn vị + 37 bước smoke (~15 s, không Internet)
+npm test                                   # typecheck + 29 test đơn vị + 64 bước smoke (~35 s, không Internet)
 npm run dev                                # server thật :3300 (.env: ADMIN_TOKEN; YT_API_KEY nên có — thiếu thì kiểm cơ bản)
 npx tsx scripts/qa-server.ts               # server QA :3399, YouTube giả (NO_KEY=1: như chưa có key), admin: http://localhost:3399/#admin=qa-local-admin
 npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 10 --video aqz-KE-bpKQ [--room bien]   # người xem giả
-npm run qa -- --out /tmp/vc-shots [--only desktop|mobile|smooth] [--room bien] [--bunch]   # Chrome headless: ảnh, chồng lấn video, độ mượt
+npm run qa -- --out /tmp/vc-shots [--only desktop|mobile|smooth|private] [--room bien] [--bunch]   # Chrome headless: ảnh, chồng lấn video, độ mượt, phòng riêng
 npx tsx scripts/qa-characters.ts --url http://localhost:3399 --out /tmp/vc-chars                 # soi nhân vật / động tác
 npm run share-images -- --url http://localhost:3399 --room congvien   # vẽ lại ảnh chia sẻ + icon (cần server QA + bot)
 npm run seo-check -- --url https://cinema.vibe-coder.fun          # kiểm SEO / xem trước chia sẻ (docs/06 §8)
@@ -54,7 +55,8 @@ Sửa file trong `public/` xong phải **khởi động lại server** (JS / CSS
   ngoại hình, `VENUES`); kiểu ở `hall.d.ts` **viết tay — sửa cùng lúc**.
 - `public/js/` — client: `main.js` (nối mọi thứ), `net.js`, `store.js` (trạng thái + nội suy), `me.js` (dự đoán),
   `player.js` (YouTube), `input.js`, `prefs.js` (⚙️), `render/` (`stage.js` bố cục + vòng vẽ, `persp.js`, `venues/`
-  chủ đề rạp, `character.js`, `anims.js`), `ui/` (join, queue, chat, wheel, usercard, sheet, toasts, admin).
+  chủ đề rạp, `character.js`, `anims.js`), `ui/` (join, queue, chat, wheel, usercard, sheet, toasts, admin, private —
+  tấm tạo phòng riêng, thẻ mời, công cụ chủ phòng).
 - `scripts/` — test, smoke, YouTube giả, QA headless, bot. `deploy/` — script + mẫu nginx.
 
 ## Quy trình đề xuất cho một thay đổi
@@ -74,6 +76,13 @@ Sửa file trong `public/` xong phải **khởi động lại server** (JS / CSS
 - Thêm phần tử nổi trên rạp → báo chỗ chiếm qua `stage.setInsets` (`main.js syncInsets`) và thêm id vào `checkOverlap`
   trong `scripts/qa.ts`.
 - Thêm trường ngoại hình → nhớ khoá sprite cache `lookKey` trong `render/stage.js`.
-- Id phòng: `ROOM_ID_RE` (`<rạp>` hoặc `<rạp>-2…9`, tối đa 12 ký tự); `protocol.ts` nhận `room` tới 16 ký tự rồi kiểm
-  bằng `ROOM_ID_RE` — đổi dạng id thì sửa cả hai (có test đơn vị cho `congvien-2`).
+- Id phòng: chung `ROOM_ID_RE` (`<rạp>` hoặc `<rạp>-2…9`, tối đa 12 ký tự), riêng `PRIVATE_ROOM_RE` (`p-` + 10 ký tự —
+  không chứa tên rạp: rạp lấy từ `snap.venue`); `protocol.ts` nhận `room` tới 16 ký tự rồi kiểm bằng `ANY_ROOM_ID_RE` —
+  đổi dạng id thì sửa cả hai (có test đơn vị cho `congvien-2`, `p-…`). `parseRoomId` / `roomName` cố ý chỉ nhận phòng chung.
+- Phòng riêng (docs/07 §20): mọi id client gửi lên đi qua `publicRoom()` hoặc cổng `privEntry()` trong `hub.ts` — đừng
+  `rooms.get(id)` thẳng; người thường không bao giờ đứng xem phòng riêng; không bao giờ log / lưu mật khẩu, vé `rt` hay
+  khoá máy thật trong `rooms.json` (chủ phòng, người có vé, người bị mời ra, người thêm video — chỉ mã băm); log phòng riêng chỉ id + tên phòng (không bao giờ video phòng đó
+  xem); admin không chiếm chỗ của thành viên. Id phòng riêng không được tới máy chủ web / YouTube: link + thanh địa chỉ
+  dùng `#phong=` (không `?phong=`), `player.js` tự dựng `<iframe>` (đừng quay lại `new YT.Player(<div>, {playerVars})` —
+  API sẽ gắn `forigin` = địa chỉ trang). Đổi những gì lưu / ghi log → sửa `public/chinh-sach.html` cùng lúc.
 - Smoke tắt video mặc định (`defaultVideo: ''`); dữ liệu chạy thật (`data/`) không commit.

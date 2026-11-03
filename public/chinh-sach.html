@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0e0b12">
   <meta name="color-scheme" content="dark">
   <title>Chính sách &amp; quyền riêng tư — VibeCinema</title>
-  <meta name="description" content="Chính sách của VibeCinema: dùng trình phát và dịch vụ YouTube API, rạp lưu gì và không lưu gì, cookie, báo cáo vi phạm và gỡ nội dung.">
+  <meta name="description" content="Chính sách của VibeCinema: dùng trình phát và dịch vụ YouTube API, rạp lưu gì và không lưu gì, phòng riêng, cookie, báo cáo vi phạm và gỡ nội dung.">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="%SITE_URL%/chinh-sach">
   <meta property="og:type" content="article">
@@ -42,7 +42,7 @@
   <main class="doc">
     <a class="back" href="/">← Về rạp</a>
     <h1>🎬 Chính sách &amp; quyền riêng tư</h1>
-    <div class="upd">VibeCinema · cập nhật 03/11/2026</div>
+    <div class="upd">VibeCinema · cập nhật 04/11/2026</div>
 
     <div class="box">
       <b>Tóm tắt:</b> rạp dùng <b>dịch vụ YouTube API</b> để phát video. Bạn vào rạp chỉ bằng một cái tên tự đặt, không cần
@@ -54,8 +54,11 @@
     <ul>
       <li>Video được phát bằng <b>trình phát chính thức của YouTube</b> (YouTube IFrame Player) nhúng trên trang. Rạp không tải
         video về máy chủ, không phát lại luồng của người khác, không chỉnh sửa, che hay chặn quảng cáo của trình phát.</li>
-      <li>Khi bạn thêm một link, máy chủ rạp hỏi <b>YouTube Data API</b> thông tin công khai của video (tên, kênh, độ dài, có cho
-        nhúng không, có giới hạn tuổi / vùng không) để chỉ nhận video được phép.</li>
+      <li>Khi bạn thêm một link, máy chủ rạp hỏi YouTube thông tin công khai của video để chỉ nhận video được phép: dùng được
+        <b>YouTube Data API</b> thì kiểm tên, kênh, độ dài, có công khai / cho nhúng không, có giới hạn tuổi / vùng không;
+        chưa dùng được API (chưa có khoá, khoá lỗi hoặc hết lượt trong ngày) thì chỉ <b>kiểm cơ bản</b> bằng oEmbed của YouTube (tên,
+        kênh, có cho nhúng) — video 18+ / bị chặn ở Việt Nam do chính trình phát YouTube từ chối lúc tới lượt, độ dài do
+        trình phát trên máy người xem đo khi bắt đầu chiếu.</li>
       <li>Khi dùng rạp, bạn đồng thời đồng ý với <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">Điều khoản dịch vụ của YouTube</a>.
         YouTube / Google xử lý dữ liệu theo <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Chính sách quyền riêng tư của Google</a>.</li>
       <li>Trình phát được nhúng ở chế độ bảo mật nâng cao (youtube-nocookie.com) khi có thể; YouTube vẫn có thể lưu cookie
@@ -67,39 +70,86 @@
     <ul>
       <li><b>Trên máy chủ, trong lúc bạn ở trong rạp</b>: tên bạn đặt, ngoại hình nhân vật, vị trí, động tác, tin nhắn chat
         (chỉ giữ ~50 tin gần nhất của mỗi phòng, trong bộ nhớ), danh sách video bạn thêm.</li>
+      <li><b>Hàng chờ video</b> của mọi phòng (kể cả phòng riêng) được ghi ra đĩa để rạp khởi động lại không mất bài: mỗi video
+        kèm tên bạn đặt và mã băm của mã ngẫu nhiên trình duyệt người thêm (để bạn vẫn xoá / tự bỏ qua được bài của mình); hết
+        khi video chiếu xong hoặc bị xoá khỏi hàng chờ.</li>
       <li><b>Để chống spam và thi hành lệnh cấm</b>: một mã băm một chiều của địa chỉ IP (không lưu IP gốc) và một mã ngẫu nhiên
         của trình duyệt. Lệnh cấm lưu tên + hai mã này tới khi hết hạn.</li>
-      <li><b>Báo cáo vi phạm</b>: thời điểm, video / người bị báo cáo, lý do, ghi chú bạn viết và tên bạn đặt — để admin xử lý.</li>
+      <li><b>Báo cáo vi phạm</b>: thời điểm, phòng, video / người bị báo cáo, lý do, ghi chú bạn viết và tên bạn đặt — để admin
+        xử lý.</li>
+      <li><b>Nhật ký máy chủ web</b>: nhật ký truy cập chỉ ghi giờ, đường dẫn trang (không kèm phần sau dấu <code>?</code> hay
+        <code>#</code>), mã kết quả, dung lượng và thời gian xử lý — <b>không ghi địa chỉ IP</b>, không ghi bạn đến từ trang
+        nào hay dùng trình duyệt gì. Chỉ khi máy chủ web gặp lỗi nghiêm trọng, dòng báo lỗi mới có thể kèm IP và địa chỉ yêu
+        cầu của kết nối bị lỗi.</li>
       <li><b>Trên trình duyệt của bạn (localStorage)</b>: tên, ngoại hình, rạp vào lần trước (để lần sau vào thẳng), mã ngẫu
-        nhiên của trình duyệt, âm lượng, góc xem, ngăn kéo đang mở / đóng, và <b>⚙️ Tùy chọn</b> của bạn — kể cả danh sách
-        tên những người bạn đã ẩn (chỉ nằm trên máy bạn, không gửi lên máy chủ). Xoá dữ liệu trang web là mất hết.</li>
+        nhiên của trình duyệt, vé vào lại phòng riêng (<code>vc.rt</code>, tối đa 10 phòng — xem mục 3), góc xem, ngăn kéo
+        đang mở / đóng, và <b>⚙️ Tùy chọn</b> của bạn — kể cả danh sách tên những người bạn đã ẩn (chỉ nằm trên máy bạn,
+        không gửi lên máy chủ). Xoá dữ liệu trang web là mất hết.</li>
       <li>Cookie của rạp: chỉ có cookie dành cho admin (HttpOnly). Người xem thường không có cookie nào của rạp.</li>
       <li>Phông chữ tải từ Google Fonts.</li>
     </ul>
 
-    <h2>3. Rạp không làm gì</h2>
+    <h2>3. Phòng riêng</h2>
+    <ul>
+      <li>Bạn có thể tạo <b>phòng riêng</b> có mật khẩu để xem chung với người quen — <b>luôn miễn phí</b>. Mật khẩu chỉ để vào
+        phòng, không bao giờ dùng để mở khoá một video nào; tạo hay vào phòng không bao giờ đòi bạn đăng ký kênh, bấm thích
+        hay chia sẻ.</li>
+      <li><b>Link mời</b> có dạng <code>/#phong=…</code>: phần sau dấu <code>#</code> không bao giờ được gửi lên máy chủ web khi tải
+        trang, nên mã phòng không nằm trong nhật ký truy cập của máy chủ web; trình phát YouTube cũng chỉ nhận địa chỉ gốc của
+        rạp, không nhận mã phòng.</li>
+      <li><b>Máy chủ lưu</b>: tên phòng ("Phòng của &lt;tên bạn đặt&gt;"); mật khẩu chỉ dưới dạng <b>mã băm scrypt có muối</b>
+        (không lưu mật khẩu gốc); vé vào lại của các thiết bị đã nhập đúng mật khẩu — mỗi vé chỉ lưu mã băm của vé, mã băm của
+        mã ngẫu nhiên trình duyệt đó (để vé chỉ dùng được trên đúng máy đó) và lúc cấp vé, không lưu vé gốc; vé tự hết hạn sau
+        30 ngày; mã băm của mã ngẫu nhiên trình duyệt chủ phòng + mã băm một chiều của mạng và dải mạng đã tạo phòng (để nhận
+        ra chủ phòng và giới hạn số phòng); mã băm của mã trình duyệt những người bị chủ phòng mời ra (để họ không vào lại
+        được); hàng chờ video của phòng (như mọi phòng — mục 2). Dữ liệu phòng riêng không chứa mã trình duyệt gốc của ai.</li>
+      <li><b>Trên trình duyệt của bạn</b>: vé vào lại (<code>vc.rt</code>, tối đa 10 phòng) để mở lại link hay rớt mạng không phải
+        nhập lại mật khẩu. Vé hết hiệu lực khi phòng đóng, khi bạn bị mời ra, hoặc khi chủ phòng đổi mật khẩu lúc bạn không có
+        mặt trong phòng (người đang trong phòng — kể cả đang ẩn trang / rớt mạng — vẫn giữ vé) — trình duyệt tự xoá vé đó khi
+        biết.</li>
+      <li><b>Tất cả bị xoá khi phòng đóng</b>: tự đóng khi không còn ai trong phòng 10 phút (hoặc rất lâu không ai thao tác),
+        ngay khi chủ phòng bấm "Đóng phòng" hay quản trị viên đóng phòng, hoặc khi rạp đã đủ số phòng riêng và phải nhường
+        chỗ (phòng trống đóng trước, rồi tới phòng lâu không ai thao tác của dải mạng đang giữ nhiều phòng nhất).</li>
+      <li>Nhật ký của ứng dụng rạp chỉ ghi mã phòng + tên phòng lúc tạo, đổi mật khẩu và đóng phòng — không ghi phòng xem video
+        gì, <b>không bao giờ ghi mật khẩu</b> hay vé.</li>
+      <li>Quản trị viên rạp thấy danh sách phòng riêng đang mở (tên phòng, số người, video đang chiếu, lúc tạo / thao tác gần
+        nhất) mà không cần vào phòng — để xử lý báo cáo và đóng phòng vi phạm (vd khiếu nại bản quyền). Muốn thấy chat / người
+        trong phòng thì phải vào phòng (không cần mật khẩu, không chiếm chỗ của ai): lúc đó cả phòng được báo "🛡 Quản trị viên
+        rạp đang xem phòng này.", ai vào sau trong lúc quản trị viên còn đó cũng được báo, và phòng hiện dấu 🛡 suốt thời gian
+        quản trị viên ở đó — không bao giờ vào lặng lẽ.</li>
+      <li>Phòng riêng vẫn chịu đủ luật video của rạp (mục 5) và vẫn bị gỡ video khi có khiếu nại bản quyền.</li>
+    </ul>
+
+    <h2>4. Rạp không làm gì</h2>
     <ul>
       <li>Không yêu cầu tài khoản, email hay số điện thoại.</li>
       <li>Không bán, cho thuê hay chia sẻ dữ liệu của bạn cho bên thứ ba.</li>
+      <li>Không bán phòng, mật khẩu, chỗ ngồi hay "VIP" — mọi thứ trong rạp đều miễn phí.</li>
       <li>Không gắn quảng cáo hay link tiếp thị cạnh trình phát.</li>
     </ul>
 
-    <h2>4. Luật trong rạp</h2>
+    <h2>5. Luật trong rạp</h2>
     <ul>
-      <li>Chỉ chiếu video YouTube công khai, cho phép nhúng, không giới hạn tuổi, xem được ở Việt Nam, trong giới hạn độ dài của rạp.</li>
+      <li>Chỉ chiếu video YouTube công khai, cho phép nhúng, không giới hạn tuổi, xem được ở Việt Nam, trong giới hạn độ dài của rạp
+        (15 phút; phát trực tiếp tối đa 30 phút mỗi lượt). Khi rạp chỉ kiểm cơ bản (mục 1), video để "không công khai" (ai có
+        link mới xem được) vẫn có thể lọt qua vì YouTube vẫn cho nhúng chúng.</li>
+      <li>Phòng riêng không giới hạn 15 phút — tối đa 12 giờ, nhưng chỉ với video rạp đã kiểm đủ qua YouTube Data API; video chỉ
+        được kiểm cơ bản vẫn tối đa 15 phút (phát trực tiếp 30 phút mỗi lượt) như rạp chung. Mọi điều kiện còn lại giữ
+        nguyên.</li>
       <li>Không chửi bậy, quấy rối, spam link. Admin có thể tắt tiếng, mời ra hoặc cấm người vi phạm.</li>
       <li>Chủ kênh tắt cho phép nhúng giữa chừng thì rạp tự chuyển bài.</li>
     </ul>
 
-    <h2>5. Báo cáo &amp; gỡ nội dung</h2>
+    <h2>6. Báo cáo &amp; gỡ nội dung</h2>
     <ul>
       <li>Bấm <b>🚩 Báo cáo</b> dưới màn hình (hoặc trong thẻ Đang chiếu) để báo video vi phạm bản quyền / không phù hợp; bấm vào một
-        nhân vật để báo cáo người xem. Admin được báo ngay và gỡ khi có khiếu nại; nhiều người cùng báo cáo thì rạp tự gỡ video.</li>
+        nhân vật để báo cáo người xem. Admin được báo ngay và gỡ khi có khiếu nại; nhiều người cùng báo cáo thì rạp tự gỡ video
+        (trong phòng riêng: chỉ bỏ qua video đó trong phòng và báo admin).</li>
       <li>Chủ sở hữu nội dung muốn khiếu nại bản quyền: dùng nút báo cáo, ghi cách liên hệ trong phần ghi chú<span id="contact" data-email="%CONTACT_EMAIL%"></span>.
         Video vẫn nằm trên YouTube — bạn cũng có thể gửi yêu cầu gỡ trực tiếp cho YouTube.</li>
     </ul>
 
-    <h2>6. Thay đổi</h2>
+    <h2>7. Thay đổi</h2>
     <p>Chính sách có thể được cập nhật khi rạp thêm tính năng; ngày cập nhật ghi ở đầu trang.</p>
   </main>
   <script type="module" src="js/policy.js"></script>

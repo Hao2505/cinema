@@ -13,7 +13,7 @@ tin binary, rỗng, quá cỡ hoặc sai dạng bị **bỏ im lặng** (không 
 |---|---|
 | `GET /` · `GET /chinh-sach` | trang (no-cache). JS / CSS được viết lại thành `/v/<phiên bản>/…`; `%SITE_URL%`, `%OG_VERSION%`, `%CONTACT_EMAIL%` được điền |
 | `GET /v/<phiên bản>/<file>` | file tĩnh, `immutable` 1 năm (phiên bản = băm mọi file `public/` lúc khởi động) |
-| `GET /api/health` | `{ ok: true, rooms, viewers, players, playing, yt }` — số phòng, socket, nhân vật, phòng đang chiếu, có `YT_API_KEY` không |
+| `GET /api/health` | `{ ok: true, rooms, priv, viewers, players, playing, yt }` — số phòng chung, số phòng riêng đang mở, socket, nhân vật, phòng đang chiếu (mọi phòng), có `YT_API_KEY` không |
 | `POST /api/admin/login` | `Content-Type: application/json`, body `{ "token": "<ADMIN_TOKEN>" }` → `204` + cookie `vc_admin` (HttpOnly, SameSite=Strict, 1 năm, giá trị = băm của mã). Sai → `403`; > 10 lần / 10 phút / IP → `429`; admin tắt → `404` |
 | `POST /api/admin/logout` | `204`, xoá cookie |
 
@@ -27,6 +27,10 @@ Chi tiết header bảo mật, CSP, file tĩnh: [07](07-server.md) §2.
 ```
 wss://<host>/ws[?room=<id phòng>]        ← trang /?phong=<id> thì net.js gắn ?room=<id>
 ```
+
+- `?room=` nhận id phòng chung lẫn phòng riêng (`ANY_ROOM_ID_RE`). **Phòng riêng**: người thường **không bao giờ đứng xem**
+  được — socket đứng xem phòng chính của rạp mặc định (`hello` của phòng chung) rồi nhận ngay `proom_need {room, exists}`
+  (client hiện ô nhập mật khẩu); admin thì đứng xem thẳng phòng riêng và cả phòng được báo (§13).
 
 - `Origin` phải cùng trang (hoặc trùng `SITE_URL`); không có `Origin` (bot, test) được nhận. Sai → HTTP 403.
 - Quyền admin quyết định **lúc mở socket** từ cookie `vc_admin` → `hello.admin`.
@@ -45,11 +49,13 @@ wss://<host>/ws[?room=<id phòng>]        ← trang /?phong=<id> thì net.js g�
 | Bản sao khi rạp đầy | `<rạp>-2 … <rạp>-MAX_ROOMS` (tối đa 9), bỏ trống 10 phút thì đóng |
 | Định dạng | `ROOM_ID_RE = /^[a-z]{3,10}(?:-[2-9])?$/`; `parseRoomId("bien-2") → { venue, n: 2 }` |
 | Tên hiển thị | `roomName(id)`: "Rạp Bãi Biển", "Rạp Bãi Biển 2" |
+| **Phòng riêng** | id `p-` + 10 ký tự `[a-z0-9]` ngẫu nhiên (`crypto.randomInt`, không đoán được): `PRIVATE_ROOM_RE = /^p-[a-z0-9]{10}$/`, `isPrivateRoomId(id)`. Không có trong danh sách `rooms`. Rạp (khung cảnh) + tên ("Phòng của <tên>") do chủ phòng tạo → lấy từ snapshot (`snap.venue`, `snap.name`, `snap.priv`), **không** suy ra từ id |
+| Id bất kỳ | `ANY_ROOM_ID_RE` = phòng chung hoặc riêng — dùng khi kiểm id từ URL / thông điệp. `ROOM_ID_RE` / `parseRoomId` / `roomName` cố ý **chỉ** nhận phòng chung (`parseRoomId('p-…') = null`) |
 
 Mọi rạp dùng chung sơ đồ đi lại `HALL`; chỉ cách vẽ khác. Mỗi phòng có màn hình, hàng chờ, chat riêng.
 
-> `protocol.ts` nhận trường `room` của `spec` / `join` tới 16 ký tự rồi kiểm bằng `ROOM_ID_RE` (id dài nhất hiện có:
-> `congvien-2…9` = 10 ký tự; test đơn vị giữ trường hợp này). Bản 0.4.0 đầu từng cắt ở 8 ký tự khiến bấm "Rạp Công Viên
+> `protocol.ts` nhận trường `room` của `spec` / `switch` / `join` tới 16 ký tự rồi kiểm bằng `ANY_ROOM_ID_RE` (id dài nhất
+> hiện có: `p-xxxxxxxxxx` = 12, `congvien-2…9` = 10 ký tự; test đơn vị giữ các trường hợp này). Bản 0.4.0 đầu từng cắt ở 8 ký tự khiến bấm "Rạp Công Viên
 > 2" trên thẻ "Chào mừng quay lại" vào nhầm phòng — đã sửa.
 
 ## 4. Trường thời gian — đọc kỹ
@@ -72,12 +78,12 @@ Vị trí luôn tính **bằng ô** (tile), là **điểm chân**: `x` ngang (0 
 | `t` | Trường (kiểm ở `protocol.ts`) | Server làm gì (`hub.ts`) |
 |---|---|---|
 | `ping` | `c` số (thiếu → 0) | trả `pong {c, s}` |
-| `spec` | `room` khớp `ROOM_ID_RE` (≤ 16 ký tự) | chỉ khi chưa có nhân vật: đổi phòng đang xem → `hello` mới |
-| `switch` | `room` khớp `ROOM_ID_RE` (≤ 16 ký tự) | đã có nhân vật: chuyển sang phòng / rạp khác **không tải lại trang** — giữ id, tên, ngoại hình, token; xuất hiện ở lối đi cuối rạp mới → `welcome` mới. Rạp đầy / trùng tên / đổi quá nhanh (`JOINS_PER_MINUTE`) → `notice` warn, ở yên |
+| `spec` | `room` khớp `ANY_ROOM_ID_RE` (≤ 16 ký tự) | chỉ khi chưa có nhân vật: đổi phòng đang xem → `hello` mới. Phòng riêng: chỉ admin; người thường nhận `proom_need` (không bao giờ nghe lén được phòng riêng) |
+| `switch` | `room` khớp `ANY_ROOM_ID_RE` (≤ 16 ký tự); `rt` tuỳ chọn (vé phòng riêng, `^[A-Za-z0-9_-]{16,64}$`, sai dạng thì bỏ) | đã có nhân vật: chuyển sang phòng / rạp khác **không tải lại trang** — giữ id, tên, ngoại hình, token; xuất hiện ở lối đi cuối rạp mới → `welcome` mới. Rạp đầy / trùng tên / đổi quá nhanh (`JOINS_PER_MINUTE`) → `notice` warn, ở yên. Phòng riêng: qua cổng `privEntry` (§13) — chưa có quyền → `proom_need`; bị mời ra / đầy / trùng tên → `proom_res` `kicked` / `full` / `name` |
 | `leave` | — | đóng tab / rời trang (`pagehide`, không phải bộ nhớ đệm): bỏ nhân vật ngay (`pl` cho cả phòng); socket vẫn mở như người đứng xem |
 | `away` | — | **điện thoại** trang ẩn (chuyển app, về màn hình chính, tắt màn hình — `visibilitychange`): người khác nhận `pl` ngay, nhân vật giữ chỗ nhưng không có trong danh sách / số người / số phiếu; đang ẩn mà socket đóng → bỏ hẳn (không "mất mạng") |
 | `back` | — | trang hiện lại: `pj` cho người khác, hiện đúng chỗ cũ (thao tác bất kỳ khi đang ẩn cũng tính là quay lại; vào lại bằng token lúc đang ẩn cũng vậy) |
-| `join` | `name` chuỗi ≤ 80; `look` bất kỳ; `room` (sai → `''`); `token` 32 hex (sai → `''`); `ck` 16–64 hex (sai → `''`) | vào rạp / nối lại → `welcome` hoặc `join_err` ([07](07-server.md) §5) |
+| `join` | `name` chuỗi ≤ 80; `look` bất kỳ; `room` khớp `ANY_ROOM_ID_RE` (sai → `''`); `token` 32 hex (sai → `''`); `ck` 16–64 hex (sai → `''`); `rt` tuỳ chọn (vé phòng riêng, sai dạng thì bỏ) | vào rạp / nối lại → `welcome` hoặc `join_err` ([07](07-server.md) §5). Phòng riêng: chủ phòng (khoá máy `ck`) hoặc vé `rt` của đúng máy này, kiểm **đồng bộ** (vé không bao giờ bị băm / tính lượt thử) |
 | `move` | `x, y` hữu hạn, \|·\| ≤ 1000 (client gửi 3 chữ số lẻ); `d` nguyên 0–3; `c` 0–1e12 (làm tròn); `m` = `1`/`true` → 1, còn lại 0 | kiểm ngân sách + va chạm, có thể trả `corr`; vào frame `f` (x, y 3 chữ số lẻ) |
 | `act` | `a` ∈ `ACTION_IDS` hoặc `''` (thôi); `c` (sai → 0) | phát `act` cho cả phòng |
 | `chat` | `text` ≤ 1000 ký tự thô | lọc (`cleanText` ≤ 140, link, bậy, lặp, tốc độ) → `chat` |
@@ -89,9 +95,12 @@ Vị trí luôn tính **bằng ô** (tile), là **điểm chân**: `x` ngang (0 
 | `report` | `kind` `'video'` \| `'user'`; `target` ≤ 40 (video: id video; user: id người dạng chuỗi); `reason` ≤ 40 bắt buộc (`copyright`, `inappropriate`, `spam`, `harass`, `other` — lạ → `other`); `note` ≤ 600 (server cắt 300) | ghi báo cáo, báo admin, có thể tự gỡ |
 | `vid_err` | `v` id 11 ký tự; `code` nguyên 0–10000 | đếm máy báo lỗi 2/100/101/150 → chuyển bài |
 | `vid_dur` | `v` id 11 ký tự; `d` số 0–1e8 (giây); `live` true/1 | độ dài thật của video `unk` đang chiếu (rạp kiểm cơ bản, không key) → người thêm báo là nhận, người khác cần đủ số mạng; cập nhật `dur` / `ends` / `live` rồi phát `now` |
+| `proom_new` | `pass` chuỗi ≤ 200 (thô — hub chuẩn hoá NFC + bỏ khoảng trắng hai đầu rồi mới kiểm 4–40 ký tự); `cap` số nguyên; `venue` ≤ 12; `name` ≤ 40 (thiếu → `''`); `ck` như `join` | tạo phòng riêng (đã vào rạp hay chưa đều được) → `proom_ok {created: true}`; đã có nhân vật thì chuyển vào phòng luôn (`welcome`), chưa có thì client gửi `join {room, rt}`. Lỗi → `proom_res` (`invalid`, `owned` + `room`, `limit`, `rate`, `busy`). Chi tiết: §13 |
+| `proom_auth` | `room` khớp `PRIVATE_ROOM_RE`; `pass` ≤ 200; `ck` như `join` | nhập mật khẩu → `proom_ok` (vé `rt` mới cho máy này; đã có nhân vật thì chuyển vào luôn). Phòng không còn → `proom_need {exists: false}`; lỗi → `proom_res` (`bad_pass`, `rate`, `busy`, `kicked`, `invalid`) |
+| `proom_op` | `op` ∈ `pause`, `resume`, `skip`, `remove` (+ `qid` nguyên 1–1e9), `kick` (+ `pid` nguyên 1–1e9), `pass` (+ `pass` ≤ 200), `cap` (+ `cap` nguyên), `close` — thiếu tham số bắt buộc → bỏ | chỉ trong phòng riêng **người gửi đang đứng**. `pause` / `resume`: mọi thành viên (cả phòng được báo ai bấm); còn lại: chủ phòng hoặc admin, người khác → `proom_res denied`. `pass`: tối đa 5 lần / 10 phút / phòng (`proom_res rate`) |
 | `adm` | `op` + tham số (§6) | chỉ socket admin; người thường → bỏ im lặng |
 
-Mọi lệnh trừ `ping`, `spec`, `join`, `adm` cần đã có nhân vật **và** socket này đang giữ nhân vật đó.
+Mọi lệnh trừ `ping`, `spec`, `join`, `adm`, `proom_new`, `proom_auth` cần đã có nhân vật **và** socket này đang giữ nhân vật đó.
 
 ## 6. Lệnh admin (`{ t: 'adm', op, … }`)
 
@@ -106,14 +115,17 @@ Mọi lệnh trừ `ping`, `spec`, `join`, `adm` cần đã có nhân vật **v�
 | `unban` | `id` hex 4–40 ký tự |
 | `block` | `v` id 11 ký tự hoặc rỗng / thiếu (= video đang chiếu) |
 | `unblock` | `v` id 11 ký tự |
+| `close_room` | `room` khớp `PRIVATE_ROOM_RE` — đóng một phòng riêng (mọi người về phòng chung) |
 
-Ý nghĩa từng lệnh: [07](07-server.md) §12.
+`adm {op: 'state'}` trả thêm `privRooms: [{id, name, venue, count, cap, now /* tên video */, v, createdAt, lastInput}]`
+(mới thao tác trước) — admin vào xem (mở `/?phong=<id>`) hoặc đóng được khi xử lý báo cáo / vi phạm. Ý nghĩa từng lệnh:
+[07](07-server.md) §12.
 
 ## 7. Server → client (`ServerMsg`)
 
 | `t` | Trường | Khi nào |
 |---|---|---|
-| `hello` | `v` (= `PROTOCOL`, hiện 1), `s`, `rooms: RoomInfo[]`, `room` (id), `snap: RoomSnapshot`, `admin`, `cfg: PublicSettings` | ngay khi nối; sau `spec`; khi bản sao bị đóng và mình bị dời về phòng chính |
+| `hello` | `v` (= `PROTOCOL`, hiện 1), `s`, `rooms: RoomInfo[]`, `room` (id), `snap: RoomSnapshot`, `admin`, `cfg: PublicSettings` | ngay khi nối; sau `spec`; khi bản sao bị đóng và mình bị dời về phòng chính; khi bị đưa ra khỏi phòng riêng mà không sang được phòng chung nào (thành người đứng xem — sau `proom_res out`) |
 | `welcome` | `you` (id nhân vật), `token` (giữ trong `sessionStorage` để nối lại), `room`, `snap` | vào rạp / nối lại thành công |
 | `join_err` | `code`, `text` | §9 |
 | `f` | `p: FrameEntry[]` — mỗi dòng `[id, x, y, d, c, m]` | nhịp `TICK_HZ` (30 Hz), **chỉ người vừa đổi**; `c` = giờ máy người đi |
@@ -133,6 +145,11 @@ Mọi lệnh trừ `ping`, `spec`, `join`, `adm` cần đã có nhân vật **v�
 | `notice` | `text`, `kind` (`info` \| `ok` \| `warn` \| `err`) | thông báo (client: toast; `info` còn ghi vào khung chat) |
 | `rooms` | `rooms: RoomInfo[]` | số người / phòng hoặc video đang chiếu đổi (gom 800 ms, gửi mọi socket) |
 | `kicked` | `text` | bị mời ra / cấm — socket đóng mã 4001 ngay sau |
+| `proom_need` | `room`, `exists` | phòng riêng cần mật khẩu: sau `hello` khi mở `?room=p-…`; sau `spec` / `switch` / `join_err priv_*` vào phòng riêng chưa có quyền. `exists: false` = phòng không còn (đã đóng) |
+| `proom_ok` | `room`, `rt`, `venue`, `name`, `created?` | vừa tạo phòng (`created: true`) / nhập đúng mật khẩu. `rt` = vé vào lại của **máy này** (client giữ `localStorage vc.rt`, server chỉ giữ băm) — tới **trước** `welcome` khi server chuyển người đang có nhân vật vào phòng |
+| `proom_res` | `ok`, `text` (tiếng Việt), `code?`, `room?` | kết quả thao tác phòng riêng. `code`: `invalid`, `owned` (máy này đang có phòng còn thành viên — `room` = id phòng đó), `limit`, `rate`, `busy`, `bad_pass`, `kicked`, `full`, `name` (phòng muốn vào đã có người trùng tên — `room` = phòng đó), `denied`, `ok`, `out` (bị đưa ra khỏi phòng — mời ra / phòng đóng / thu hồi: tới **trước** `welcome` của phòng chung hoặc `hello` đứng xem; `room` = phòng riêng vừa rời) |
+| `priv` | `priv: PrivInfo` | thông tin phòng riêng đổi (vào / ra / ẩn / mất mạng / đổi số người tối đa / quản trị viên tới đứng xem hoặc rời đi) — cả phòng |
+| `proom_rt` | `room`, `rt` | vé mới (thay vé cũ của máy này): chủ phòng vừa đổi mật khẩu → người **đang có mặt** trong phòng (thành viên đang ẩn / mất mạng giữ vé cũ — vẫn dùng được; vé của người đã rời hết hiệu lực); hoặc thành viên vừa nối lại mà không còn vé hợp lệ |
 | `adm` | `kind: 'state'` (+ dữ liệu, [07](07-server.md) §12) \| `kind: 'note'`, `text` | chỉ socket admin |
 
 ## 8. Kiểu dữ liệu (`src/types.ts`)
@@ -144,9 +161,20 @@ QueueItemInfo{ qid, v, title, ch, dur /* giây, 0 = live hoặc chưa rõ */, li
 NowInfo      = QueueItemInfo & { at, paused, pos, ends, filler?: true /* video mặc định */ }
 ChatInfo     { mid, pid, name, text, at }
 RoomInfo     { id, name, venue, now /* tên video đang chiếu, '' = màn hình trống */, count /* gồm người đang nối lại */, cap }
-RoomSnapshot { id, name, venue, players, queue, locked, now, votes: { n, need }, chat /* 30 tin */ }
+RoomSnapshot { id, name, venue, players, queue, locked, now, votes: { n, need }, chat /* 30 tin */,
+               priv? /* chỉ phòng riêng */ }
+PrivInfo     { name, cap, ownerId /* id nhân vật chủ phòng đang trong phòng, 0 = vắng */, members: PrivMember[],
+               admins? /* số kết nối quản trị viên đang ĐỨNG XEM (không có nhân vật); vắng = 0 */ }
+PrivMember   { id, name, away /* đang ẩn trang */, ghost /* mất mạng */,
+               adm? /* quản trị viên rạp vào hẳn — KHÔNG chiếm chỗ (trừ khi chính là chủ phòng), chủ phòng
+                       không mời ra được */ }
+             ← mọi nhân vật trong phòng, kể cả đang ẩn (vẫn giữ chỗ). Số người / số chỗ = members không có adm (adm
+             mà id = ownerId — chủ rạp dùng phòng riêng của mình — vẫn tính).
+             Có quản trị viên (admins > 0 hoặc một member adm) → giao diện hiện dấu 🛡 suốt lúc đó
 PublicSettings { maxVideoMin, maxPerUser, capacity, liveMaxMin, allowLive, skipRatio, noCookie, ytReady,
-                 defaultIdleSec /* 0 = tắt video mặc định */ }
+                 defaultIdleSec /* 0 = tắt video mặc định */,
+                 privMax /* số người tối đa chủ phòng chọn */, privMaxMin /* phút / video */, privPerUser,
+                 privEmptyMin /* trống bấy nhiêu phút thì đóng */ }
 Look         { body: 'nam'|'nu', skin, hair, hairStyle, shirt, pants, accessory, facial: 'none'|'ria'|'rau' }
 ```
 
@@ -161,8 +189,11 @@ có `qid: 0`, `byId: 0`, `by: 'Rạp'`, `live: true`, `dur: 0`, `ends` = `Number
 | `name_taken` | trùng tên trong phòng (không phân biệt dấu / hoa thường) | như trên |
 | `banned` | bị cấm (theo khoá máy; theo IP chỉ 24 giờ đầu) | như trên |
 | `kicked` | vừa bị mời ra (2 phút) | như trên |
-| `full` | mọi phòng đều đầy | như trên |
+| `full` | mọi phòng đều đầy; phòng riêng: "Phòng đã đủ {n}/{n} người — nhờ chủ phòng tăng số người nhé." | như trên |
 | `rate` | vào ra quá nhanh (`JOINS_PER_MINUTE` / IP) | như trên |
+| `priv_need` | phòng riêng: chưa có quyền (vé sai / hết hạn / mật khẩu đã đổi) — kèm `proom_need {exists: true}` | ô nhập mật khẩu |
+| `priv_gone` | phòng riêng đã đóng — kèm `proom_need {exists: false}` | về thẻ vào rạp chung |
+| `priv_kicked` | chủ phòng đã mời máy này ra (theo khoá máy) | như trên |
 
 | Mã đóng | Nghĩa | Client tự nối lại? |
 |---|---|---|
@@ -185,6 +216,10 @@ có `qid: 0`, `byId: 0`, `by: 'Rạp'`, `live: true`, `dur: 0`, `ends` = `Number
 | `q_add` (người thường) | dồn 2, hồi 1 / `QUEUE_ADD_SECONDS` (8 s); link mới ≤ `LOOKUPS_PER_IP_MINUTE` (6) / IP / phút; cả server ≤ 120 lần hỏi YouTube / phút; ≤ `MAX_QUEUE_PER_USER` bài chờ | `q_res` lỗi kèm lý do |
 | `report` | dồn 3, hồi 3 / phút; cùng người + cùng đối tượng tính 1 lần / 10 phút | `notice` |
 | `join` | `JOINS_PER_MINUTE` (20) / IP / phút | `join_err rate` |
+| Băm mật khẩu phòng riêng (`proom_new`, `proom_auth`, `proom_op pass`) | mỗi kết nối 1 phép băm cùng lúc, cả server 2 | `proom_res busy` (không tính lượt) |
+| `proom_auth` | **mọi** lần thử tính trước khi băm, đúng cũng không hoàn: 10 / 10 phút / **mạng** (IPv4 /32, IPv6 /64 — mọi phòng), 20 / 10 phút / phòng (chạm thì báo chủ phòng; chủ phòng đổi mật khẩu → lượt của phòng về 0). Vé `rt` không bị tính / khoá | `proom_res rate` |
+| `proom_new` | 4 lần / giờ / mạng (`PRIVATE_CREATE_PER_HOUR`); mạng ≤ 3 phòng đang mở (`PRIVATE_PER_NET`), **dải mạng** (IPv4 /24, IPv6 /48) ≤ 6 (`PRIVATE_PER_SUBNET`); cả server ≤ 400 (`PRIVATE_ROOMS_MAX` — đủ thì thu hồi phòng hết thành viên lâu nhất, không có thì chia đều: người từ dải mạng chưa có phòng lấy phòng lâu không thao tác nhất của dải mạng giữ nhiều phòng nhất, ≥ 2); máy đang có phòng còn thành viên → `owned` | `proom_res rate` / `limit` / `owned` |
+| `proom_op` | dồn 3, hồi 1 / 2 s mỗi người; `pass` thêm 5 lần / 10 phút / phòng (tính trước khi băm) | `notice` / `proom_res rate` |
 | Đăng nhập admin | 10 / 10 phút / IP | HTTP 429 |
 | nginx `/api/` (production) | 2 yêu cầu / s / IP, dồn 10 | HTTP 429 |
 
@@ -210,6 +245,27 @@ A: tickMe (60 fps, tự đi) ── move {x,y,d,c,m} ≤ 15/s ──► onMove (
 B: store.onFrame → pushSample(theo c của A) → stage vẽ tại now − buffer (nội suy)
 ```
 
+**Phòng riêng: tạo (chưa vào rạp) → gửi link → bạn nhập mật khẩu**
+
+```
+A (chưa vào)  ── proom_new {pass, cap, venue, name, ck} ──►│ kiểm + băm scrypt (bất đồng bộ)
+              ◄──────────── proom_ok {room, rt, created} ──│
+              ── join {name, look, room: p-…, rt, ck} ────►│ privEntry: chủ phòng (ck) → welcome {snap.priv}
+B mở /?phong=p-… ── WS /ws?room=p-… ──────────────────────►│
+              ◄──── hello (phòng chung mặc định) + proom_need {room, exists: true}
+              ── proom_auth {room, pass, ck} ─────────────►│ tính lượt → băm → so khớp
+              ◄──────────────────── proom_ok {room, rt} ───│
+              ── join {…, room: p-…, rt} ─────────────────►│ privEntry: vé của đúng máy B → welcome; A nhận pj + priv
+```
+
+**Phòng riêng: bị mời ra / phòng đóng**
+
+```
+chủ phòng ── proom_op {op: 'kick', pid} ──► băm khoá máy B vào kickedCkH + huỷ vé của B
+B ◄── proom_res {ok: false, code: 'out', room} ◄── rồi welcome (phòng chung cùng rạp) — hoặc hello (đứng xem) nếu B đang ẩn
+chủ phòng ◄── proom_res {ok: true, code: 'ok', text: "Đã mời … ra. Họ vẫn biết mật khẩu — …"}
+```
+
 **Thêm video → chiếu**
 
 ```
@@ -224,3 +280,31 @@ player.js: chưa tới at → cue, đúng giờ mới play; lệch > 1 s → see
 thêm trường mới là tuỳ chọn, client cũ bỏ qua trường lạ, server cũ bỏ qua `t` lạ. Thay đổi phá tương thích → tăng
 `PROTOCOL` và cho client so `hello.v`. Nhờ phiên bản tài nguyên (`/v/<băm>/`), sau mỗi deploy trình duyệt tải lại đúng
 JS mới, nên client và server thường cùng phiên bản.
+
+## 13. Phòng riêng — tóm tắt luật (chi tiết: [07](07-server.md) §20)
+
+- Miễn phí, mật khẩu chỉ khoá **phòng**, không bao giờ khoá một video. Mọi luật video giữ nguyên (công khai, cho nhúng,
+  không 18+, xem được ở VN; admin gỡ video / chặn / `embedFail` áp dụng cả phòng riêng) — chỉ nới luật công bằng của rạp
+  chung: video tới `PRIVATE_MAX_VIDEO_MINUTES` (720 phút — **chỉ video Data API đã kiểm đủ**; video chỉ qua kiểm cơ bản
+  bằng oEmbed khi chưa có / hỏng / hết lượt `YT_API_KEY` giữ giới hạn rạp chung: `MAX_VIDEO_MINUTES` (admin
+  `ADMIN_MAX_VIDEO_MINUTES`), live `LIVE_MAX_MINUTES`), mỗi người chờ `PRIVATE_PER_USER` (10) video, không video mặc định.
+- **Cổng duy nhất** `privEntry(c, room, ck, rt?)` (mọi đường vào: `?room=`, `spec`, `join`, nối lại, `switch`):
+  phòng không còn → `gone`; admin → vào được (không chiếm chỗ, không bị chặn); máy bị mời ra → `kicked`; có quyền = chủ
+  phòng (khoá máy) hoặc vé `rt` còn hạn (30 ngày) của **đúng máy đó**; chưa có → `need`; đủ chỗ (tính cả người đang ẩn /
+  mất mạng / đang vào dở, **không** tính quản trị viên) mà không phải chủ phòng → `full`.
+- **Quản trị viên trong phòng riêng là trạng thái**, không bao giờ lặng lẽ: đứng xem → `priv.admins`; vào hẳn → thành viên
+  `adm` (không chiếm chỗ, không giữ phòng khỏi tự đóng). Trong phòng do chính admin đó tạo thì là thành viên bình
+  thường: không `adm`, không 🛡, không câu báo. Mỗi lần một kết nối admin
+  thật sự vào phòng (rời đi / mất kết nối rồi vào lại là lần mới; đứng xem → vào hẳn trên cùng kết nối thì không) → cả
+  phòng nhận `notice` "🛡 Quản trị viên rạp đang xem phòng này."; ai vào phòng (vào mới / nối lại / chuyển vào) lúc đang
+  có quản trị viên cũng nhận đúng câu đó ngay sau `welcome`; admin tới / rời → cả phòng nhận `priv` mới.
+- Người thường không bao giờ **đứng xem** phòng riêng (chỉ vào hẳn — có trong `priv.members`). `leave` khỏi phòng riêng →
+  socket về đứng xem phòng chung (`hello`).
+- Nối lại (`join` có `token` / `ck` khớp nhân vật cũ): so **id phòng** (không so rạp) — `room` khác phòng đang đứng mà vào
+  được → chuyển luôn; không vào được (chưa có quyền / bị mời ra / đầy / trùng tên) → nối lại tại chỗ (`welcome`) rồi
+  **sau đó** mới báo lý do (`proom_need` / `proom_res kicked | full | name`, kèm `room`).
+- Đổi mật khẩu: vé của người không còn trong phòng hết hiệu lực; thành viên (kể cả đang ẩn / mất mạng) giữ vé; ai đang có
+  mặt nhận vé mới (`proom_rt`); lượt dò mật khẩu của phòng về 0.
+- Thứ tự tin: `proom_ok` trước `welcome` (tạo phòng / nhập đúng khi đang có nhân vật); `proom_res out` trước `welcome` /
+  `hello` (bị đưa ra); `join_err priv_need` / `priv_gone` trước `proom_need`; `welcome` / `hello` trước `notice` 🛡 và
+  trước lý do từ chối khi nối lại.

@@ -9,6 +9,10 @@ Phía trên là màn hình lớn — trình phát YouTube chính thức đặt k
 
 - **4 rạp**, mỗi rạp một khung cảnh + màn hình + hàng chờ riêng: 🎭 **Rạp Nhung Đỏ** (trong nhà, ghế nhung), 🌳 **Rạp Công
   Viên** (ngoài trời, gối lười trên cỏ), 🚗 **Rạp Đỗ Xe** (kiểu Mỹ, ngồi xe mui trần), 🏖️ **Rạp Bãi Biển** (ghế xếp trên cát).
+- **🔒 Phòng riêng** (miễn phí): tạo phòng có mật khẩu để xem chung với người yêu / bạn bè ở xa — gửi link + mật khẩu là
+  vào, không hiện trong danh sách rạp, video không giới hạn 15 phút (tối đa 12 giờ khi rạp kiểm đủ được video qua YouTube
+  Data API), ai trong phòng cũng dừng / phát tiếp được; chủ phòng bỏ qua bài, mời ra, đổi mật khẩu, đóng phòng. Phòng tự
+  đóng khi không còn ai trong 10 phút.
 - **Kênh mặc định**: rạp trống video quá 30 giây thì tự phát một kênh trực tiếp 24/7; ai dán link là nhường ngay.
 - Rạp phủ cả màn hình, nút bấm là các cụm nổi nhỏ không bao giờ che video; **đang chiếu thì xung quanh tối lại** cho video
   nổi bật, đứng yên vài giây các nút tự mờ đi.
@@ -25,6 +29,7 @@ Phía trên là màn hình lớn — trình phát YouTube chính thức đặt k
 | Ngồi ghế | đi tới sát ghế rồi dừng (tự ngồi) · bấm vào ghế | chạm vào ghế |
 | Âm lượng / phụ đề / toàn màn hình | thanh điều khiển YouTube trên video (🔊, CC) · ⛶ dưới màn hình (riêng video) · ⛶ góc trên phải (cả rạp) | như máy tính |
 | Chọn rạp | bảng chọn rạp ở màn vào rạp · bấm ô tên rạp góc trên trái | như máy tính |
+| Phòng riêng | "🔒 Tạo phòng riêng" ở màn vào rạp hoặc đầu bảng chọn rạp → đặt mật khẩu → gửi lời mời (link + mật khẩu) · bạn bè mở link, nhập mật khẩu là vào · dừng cho cả phòng: ⏸ dưới màn hình | như máy tính |
 | Vào lại lần sau | máy nhớ tên + nhân vật: mở trang là thấy thẻ "Chào mừng quay lại", bấm một rạp là vào | như máy tính |
 | Góc xem | 📺 góc trên phải: Cân (khán phòng rộng) · **Màn lớn** (mặc định) · Màn rộng (video to nhất) | — |
 | Tùy chọn | ⚙️ góc trên phải (làm tối khi chiếu, ẩn chat / động tác / người khác…) · bấm vào một nhân vật để ẩn riêng người đó | như máy tính |
@@ -42,13 +47,21 @@ Phía trên là màn hình lớn — trình phát YouTube chính thức đặt k
   (server hỏi YouTube Data API trước khi cho vào hàng chờ). Chủ kênh tắt nhúng giữa chừng → rạp tự chuyển bài.
 - Mỗi người chờ tối đa **2 video**. Bỏ qua khi **≥ 50 %** người trong phòng bỏ phiếu (ít nhất 2 phiếu); người thêm bài
   bỏ qua bài của mình ngay.
-- **Xem chung**: thanh tua / dừng của YouTube bị ẩn; lỡ dừng là tự chạy lại đúng giờ chung. Chỉ admin dừng được cả phòng.
+- **Xem chung**: thanh điều khiển YouTube hiện (âm lượng, phụ đề) nhưng tua / dừng / đổi tốc độ riêng sẽ tự về giờ chung;
+  chỉ admin dừng được cả phòng. Lỡ bấm video gợi ý của YouTube thì có nút "↩ Về video của rạp" dưới màn hình.
+- **Phòng riêng**: video dài tối đa 12 giờ với video rạp kiểm đủ qua YouTube Data API (khi rạp chỉ kiểm cơ bản — chưa có /
+  hết lượt API — thì tối đa 15 phút như rạp chung), mỗi người chờ tối đa 10 video, 2–20 người (chủ phòng chọn); ai trong
+  phòng cũng dừng / phát tiếp cho cả phòng (⏸ dưới màn hình), tự dừng trên thanh YouTube thì chỉ dừng máy mình. Kiểm
+  video y như rạp chung (có key: công khai, cho nhúng, không 18+, xem được ở VN; chưa có key: kiểm cơ bản — mục dưới).
+  Link mời dạng `/#phong=p-…` (mã phòng không tới máy chủ web hay YouTube). Quản trị viên rạp có thể vào khi xử lý báo
+  cáo (không chiếm chỗ; cả phòng được báo và thấy dấu 🛡 suốt lúc đó).
 - **4 rạp × 60 người** — mỗi rạp 130 ghế (5 hàng) + sàn nhảy lớn, đầy phòng vẫn thoáng; rạp đầy thì tự mở thêm phòng của
   chính rạp đó (tối đa 3 phòng / rạp), mỗi phòng màn hình + hàng chờ riêng.
 - **Kênh mặc định** (`DEFAULT_VIDEO`): phòng trống video + hàng chờ trống quá 30 giây thì tự phát kênh trực tiếp; có video
   mới là nhường ngay; không bỏ phiếu bỏ qua được (admin bỏ qua thì phòng đó nghỉ 10 phút).
 - Chat: không link, từ bậy bị che `***`, gửi dồn dập bị tắt tiếng 2 phút.
-- Nút **🚩 Báo cáo** dưới màn hình: admin được báo ngay; **3 người** báo cáo cùng video thì rạp tự gỡ + chặn video đó.
+- Nút **🚩 Báo cáo** dưới màn hình: admin được báo ngay; **3 người** báo cáo cùng video thì rạp tự gỡ + chặn video đó
+  (phòng riêng: chỉ bỏ qua trong phòng + báo admin).
 
 ## Chạy trên máy
 
@@ -73,7 +86,8 @@ npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 10 --video aqz-KE-bpKQ 
 
 Chưa có key rạp vẫn chạy: dán link vẫn thêm được video, server kiểm cơ bản (có video + chủ kênh cho nhúng). Có key thì
 kiểm đủ ngay lúc dán link (công khai, không 18+, xem được ở VN, giới hạn độ dài) và hàng chờ hiện thời lượng; không có
-thì video 18+ / chặn VN chỉ bị bỏ qua lúc tới lượt, video dài bị cắt ở giới hạn phút. Chi tiết: docs/04 §3.1.
+thì video 18+ / chặn VN chỉ bị bỏ qua lúc tới lượt, video dài bị cắt ở giới hạn phút — kể cả trong phòng riêng (video dài
+tới 12 giờ chỉ dành cho video đã kiểm đủ bằng key). Chi tiết: docs/04 §3.1.
 
 
 1. Vào https://console.cloud.google.com/ → đăng nhập Gmail → **Select a project → New project** → đặt tên `vibe-cinema` → **Create**.
@@ -90,8 +104,12 @@ Quota miễn phí 10.000 lượt / ngày; mỗi link mới tốn 1 lượt (kế
 
 - Mở trang **một lần** kèm mã: `https://cinema.vibe-coder.fun/#admin=<ADMIN_TOKEN>` → trình duyệt nhớ (cookie HttpOnly, 1 năm),
   mã bị gỡ khỏi thanh địa chỉ. Mã nằm trong `deploy/.env.production` (production) / `.env` (máy nhà).
-- Có nút 🛠: bỏ qua / tạm dừng / chiếu tiếp (cả phòng), **gỡ hẳn video** (khiếu nại bản quyền), đưa bài lên đầu, xoá bài,
-  khoá hàng chờ, xoá chat, xem báo cáo, bỏ cấm, bỏ chặn video. Bấm vào một nhân vật: tắt tiếng 10 phút / 1 giờ, mời ra (2 phút không vào lại), cấm 1 ngày / vĩnh viễn.
+- Có nút 🛠: bỏ qua / tạm dừng / chiếu tiếp (cả phòng), **gỡ hẳn video** (khiếu nại bản quyền — tới cả phòng riêng), đưa
+  bài lên đầu, xoá bài, khoá hàng chờ, xoá chat, xem báo cáo, **danh sách phòng riêng + đóng phòng**, bỏ cấm, bỏ chặn
+  video. Bấm vào một nhân vật: tắt tiếng 10 phút / 1 giờ, mời ra (2 phút không vào lại), cấm 1 ngày / vĩnh viễn.
+- Phòng riêng: tab 🔒 thấy tên, số người, video đang chiếu của mọi phòng đang mở (không cần vào). Mở link phòng riêng là
+  vào thẳng (không cần mật khẩu, không chiếm chỗ) — cả phòng được báo "🛡 Quản trị viên rạp đang xem phòng này." và thấy dấu
+  🛡 suốt lúc admin ở đó; chỉ dùng khi xử lý báo cáo / vi phạm (trang chính sách nói rõ).
 - Video admin thêm: người thường **không bỏ phiếu bỏ qua được** (nút ⏭ ẩn), báo cáo cũng không tự gỡ — admin tự quyết.
 - Người thường không thấy gì về hệ thống (file admin không được tải nếu không phải admin).
 
@@ -105,14 +123,16 @@ bash deploy/logs.sh                   # xem log
 ```
 
 App chạy bằng pm2 tên `vibecinema`, cổng `3300`, thư mục `/opt/vibecinema`, site nginx `cinema.vibe-coder.fun`,
-vùng giới hạn nhịp riêng `vcin_api` (`/etc/nginx/conf.d/vibecinema-limit.conf`) — không đụng `vibecorp` (3200) hay
-`tokivietnam.com` (3000). Chi tiết + DNS Cloudflare: [docs/05-van-hanh-deploy.md](docs/05-van-hanh-deploy.md).
+vùng giới hạn nhịp riêng `vcin_api` + định dạng log không IP `vcin_noip` (`/etc/nginx/conf.d/vibecinema-limit.conf`;
+log ở `/var/log/nginx/vibecinema.*.log`) — không đụng `vibecorp` (3200) hay `tokivietnam.com` (3000). Đổi
+`deploy/nginx.*.conf` thì chạy lại `--setup` (tự `nginx -t` trước khi reload). Chi tiết + DNS Cloudflare:
+[docs/05-van-hanh-deploy.md](docs/05-van-hanh-deploy.md).
 
 ## Kiểm thử
 
 ```bash
-npm test          # typecheck + test đơn vị + smoke toàn hệ thống (không ra Internet, ~15 giây)
-npm run qa -- --out /tmp/vc-shots     # Chrome headless: chụp máy tính + điện thoại, bắt lỗi console, đo độ mượt
+npm test          # typecheck + test đơn vị + smoke toàn hệ thống (không ra Internet, ~35 giây)
+npm run qa -- --out /tmp/vc-shots     # Chrome headless: chụp máy tính + điện thoại + phòng riêng, bắt lỗi console, đo độ mượt
 ```
 
 ## Tài liệu

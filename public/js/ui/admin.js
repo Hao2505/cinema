@@ -1,10 +1,11 @@
 // Công cụ admin — chỉ nạp khi server xác nhận trình duyệt này là admin (cookie HttpOnly đặt qua #admin=<mã>).
 // Bỏ qua / tạm dừng / chiếu tiếp, đưa bài lên đầu, xoá bài, khoá hàng chờ, tắt tiếng / mời ra / cấm, xem báo cáo,
-// bỏ cấm, bỏ chặn video, xoá chat, thoát admin. Người thường không tải file này và không thấy gì.
+// bỏ cấm, bỏ chặn video, xoá chat, danh sách phòng riêng + đóng phòng, thoát admin. Người thường không tải file này và không
+// thấy gì.
 import { adminLogout, send } from '../net.js';
 import { store } from '../store.js';
 import { el, setKids } from '../util.js';
-import { roomName } from '../shared/hall.js';
+import { isPrivateRoomId, roomName, venueById } from '../shared/hall.js';
 import { registerAdminHooks } from './queue.js';
 import { registerUserAdmin } from './usercard.js';
 import { openSheet, sheetOpen } from './sheet.js';
@@ -15,6 +16,10 @@ const adm = (op, extra = {}) => send({ t: 'adm', op, ...extra });
 
 let state = null;
 let tab = 'players';
+let closeAsk = ''; // phòng riêng đang hỏi lại "đóng phòng?" (xác nhận ngay trong tấm, không dùng window.confirm)
+
+/** tên phòng trong báo cáo: phòng riêng chỉ ghi id (tên phòng riêng không cần lộ ra danh sách) */
+const roomLabel = (id) => (isPrivateRoomId(id) ? `🔒 ${id}` : roomName(id));
 
 function fmtAgo(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -23,6 +28,8 @@ function fmtAgo(ms) {
   if (s < 86400) return `${Math.round(s / 3600)} giờ trước`;
   return new Date(ms).toLocaleString('vi-VN');
 }
+
+const ago = (ms) => (Number.isFinite(ms) && ms > 0 ? fmtAgo(ms) : '?');
 
 function userButtons(p, after) {
   const b = (text, fn, cls = 'btn') => el('button', { type: 'button', class: cls, text, onclick: () => { fn(); after?.(); } });
@@ -39,9 +46,10 @@ function userButtons(p, after) {
 function renderSheet() {
   if (!sheetOpen('admin')) return;
   const s = state;
-  const tabs = [['players', '👥 Người xem'], ['reports', '🚩 Báo cáo'], ['bans', '⛔ Bị cấm'], ['blocked', '🚫 Video bị gỡ']];
+  const tabs = [['players', '👥 Người xem'], ['reports', '🚩 Báo cáo'], ['priv', '🔒 Phòng riêng'], ['bans', '⛔ Bị cấm'], ['blocked', '🚫 Video bị gỡ']];
   const head = el('div', { class: 'adm-tabs' }, tabs.map(([id, label]) => el('button', {
-    type: 'button', class: `btn${tab === id ? ' on' : ''}`, text: label, onclick: () => { tab = id; renderSheet(); },
+    type: 'button', class: `btn${tab === id ? ' on' : ''}`, text: label,
+    onclick: () => { tab = id; closeAsk = ''; renderSheet(); if (id === 'priv') adm('state'); }, // phòng riêng đổi liên tục: lấy mới
   })));
   const controls = el('div', { class: 'row' },
     el('button', { type: 'button', class: `btn${store.locked ? ' on' : ''}`, text: store.locked ? '🔓 Mở hàng chờ' : '🔒 Khoá hàng chờ', onclick: () => adm('lock', { on: !store.locked }) }),
@@ -62,9 +70,28 @@ function renderSheet() {
   } else if (tab === 'reports') {
     const items = (s.reports || []).map((r) => el('li', null,
       el('div', { class: 't', text: `${r.kind === 'video' ? '🎬' : '👤'} ${r.what}` }),
-      el('div', { class: 'm', text: `${r.reason}${r.note ? ` — "${r.note}"` : ''} · ${r.by} · ${roomName(r.room)} · ${fmtAgo(r.at)}` }),
+      el('div', { class: 'm', text: `${r.reason}${r.note ? ` — "${r.note}"` : ''} · ${r.by} · ${roomLabel(r.room)} · ${fmtAgo(r.at)}` }),
     ));
     list = items.length ? el('ul', { class: 'adm-list' }, items) : el('p', { class: 'adm-empty', text: 'Chưa có báo cáo nào. (Báo cáo cũ lưu trong data/reports.jsonl trên server.)' });
+  } else if (tab === 'priv') {
+    // phòng riêng đang mở (thao tác gần nhất lên đầu): đóng phòng khi xử lý báo cáo / vi phạm — mọi người về rạp chung
+    const rooms = Array.isArray(s.privRooms) ? s.privRooms : [];
+    const items = rooms.map((r) => el('li', null,
+      el('div', { class: 't', text: `${venueById(r.venue)?.emoji || '🔒'} ${r.name}` }),
+      el('div', { class: 'm', text: `🔒 ${r.id} · ${r.count}/${r.cap} người · ${r.now ? `Đang chiếu: ${r.now}` : 'Màn hình trống'}` }),
+      el('div', { class: 'm', text: `Tạo ${ago(r.createdAt)} · thao tác gần nhất ${ago(r.lastInput)}` }),
+      closeAsk === r.id
+        ? el('div', { class: 'row' },
+          el('span', { class: 'm', text: 'Đóng phòng này? Mọi người sẽ về rạp chung.' }),
+          el('button', {
+            type: 'button', class: 'btn btn-danger', text: 'Đóng phòng',
+            onclick: () => { closeAsk = ''; adm('close_room', { room: r.id }); setTimeout(() => adm('state'), 400); renderSheet(); },
+          }),
+          el('button', { type: 'button', class: 'btn btn-ghost', text: 'Huỷ', onclick: () => { closeAsk = ''; renderSheet(); } }))
+        : el('div', { class: 'row' },
+          el('button', { type: 'button', class: 'btn btn-danger', text: 'Đóng phòng', onclick: () => { closeAsk = r.id; renderSheet(); } })),
+    ));
+    list = items.length ? el('ul', { class: 'adm-list' }, items) : el('p', { class: 'adm-empty', text: 'Chưa có phòng riêng nào đang mở.' });
   } else if (tab === 'bans') {
     const items = (s.bans || []).map((b) => el('li', null,
       el('div', null, el('span', { class: 't', text: b.name }), el('span', { class: 'm', text: ` · ${b.until ? `tới ${new Date(b.until).toLocaleString('vi-VN')}` : 'vĩnh viễn'} · ${fmtAgo(b.at)}` })),

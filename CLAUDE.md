@@ -91,5 +91,10 @@
 - **`YT_API_KEY` không bắt buộc** (chủ dự án quyết 2026-11-03, bản 0.4.6): thiếu key / key hỏng / hết quota → rạp **kiểm
   cơ bản** bằng oEmbed (`docs/04` §3.1) — vẫn thêm được video. Vẫn nên tạo key (README) để kiểm đủ luật ngay lúc dán link:
   điền `.env` + `deploy/.env.production` rồi deploy lại.
+- **Phòng riêng** (0.5.0, chủ dự án yêu cầu "cho cặp đôi yêu xa / bạn bè ở xa"): có mật khẩu (băm scrypt), 2–20 người,
+  không hiện trong danh sách, tự đóng khi trống 10 phút, video tới 12 giờ (chỉ video Data API kiểm đủ), link dạng
+  `/#phong=p-xxxxxxxxxx`; luôn miễn phí; admin vào được để xử lý báo cáo nhưng luôn hiện 🛡 (trừ phòng do chính admin tạo).
+  Thiết kế + 2 vòng soi bằng nhiều agent (`docs/07` §20, `docs/04` §12). Deploy lần đầu cần `bash deploy/deploy.sh --setup`
+  (log nginx mới không ghi IP / query — `deploy/nginx.limit.conf` `vcin_noip`).
 - `ADMIN_TOKEN` đã sinh ngẫu nhiên trong `.env` (máy nhà) và `deploy/.env.production` (production) — mở file để xem, không in ra.
 - `deploy/vps.env` đã chép từ VibeCorp (DOMAIN đã đổi), nằm trong `.gitignore`.

@@ -1,17 +1,25 @@
 // Trình phát YouTube CHÍNH THỨC (IFrame Player API) đặt khít vào màn hình rạp. Không che, không chặn quảng cáo:
 // mình chỉ ra lệnh tải / phát / dừng / tua theo "đồng hồ phòng" của server (videoId + giờ server ứng với giây 0).
-// XEM CHUNG: hiện thanh điều khiển của YouTube (controls=1 — có nút CC để mỗi người tự bật / tắt phụ đề, chọn chất
+// Khung <iframe> do mình dựng (buildFrame) rồi giao cho API — YouTube chỉ biết gốc trang, không bao giờ biết đường dẫn /
+// id phòng riêng (API tự dựng khung thì gắn cả location.href + document.referrer vào src).
+// XEM CHUNG: hiện thanh điều khiển của YouTube (controls=1 — âm lượng, nút CC để mỗi người tự bật / tắt phụ đề, chất
 // lượng) nhưng tắt phím tắt (disablekb=1). YouTube không cho ẩn riêng thanh tua / nút dừng, nên luật xem chung giữ bằng
-// cách đưa về giờ chung: bấm dừng → chạy lại ngay; kéo thanh tua → về đúng giờ của cả rạp trong ~0,5 s; đổi tốc độ → về
-// 1×; lần đầu thử thì nhắc nhẹ. Lệch > 1 s (kể cả xem quảng cáo xong) cũng tự tua về. Âm lượng + toàn màn hình rạp là nút
-// riêng DƯỚI màn hình. Chỉ admin dừng được cả phòng. Live thì theo đầu live. Lỗi 100/101/150 → báo server.
+// cách đưa về giờ chung: kéo thanh tua → về đúng giờ của cả rạp trong ~0,5 s; đổi tốc độ → về 1×; nhắc nhẹ (thưa).
+// Bấm dừng: phòng chung → chạy lại ngay, về giờ chung (luật xem chung của rạp — chữ nhắc giải thích, muốn xem riêng thì
+// bấm logo YouTube); PHÒNG RIÊNG → dừng riêng trên máy mình được giữ nguyên (phòng riêng có nút ⏸ dừng cho cả phòng DƯỚI
+// màn hình nên không ép phát lại — can thiệp vào trình phát ít nhất có thể), bấm ▶ là xem tiếp đúng giờ chung. Lỡ bấm
+// video gợi ý → KHÔNG tự quay lại (chính sách YouTube cấm chặn link video liên quan): hiện nút "↩ Về video của rạp" dưới
+// màn hình. Lệch > 1 s (kể cả xem quảng cáo xong) cũng tự tua về. Phòng chung: chỉ admin dừng được cả phòng. Live thì
+// theo đầu live. Lỗi 100/101/150 → báo server.
 import { send } from './net.js';
 import { store } from './store.js';
 
 const DRIFT_MAX = 1.0; // giây
 const SEEK_GAP_MS = 2500; // không tua dồn dập (đang quảng cáo thì lệnh tua bị bỏ qua — thử lại sau, giãn dần)
 const HINT_GAP_MS = 45_000; // nhắc "rạp xem chung" tối đa 1 lần / 45 s
-const SHARED_HINT = 'Rạp đang xem chung — không tua, dừng hay đổi tốc độ riêng được: video tự về đúng giờ của cả rạp.';
+const SHARED_HINT = 'Rạp đang xem chung — tua, dừng hay đổi tốc độ sẽ tự về giờ chung (luật của rạp). Muốn xem riêng thì bấm logo YouTube.';
+const PRIVATE_HINT = 'Phòng riêng xem chung — tua / đổi tốc độ sẽ về giờ chung. Bấm ⏸ để dừng cho cả phòng.';
+const LOCAL_PAUSE_HINT = 'Bạn đang dừng riêng — bấm ⏸ dưới màn hình để dừng cho cả phòng, ▶ trên video để xem tiếp đúng giờ chung.';
 const API_RETRY_MS = 20_000; // tải IFrame API lỗi (chặn quảng cáo / mất mạng) → thử lại sau
 const YT_STATE = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 };
 
@@ -61,18 +69,25 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
   let loadedLive = false; // bài đang nạp theo kiểu live (không tua)
   let durProbe = null; // đo độ dài video "chưa rõ thời lượng": { qid, d, cur, at }
   let durSentQid = -1;
-  let hintAt = -Infinity;
+  const hintAt = new Map(); // chữ nhắc → lần nhắc gần nhất
   let lastPos = null; // { cur, at } lần đo trước — nhận ra người xem tự kéo thanh tua
+  // người xem bấm video gợi ý của YouTube: khung đang phát video KHÁC video của rạp → không điều khiển trình phát nữa (không
+  // tự quay lại, kể cả khi rạp sang bài mới), chỉ hiện nút "↩ Về video của rạp" (main.js) tới khi họ bấm / tự quay về
+  let offVideo = false;
+  let visFsAt = -Infinity; // lúc vừa đổi toàn màn hình / ẩn hiện trang (trình duyệt có thể tự dừng video lúc đó)
+  let roomWasPaused = false; // lần sync trước cả phòng đang dừng
 
-  /** nhắc luật xem chung (thưa thôi) */
-  function hintShared() {
+  /** nhắc nhẹ (mỗi câu tối đa 1 lần / `gap` ms) */
+  function hint(text, gap = HINT_GAP_MS) {
     const t = performance.now();
-    if (t - hintAt < HINT_GAP_MS) return;
-    hintAt = t;
-    hooks.onHint?.(SHARED_HINT);
+    if (t - (hintAt.get(text) ?? -Infinity) < gap) return;
+    hintAt.set(text, t);
+    hooks.onHint?.(text);
   }
+  /** nhắc luật xem chung khi tua / đổi tốc độ (phòng riêng: chỉ cách dừng cho cả phòng) */
+  const hintShared = () => hint(store.inPrivate() ? PRIVATE_HINT : SHARED_HINT);
 
-  const status = () => ({ ready, enabled, needsTap, askUnmute: autoMuted === true, userPaused, error: errorFor && errorFor === curV, state: lastState });
+  const status = () => ({ ready, enabled, needsTap, askUnmute: autoMuted === true, userPaused, offVideo, error: errorFor && errorFor === curV, state: lastState });
   const changed = () => hooks.onStatus?.(status());
 
   function targetSec() {
@@ -82,22 +97,48 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     return (store.serverNow() - n.at) / 1000;
   }
 
+  /**
+   * Khung <iframe> của trình phát do MÌNH dựng (cách "tự viết thẻ iframe" có trong tài liệu IFrame Player API: src
+   * /embed/?enablejsapi=1&origin=…, rồi new YT.Player(iframe, { events })). Khi API tự dựng khung (truyền thẻ div), nó gắn
+   * thêm forigin = location.href và gporigin = document.referrer vào src → YouTube biết cả địa chỉ trang (vd id phòng
+   * riêng). Tự dựng thì src giữ đúng như dưới: chỉ gốc trang (origin, widget_referrer), không gì khác của trang.
+   * Tham số trình phát giữ như cũ: hiện thanh điều khiển YouTube (nút CC phụ đề, chất lượng), tắt phím tắt trong khung,
+   * ẩn nút toàn màn hình của YouTube (rạp có nút riêng), không gợi ý video kênh khác. Tua / dừng / tốc độ riêng tự về giờ
+   * chung (onState, sync, onPlaybackRateChange).
+   */
+  function buildFrame(host) {
+    const q = new URLSearchParams({
+      autoplay: '1', controls: '1', disablekb: '1', playsinline: '1', rel: '0', fs: '0', enablejsapi: '1',
+      origin: location.origin, widget_referrer: `${location.origin}/`,
+    });
+    const f = document.createElement('iframe');
+    f.id = hostEl.id || 'yt-host';
+    f.title = 'Trình phát YouTube';
+    f.width = '100%';
+    f.height = '100%';
+    f.setAttribute('frameborder', '0');
+    f.setAttribute('allowfullscreen', '');
+    f.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+    // YouTube cần Referer (thiếu là lỗi 153) — chỉ gửi gốc trang, không bao giờ cả đường dẫn
+    f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    f.src = `${host}/embed/?${q}`;
+    return f;
+  }
+
   async function ensurePlayer() {
     if (player || creating) return;
     creating = true;
+    let frame = null;
     try {
       const YT = await loadApi();
       const host = store.cfg.noCookie ? 'https://www.youtube-nocookie.com' : 'https://www.youtube.com';
-      player = new YT.Player(hostEl, {
-        host,
-        width: '100%',
-        height: '100%',
-        playerVars: {
-          // thanh điều khiển YouTube hiện (nút CC phụ đề, chất lượng); tắt phím tắt trong khung; nút toàn màn hình của
-          // YouTube ẩn (rạp có nút riêng). Tua / dừng / tốc độ riêng tự về giờ chung (onState, sync, onPlaybackRateChange)
-          autoplay: 1, controls: 1, disablekb: 1, playsinline: 1, rel: 0, fs: 0, enablejsapi: 1,
-          origin: location.origin, widget_referrer: location.href,
-        },
+      frame = buildFrame(host);
+      const loaded = new Promise((res) => { frame.addEventListener('load', res, { once: true }); setTimeout(res, 10_000); });
+      hostEl.replaceWith(frame);
+      // giao khung cho API khi trang nhúng của YouTube đã tải (API nhắn vào khung ngay — khung còn trống thì trình duyệt báo
+      // lỗi "target origin không khớp"); mạng chậm quá 10 s thì vẫn giao (API tự nhắn lại tới khi khung trả lời)
+      await loaded;
+      player = new YT.Player(frame, {
         events: {
           onReady: () => { ready = true; cmd(() => player.unMute()); changed(); sync(true); },
           onStateChange: (e) => onState(e.data),
@@ -105,12 +146,14 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
           // đổi tốc độ trong nút ⚙ của YouTube → về 1× (xem chung)
           onPlaybackRateChange: (e) => {
             const n = store.now;
-            if (n && !n.live && e.data !== 1) { cmd(() => player.setPlaybackRate(1)); hintShared(); }
+            if (n && !n.live && e.data !== 1 && !offVideo) { cmd(() => player.setPlaybackRate(1)); hintShared(); }
           },
           onAutoplayBlocked: () => { needsTap = true; changed(); },
         },
       });
     } catch (e) {
+      // dựng trình phát hỏng: trả lại chỗ trống ban đầu (lần thử sau dựng khung mới)
+      if (frame && !player) { frame.replaceWith(hostEl); }
       if (!apiWarned) {
         apiWarned = true;
         console.warn('[rạp] YouTube API lỗi', e);
@@ -125,9 +168,14 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     lastState = s;
     if (s === YT_STATE.PLAYING) {
       needsTap = false;
-      if (userPaused) { userPaused = false; lastSeek = 0; sync(true); } // vừa chạy lại: tua về đúng chỗ ngay
-      readMuted();
       const n = store.now;
+      if (userPaused) {
+        // vừa chạy lại sau khi người xem tự dừng: về đúng giờ chung ngay (phòng riêng xem live: nạp lại theo đầu live)
+        userPaused = false;
+        lastSeek = 0;
+        if (n && n.live && store.inPrivate() && !offVideo) { load(n); changed(); } else sync(true);
+      }
+      readMuted();
       if (firstPlay && n && !n.live && !n.paused) {
         firstPlay = false;
         try {
@@ -137,12 +185,21 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       }
     } else if (s === YT_STATE.PAUSED) {
       const n = store.now;
-      // xem chung: phòng đang chiếu mà máy này bị dừng (lỡ bấm vào video) → chạy lại NGAY, lặng lẽ, tua về đúng giờ chung.
+      // phòng đang chiếu mà máy này bị dừng, không phải lệnh của mình (người xem bấm dừng / lỡ bấm vào video).
       // (Không chặn bấm vào khung YouTube: chính sách YouTube cấm chặn chức năng / link / quảng cáo của trình phát.)
-      if (n && !n.paused && !document.hidden && performance.now() - weCommanded > 400) {
-        userPaused = true;
-        cmd(() => player.playVideo());
-        hintShared();
+      const now = performance.now();
+      if (n && !n.paused && !offVideo && !document.hidden && now - weCommanded > 400) {
+        if (!store.inPrivate()) {
+          // phòng chung: chạy lại NGAY, lặng lẽ, tua về đúng giờ chung (luật xem chung của rạp)
+          userPaused = true;
+          cmd(() => player.playVideo());
+          hint(SHARED_HINT);
+        } else if (now - visFsAt > 1000) {
+          // phòng riêng: dừng riêng được GIỮ (sync() không tự phát lại) — bấm ▶ trên video là xem tiếp đúng giờ chung.
+          // Dừng ngay sau khi đổi toàn màn hình / ẩn hiện trang là trình duyệt tự dừng → để sync() phát lại như thường.
+          userPaused = true;
+          hint(LOCAL_PAUSE_HINT, 15_000);
+        }
       }
     }
     changed();
@@ -160,7 +217,7 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
   }
 
   function onError(code) {
-    if (!curV) return;
+    if (!curV || offVideo) return; // lỗi của video gợi ý người xem tự bấm — không phải video của rạp
     errorFor = curV;
     console.warn('[rạp] trình phát lỗi', code);
     // 153 = trang nhúng thiếu Referer (lỗi cấu hình của mình, không phải của video) → không báo server
@@ -199,6 +256,8 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     curV = n.v;
     curQid = n.qid;
     userPaused = false;
+    offVideo = false;
+    roomWasPaused = false;
     errorFor = '';
     seekFails = 0;
     lastSeek = performance.now();
@@ -225,9 +284,27 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     }
   }
 
+  /** id video đang nằm trong khung (theo URL của trình phát) */
+  function playingId() {
+    let url = '';
+    try { url = player.getVideoUrl() || ''; } catch { return null; }
+    return /[?&]v=([A-Za-z0-9_-]{11})/.exec(url)?.[1] || '';
+  }
+
   /** chạy mỗi 500 ms + khi đổi bài */
   function sync(force = false) {
     const n = store.now;
+    // người xem đang xem video gợi ý của YouTube (tự bấm trong khung): KHÔNG đụng tới trình phát — không nạp bài mới của rạp,
+    // không dừng / tua / ẩn khung (chính sách YouTube: không chặn link video liên quan). Chờ họ bấm "↩ Về video của rạp"
+    // (backToRoom) hoặc tự quay về đúng video của rạp
+    if (offVideo && enabled && player && ready) {
+      slotEl.hidden = false;
+      const id = playingId();
+      if (id === null || id !== curV) return;
+      offVideo = false;
+      lastSeek = 0;
+      changed();
+    }
     slotEl.hidden = !enabled || !n;
     if (!enabled) return;
     if (!n) {
@@ -240,19 +317,32 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     if (!ready) return;
     if (n.qid !== curQid || n.v !== curV) { load(n); changed(); return; }
     if (errorFor === curV) return;
-    let state = YT_STATE.UNSTARTED, cur = 0, url = '';
-    try { state = player.getPlayerState(); cur = player.getCurrentTime() || 0; url = player.getVideoUrl() || ''; } catch { return; }
+    let state = YT_STATE.UNSTARTED, cur = 0;
+    try { state = player.getPlayerState(); cur = player.getCurrentTime() || 0; } catch { return; }
     const target = targetSec();
     const now = performance.now();
-    // lỡ bấm video gợi ý ("More videos" / màn hình cuối) → khung đang phát video khác → quay về video của rạp
-    // (chỉ xét khi đã phát ổn định > 3 s sau lần nạp / tua gần nhất — ngay sau loadVideoById URL có thể chưa đổi)
-    const playingId = /[?&]v=([A-Za-z0-9_-]{11})/.exec(url)?.[1];
-    if (playingId && playingId !== curV && state === YT_STATE.PLAYING && now - lastSeek > 3000) { hintShared(); load(n); changed(); return; }
+    // bấm video gợi ý ("More videos" / màn hình cuối) → khung đang phát video khác. KHÔNG tự quay lại (chính sách YouTube:
+    // không chặn link video liên quan) — từ giờ để yên trình phát (đầu hàm), main.js hiện "↩ Về video của rạp" ngoài khung
+    // video. (Chỉ xét khi đã phát ổn định > 3 s sau lần nạp / tua gần nhất — ngay sau loadVideoById URL có thể chưa đổi.)
+    const id = playingId();
+    if (id && id !== curV && state === YT_STATE.PLAYING && now - lastSeek > 3000) {
+      offVideo = true;
+      userPaused = false;
+      changed();
+      return;
+    }
+    // phòng riêng: người xem tự dừng trên thanh YouTube → giữ nguyên (không tự phát lại, không tua) tới khi họ bấm ▶
+    if (userPaused && !n.paused && state === YT_STATE.PAUSED && store.inPrivate()) return;
     if (n.paused) {
+      userPaused = false; // cả phòng đang dừng: dừng riêng gộp vào — phòng phát tiếp thì máy này phát theo
+      roomWasPaused = true;
       if (state === YT_STATE.PLAYING || state === YT_STATE.BUFFERING) cmd(() => player.pauseVideo());
       if (Math.abs(cur - target) > DRIFT_MAX) cmd(() => player.seekTo(target, true));
       return;
     }
+    // phòng vừa phát tiếp (phòng riêng ai cũng dừng / phát tiếp được, có khi chỉ sau vài giây): xin phát NGAY, không chờ
+    // nhịp 2,5 s — và không tưởng nhầm là trình duyệt chặn tự phát
+    if (roomWasPaused) { roomWasPaused = false; playAskedAt = 0; }
     if (target < -0.3) return; // đang chờ tới giây 0
     if (state === YT_STATE.CUED || state === YT_STATE.UNSTARTED || state === YT_STATE.PAUSED) {
       if (document.hidden) return; // chỉ bắt đầu phát khi trình phát đang hiện trên màn hình
@@ -304,6 +394,10 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
   }
 
   let visHooked = false;
+  // trình duyệt hay tự dừng video lúc đổi toàn màn hình / ẩn hiện trang — không coi là người xem bấm dừng
+  for (const ev of ['fullscreenchange', 'webkitfullscreenchange', 'visibilitychange']) {
+    document.addEventListener(ev, () => { visFsAt = performance.now(); });
+  }
 
   return {
     /** bật trình phát (sau khi người xem bấm "Vào rạp" — có thao tác người dùng thì trình duyệt cho phát có tiếng) */
@@ -328,11 +422,12 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       clearTimeout(startTimer);
       if (player && ready) cmd(() => player.stopVideo());
       curV = ''; curQid = 0;
+      offVideo = false;
+      userPaused = false;
       slotEl.hidden = true;
       changed();
     },
-    /** âm lượng 0–100 (nút riêng dưới màn hình) */
-    /** toàn màn hình cho khung video (không có nút của YouTube vì đã ẩn điều khiển) */
+    /** toàn màn hình cho khung video (nút toàn màn hình của YouTube đã ẩn: fs=0) */
     fullscreen() {
       const el = slotEl;
       const req = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -346,6 +441,7 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     /** người xem bấm nút "▶ Xem cùng mọi người" / "🔊 Bật tiếng" (nằm NGOÀI khung video) */
     userPlay() {
       if (!player || !ready) return;
+      if (offVideo) { cmd(() => player.unMute()); autoMuted = false; muted = false; changed(); return; } // đang ở video gợi ý: chỉ bật tiếng
       needsTap = false;
       userPaused = false;
       lastSeek = 0;
@@ -359,6 +455,15 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       }
       muted = false;
       changed();
+    },
+    /** nút "↩ Về video của rạp" (ngoài khung video): người xem đang ở video gợi ý → nạp video rạp đúng giờ chung */
+    backToRoom() {
+      if (!player || !ready) return;
+      offVideo = false;
+      if (store.now) { load(store.now); changed(); return; }
+      cmd(() => player.stopVideo()); // rạp đang không chiếu gì: về màn hình trống của rạp
+      curV = ''; curQid = 0;
+      sync(true);
     },
     status,
     get enabled() { return enabled; },

@@ -15,7 +15,7 @@
 | Thư mục | `/opt/vibecinema` (chủ: user `deploy`); dữ liệu sống ở `/opt/vibecinema/data/` |
 | Tiến trình | pm2 tên **`vibecinema`**, lệnh `npm start` = `tsx src/server.ts` (không build), chạy dưới user `deploy` |
 | Cổng app | **3300** (`PORT` trong `.env.production` = `APP_PORT` trong script), chỉ nghe `127.0.0.1` |
-| nginx | site riêng `/etc/nginx/sites-available/cinema.vibe-coder.fun` (+ symlink `sites-enabled`) và `/etc/nginx/conf.d/vibecinema-limit.conf` (vùng `limit_req` tên **`vcin_api`**) |
+| nginx | site riêng `/etc/nginx/sites-available/cinema.vibe-coder.fun` (+ symlink `sites-enabled`) và `/etc/nginx/conf.d/vibecinema-limit.conf` (vùng `limit_req` tên **`vcin_api`** + định dạng log **`vcin_noip`**); log riêng `/var/log/nginx/vibecinema.access.log` (không IP) + `vibecinema.error.log` (chỉ mức `crit`) — §7 |
 | HTTPS / DNS | bản ghi `cinema` **DNS only (đám mây xám)** từ 2026-11-03 — trình duyệt nối **thẳng VPS**; nginx nghe 80 + 443 với chứng chỉ **Let's Encrypt** riêng cho `cinema.vibe-coder.fun`; app tự chuyển http → https và tự nén br / gzip. (`corp` của VibeCorp vẫn qua Cloudflare; zone đang SSL **Full (strict)**.) Vì sao bỏ Cloudflare: §3.1 |
 | Mã nguồn | https://github.com/Hao2505/cinema (VPS không có `.git` — chỉ nhận file qua rsync) |
 
@@ -23,8 +23,9 @@
 
 1. **Không đụng** tiến trình pm2, site nginx, file cấu hình, chứng chỉ của `vibecorp` và `tokivietnam.com`.
 2. Mọi thứ của rạp có tên riêng: thư mục `/opt/vibecinema`, pm2 `vibecinema`, cổng 3300, site `cinema.vibe-coder.fun`,
-   file `conf.d/vibecinema-limit.conf`, zone `vcin_api`. **Trùng tên zone `limit_req` là nginx lỗi cả máy** (VibeCorp đã
-   dùng `vpa_api` trong `/etc/nginx/conf.d/vpa-limit.conf`).
+   file `conf.d/vibecinema-limit.conf`, zone `vcin_api`, định dạng log `vcin_noip`, file log `vibecinema.*.log`. **Trùng
+   tên zone `limit_req` hay tên `log_format` là nginx lỗi cả máy** (VibeCorp đã dùng `vpa_api` trong
+   `/etc/nginx/conf.d/vpa-limit.conf`; app khác muốn thêm thứ gì vào `http{}` cũng phải đặt tên có tiền tố riêng).
 3. Luôn `nginx -t` trước khi `systemctl reload nginx` (`deploy.sh` làm sẵn); lỗi thì gỡ đúng phần của rạp, không reload.
 4. Trước khi chiếm cổng mới: `ss -ltnp` kiểm còn trống (`deploy.sh --setup` làm sẵn).
 5. Chuyển http → https do **app** làm (`httpsRedirectUrl` trong `src/app.ts`), không phải nginx: có header `CF-Visitor`
@@ -37,11 +38,13 @@
 Trình duyệt ──https / wss (DNS only: nối THẲNG VPS, không qua Cloudflare)──┐
                                                                          ▼
                        nginx site cinema.vibe-coder.fun
+                         ├─ log: access_log vibecinema.access.log vcin_noip (KHÔNG IP / "?…" / Referer / UA);
+                         │       error_log vibecinema.error.log crit
                          ├─ realip: CHỈ tin CF-Connecting-IP khi kết nối đến từ dải IP Cloudflare
                          ├─ /.well-known/acme-challenge/ → /var/www/html (certbot)
                          ├─ = /ws   → 127.0.0.1:3300 (Upgrade, đọc / ghi 3600 s, không buffer, không access log)
                          ├─ /api/   → 127.0.0.1:3300 + limit_req zone=vcin_api (2 r/s / IP, burst 10, 429)
-                         └─ /       → 127.0.0.1:3300 (?admin=… thì tắt access log)
+                         └─ /       → 127.0.0.1:3300 (?admin=… thì tắt hẳn access log)
                          mọi location ghi X-Real-IP = IP thật, XOÁ CF-Connecting-IP client tự gửi, X-Forwarded-Proto
                                ▼
                        Node (pm2 "vibecinema") — app.ts tin X-Real-IP trước (TRUST_PROXY=true)
@@ -111,7 +114,9 @@ bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
   lại…" vài giây rồi tự vào lại (nhân vật mới cùng tên + ngoại hình, video đang chiếu tiếp đúng chỗ).
 - Phiên bản tài nguyên đổi theo file → trình duyệt tự tải JS / CSS mới (không có cache Cloudflare nào cần xoá).
 - App tự nén br (mức 7) / gzip cho JS, CSS, HTML, JSON… (public/ 592 KB → 190 KB), giữ bản nén trong bộ nhớ theo mtime.
-- Site nginx chỉ được ghi khi `--setup`; deploy thường không đụng nginx.
+- Site nginx chỉ được ghi khi `--setup`; deploy thường không đụng nginx. **Đổi `deploy/nginx.*.conf` (vd log không IP của
+  bản 0.5.0) chỉ có hiệu lực sau `bash deploy/deploy.sh --setup`** — script ghi `conf.d` + site rồi `nginx -t` trước khi
+  reload (lỗi → gỡ phần của rạp, không reload).
 
 ## 7. nginx
 
@@ -119,8 +124,26 @@ bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
   `ssl_certificate`, `include /etc/letsencrypt/options-ssl-nginx.conf`, `ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem`)
   bị bỏ khi chưa có chứng chỉ. Hai file `options-ssl-nginx.conf` / `ssl-dhparams.pem` phải có sẵn trên VPS (thường do
   certbot tạo; thiếu thì `nginx -t` lỗi và script quay về bản chỉ HTTP).
-- `deploy/nginx.limit.conf` → `/etc/nginx/conf.d/vibecinema-limit.conf`:
-  `limit_req_zone $binary_remote_addr zone=vcin_api:10m rate=2r/s;` (phải nằm trong khối `http{}` nên để ở `conf.d`).
+- `deploy/nginx.limit.conf` → `/etc/nginx/conf.d/vibecinema-limit.conf` (chỉ thị phải nằm trong khối `http{}` nên để ở
+  `conf.d`):
+  - `limit_req_zone $binary_remote_addr zone=vcin_api:10m rate=2r/s;` — IP chỉ nằm trong bộ nhớ nginx để đếm nhịp.
+  - `log_format vcin_noip '[$time_local] "$request_method $uri" $status $body_bytes_sent $request_time';` — định dạng log
+    **không IP** (`$remote_addr`), không Referer / User-Agent, đường dẫn là `$uri` (không có phần `?…`; phần `#…` như
+    `#phong=p-…`, `#admin=…` trình duyệt không bao giờ gửi lên). Phải được khai báo **trước** site dùng nó: `nginx.conf`
+    mặc định của Ubuntu `include conf.d/*.conf` trước `sites-enabled/*` (sai thứ tự / thiếu → `nginx -t` báo "unknown
+  log format", deploy.sh gỡ phần của rạp).
+- Log của site (khai báo ở mức `server`, mọi location theo, trừ `/ws` tắt hẳn): `access_log
+  /var/log/nginx/vibecinema.access.log vcin_noip;` — một dòng mẫu: `[04/Nov/2026:20:15:02 +0700] "GET /chinh-sach" 200
+  5310 0.004`; `error_log /var/log/nginx/vibecinema.error.log crit;` — dòng log lỗi của nginx **luôn** kèm IP + nguyên
+  dòng yêu cầu (kể cả `/ws?room=<id phòng riêng>`: lúc app khởi động lại, mọi máy nối lại đều 502 và bị ghi), nên site chỉ
+  ghi lỗi mức `crit` (sự cố nghiêm trọng của máy chủ). Đây là điều `/chinh-sach` §2 hứa với người xem — thêm trường vào
+  `vcin_noip` hay hạ mức log lỗi lâu dài thì **sửa trang đó cùng lúc**.
+- Xem log trên VPS: `tail -n 50 /var/log/nginx/vibecinema.access.log` — 502 / 429 / 404 vẫn thấy qua mã kết quả (không
+  biết ai); lỗi của app xem `bash deploy/logs.sh`. Cần soi sâu một lỗi nginx: tạm đổi `crit` → `error` trong site trên
+  VPS, `nginx -t && systemctl reload nginx`, xem xong trả lại (hoặc chạy lại `--setup`). File `*.log` trong
+  `/var/log/nginx/` được logrotate của gói nginx xoay vòng (Ubuntu mặc định: mỗi ngày, giữ 14 bản).
+- Log nginx chung của máy (`/var/log/nginx/access.log`, `error.log` — khai báo ở `nginx.conf`, các app khác dùng) không
+  còn dòng nào của rạp, trừ lỗi xảy ra trước khi nginx biết là site nào (vd bắt tay TLS hỏng).
 - `X-Forwarded-Proto $scheme` cho app biết request là https (cookie admin thêm `Secure`).
 
 ## 8. Chứng chỉ HTTPS & gia hạn
@@ -148,25 +171,42 @@ bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
 | `TRUST_PROXY` | `true` (đứng sau nginx; tin `X-Real-IP` / `X-Forwarded-Proto` nginx ghi) |
 | `PERSIST`, `DATA_DIR` | `true`, `data` |
 | `DEFAULT_VIDEO`, `DEFAULT_IDLE_SECONDS` | kênh trực tiếp mặc định, 30 |
+| `PRIVATE_ROOMS_MAX`, `PRIVATE_PER_NET`, `PRIVATE_PER_SUBNET`, `PRIVATE_CREATE_PER_HOUR` | phòng riêng: 400 cả server (đủ thì thu hồi phòng hết thành viên, không có thì chia đều theo dải mạng), 3 phòng đang mở / mạng (IPv4 /32, IPv6 /64), 6 / dải mạng (IPv4 /24, IPv6 /48), 4 lần tạo / giờ / mạng (mặc định — thường không cần đặt; nhiều người chung một dải 4G bị "Mạng bạn đang dùng đã có nhiều phòng riêng" thì nới `PRIVATE_PER_SUBNET`) |
+| `PRIVATE_CAP_MAX`, `PRIVATE_MAX_VIDEO_MINUTES`, `PRIVATE_PER_USER` | 20 người, 720 phút / video (chỉ video `YT_API_KEY` kiểm đủ — chưa có / hết lượt key thì vẫn giới hạn rạp chung), 10 video chờ / người |
+| `PRIVATE_EMPTY_SECONDS`, `PRIVATE_IDLE_PAUSE_MINUTES`, `PRIVATE_IDLE_CLOSE_MINUTES` | 600 (trống 10 phút thì đóng), 240, 480 |
 
 Đổi `ADMIN_TOKEN` = mọi cookie admin cũ hết hiệu lực. Đổi `IP_SALT` (hoặc xoá `data/ip-salt.txt`) = lệnh cấm theo IP cũ
 mất tác dụng (lệnh cấm theo khoá máy vẫn còn).
 
 ## 10. Dữ liệu sống — `/opt/vibecinema/data/`
 
-`rooms.json` (hàng chờ + video đang chiếu + video bị gỡ + bộ đếm id), `bans.json`, `reports.jsonl` (mỗi dòng một báo cáo
-— chứa tên tự đặt + ghi chú người báo cáo), `ip-salt.txt`. Quyền 600, chủ `deploy`. Sao lưu: chép cả thư mục. Xem
-báo cáo cũ: `tail -n 50 /opt/vibecinema/data/reports.jsonl` trên VPS (tab Báo cáo của admin chỉ giữ 100 báo cáo gần
-nhất trong bộ nhớ). Chi tiết định dạng: [07](07-server.md) §14.
+`rooms.json` (hàng chờ + video đang chiếu — mỗi video kèm tên + **băm** khoá máy người thêm `byCkH`, ở mọi phòng; file bản
+cũ có `byCk` thật thì được băm ngay lúc nạp — + video bị gỡ + bộ đếm id; khoá `priv` = phòng riêng đang mở: tên, mã băm
+scrypt + muối của mật khẩu, vé vào lại `{h: sha256(vé), ckh: sha256(khoá máy), at}`, **băm sha256** khoá máy chủ phòng
+(`ownerCkH`) và người bị mời ra (`kickedCkH`), mạng + dải mạng băm của người tạo, hàng chờ — **không có mật khẩu, vé hay
+khoá máy thật của ai**: lộ bản sao lưu cũng không ai cầm file mà vào làm chủ phòng được), `bans.json` (lệnh cấm: tên + IP
+băm + khoá máy), `reports.jsonl` (mỗi dòng một báo cáo — chứa tên tự đặt + ghi chú người báo cáo), `ip-salt.txt`. Quyền
+600, chủ `deploy`. Sao lưu: chép cả thư mục — vẫn giữ kín như dữ liệu người dùng (tên, ghi chú báo cáo, lệnh cấm). Xem báo
+cáo cũ: `tail -n 50 /opt/vibecinema/data/reports.jsonl` trên VPS (tab Báo cáo của admin chỉ giữ 100 báo cáo gần nhất
+trong bộ nhớ). Chi tiết định dạng: [07](07-server.md) §14.
 
 ## 11. Log & theo dõi
 
 - `bash deploy/logs.sh [n]` = `pm2 logs vibecinema --lines n --nostream` (không in thông tin đăng nhập).
 - Log có: banner khởi động (luật video, số phòng, nơi lưu, admin bật / tắt — không in mã), video mặc định (đã kiểm / bị
   tắt), báo cáo (`🚩 …`), admin gỡ video, video lỗi trình phát, lỗi YouTube API (lý do, không có key), lỗi ghi dữ liệu,
-  đăng nhập admin sai mã (không ghi mã), lỗi không bắt được.
-- `GET /api/health` → `{ ok, rooms, viewers, players, playing, yt }` — `yt: false` = chưa có `YT_API_KEY` (rạp kiểm video
-  cơ bản bằng oEmbed — vẫn thêm được video, docs/04 §3.1).
+  đăng nhập admin sai mã (không ghi mã), lỗi không bắt được. Không bao giờ có IP.
+- **Phòng riêng** trong log chỉ có mã phòng + tên phòng, lúc tạo (`🔒 Phòng riêng mới <id> (tối đa N người) — <tên>`),
+  đổi mật khẩu (`🔒 <id> (<tên>): chủ phòng đổi mật khẩu`) và đóng (`🔒 Đóng phòng riêng <id> — <tên> (lý do)`); **không
+  bao giờ** tên / mã video phòng đó xem (đo độ dài, lỗi trình phát trong phòng riêng không ghi log; báo cáo chỉ ghi "🚩 Báo
+  cáo trong một phòng riêng (…) — <lý do>", không mã phòng / video / ghi chú; admin gỡ video từ trong phòng riêng chỉ ghi
+  "🚫 Admin gỡ một video khỏi cả rạp (từ trong một phòng riêng — xem bảng quản trị)"), mật khẩu hay vé — `/chinh-sach` §3
+  hứa đúng như vậy. Bản đủ của báo cáo vẫn ở `data/reports.jsonl` (§10) + bảng admin; video bị gỡ ở `rooms.json`
+  `blocked` (không ghi phòng nào).
+- Log nginx của site: `/var/log/nginx/vibecinema.access.log` (không IP, §7), `vibecinema.error.log` (chỉ mức `crit`).
+- `GET /api/health` → `{ ok, rooms, priv, viewers, players, playing, yt }` — `rooms` = số phòng chung, `priv` = số phòng
+  riêng đang mở (`players` / `playing` tính mọi phòng); `yt: false` = chưa có `YT_API_KEY` (rạp kiểm video cơ bản bằng
+  oEmbed — vẫn thêm được video, docs/04 §3.1).
 
 ## 12. Admin trên production
 
@@ -178,7 +218,7 @@ dạng cũ `?admin=` vẫn chạy và nginx tắt access log cho nó). Trình du
 
 | Triệu chứng | Kiểm tra |
 |---|---|
-| 502 Bad Gateway | `bash deploy/logs.sh`; pm2 `errored`?; `PORT` trong `.env.production` ≠ 3300 |
+| 502 Bad Gateway | `bash deploy/logs.sh`; pm2 `errored`?; `PORT` trong `.env.production` ≠ 3300; `vibecinema.access.log` thấy mã 502 (log lỗi của site chỉ mức `crit` — §7) |
 | https chuyển sang site khác (tokivietnam.com) | site chưa nghe 443 (chưa có chứng chỉ) → `bash deploy/deploy.sh --setup` |
 | Log `⚠️ YouTube Data API không dùng được (…)` | thiếu / sai `YT_API_KEY`, hoặc hết quota ngày — rạp vẫn chạy (kiểm cơ bản); thêm / sửa key trong `.env.production` rồi deploy |
 | "Rạp đang lỗi cấu hình kiểm tra video" | key sai / giới hạn IP khác IP VPS / chưa Enable YouTube Data API v3 (log ghi lý do) |
@@ -187,6 +227,7 @@ dạng cũ `?admin=` vẫn chạy và nginx tắt access log cho nó). Trình du
 | Video không chạy trên iPhone | bình thường lần đầu: bấm "▶ Bấm để xem" dưới màn hình |
 | Nhân vật giật | trên trình duyệt: `window.__vc.view().net` — `buffer` ~90–200 ms là bình thường |
 | Nhiều người cùng mạng bị "Vào ra nhanh quá" / không nối được | nới `JOINS_PER_MINUTE` / `MAX_CONN_PER_IP` |
+| Người xem báo "Mạng bạn đang dùng đã có nhiều phòng riêng" / "Rạp đang có nhiều phòng riêng quá" | đúng luật: mỗi mạng (IPv4 /32, IPv6 /64) ≤ `PRIVATE_PER_NET` phòng đang mở, mỗi dải mạng (IPv4 /24, IPv6 /48) ≤ `PRIVATE_PER_SUBNET`, cả rạp ≤ `PRIVATE_ROOMS_MAX` (`/api/health` → `priv`). Chạm trần cả rạp: phòng trống (trống lâu nhất) được đóng trước; hết phòng trống thì rạp đóng phòng lâu không ai thao tác nhất của dải mạng đang giữ nhiều phòng nhất (chỉ khi dải đó giữ ≥ 2 phòng và dải mạng của người xin chưa giữ phòng nào; người trong phòng bị đóng được báo "Rạp đang đủ số phòng riêng — phòng này đã đóng để nhường chỗ cho người khác.") — một người không giữ hết phòng được. Nhiều người chung dải (4G CGNAT, wifi công ty) mà hay chạm → nới `PRIVATE_PER_SUBNET`; phòng trống tự đóng sau `PRIVATE_EMPTY_SECONDS` |
 | Sửa CSS / JS mà trình duyệt vẫn bản cũ (máy dev) | khởi động lại server (phiên bản tài nguyên tính lúc khởi động) |
 | `nginx -t` lỗi sau `--setup` | script đã gỡ phần của rạp và không reload; đọc lỗi, sửa `deploy/nginx.*.conf`, chạy lại |
 
@@ -194,4 +235,7 @@ dạng cũ `?admin=` vẫn chạy và nginx tắt access log cho nó). Trình du
 
 VPS không có `.git`. Trên máy dev: `git checkout <commit / tag cũ>` → `bash deploy/deploy.sh` → `git checkout main`.
 `rsync --delete` thay toàn bộ mã nhưng **giữ `data/`**. Bản cũ đọc `rooms.json` của bản mới: mục không hiểu bị bỏ qua
-(nạp phòng thủ). Đổi nginx thì rollback cả `deploy/nginx.*.conf` rồi `--setup`.
+(nạp phòng thủ). Riêng phòng riêng: bản trước 0.5.0 không biết khoá `priv` nên bỏ qua rồi **xoá mất** ở lần lưu kế tiếp —
+phòng riêng đang mở biến mất (mở link sẽ thấy "đã đóng"), phòng chung không ảnh hưởng. Đổi nginx thì rollback **cả
+hai** `deploy/nginx.*.conf` cùng lúc rồi `--setup` (site mới dùng `vcin_noip` khai báo ở file limit mới — lệch nhau là
+`nginx -t` lỗi, script gỡ phần của rạp và không reload).

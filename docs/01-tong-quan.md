@@ -48,8 +48,16 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
 - 📋 Hàng chờ: dán link YouTube; server kiểm qua YouTube Data API v3 — **công khai, cho nhúng, không giới hạn tuổi, xem
   được ở VN, ≤ 15 phút** (live ≤ 30 phút / lượt) — từ chối thì nói rõ lý do. Mỗi người chờ tối đa 2 video, xoá được bài
   của mình.
-- **Xem chung**: "đồng hồ phòng" trên server; ẩn thanh tua / dừng của YouTube; lệch > 1 s tự tua; lỡ bấm dừng tự chạy
-  lại; xem quảng cáo xong tự về đúng chỗ. Âm lượng + phụ đề: thanh điều khiển của YouTube; dưới màn hình chỉ còn một cụm gọn ⏭ · 🚩 · ⛶.
+- **Xem chung**: "đồng hồ phòng" trên server; thanh điều khiển YouTube hiện (âm lượng, phụ đề) nhưng tua / dừng / đổi tốc
+  độ riêng tự về giờ chung; lệch > 1 s tự tua; xem quảng cáo xong tự về đúng chỗ; lỡ bấm video gợi ý → nút "↩ Về video của
+  rạp" (không tự kéo về). Dưới màn hình chỉ còn một cụm gọn ⏭ · 🚩 · ⛶ (phòng riêng thêm ⏸ / ▶ cho cả phòng).
+- 🔒 **Phòng riêng** (luôn miễn phí): tạo từ màn vào rạp / thẻ chào lại / bảng chọn rạp — mật khẩu, 2–20 người, khung cảnh
+  → thẻ mời (link `/#phong=p-…` + mật khẩu — id sau dấu `#` nên không tới máy chủ web / YouTube). Bạn bè nhập mật khẩu là
+  vào, lần sau vào thẳng bằng vé trên máy. Không hiện trong danh sách rạp; video tối đa 12 giờ (video rạp kiểm đủ qua
+  YouTube Data API; chỉ kiểm cơ bản thì giới hạn như rạp chung), 10 video / người; ai cũng dừng / phát tiếp cho cả phòng
+  (dừng trên thanh YouTube chỉ dừng máy mình); chủ phòng bỏ qua, xoá bài, mời ra, đổi mật khẩu / số người, đóng phòng;
+  trống 10 phút tự đóng. Luật video + gỡ bản quyền như rạp chung; quản trị viên vào được khi xử lý báo cáo (cả phòng được
+  báo, dấu 🛡 hiện suốt lúc đó, không chiếm chỗ).
 - Bỏ phiếu bỏ qua (≥ 50 % người có mặt, ≥ 2 phiếu); người thêm bài bỏ qua bài mình ngay; **video admin thêm thì người
   thường không bỏ phiếu bỏ qua được** (báo cáo cũng không tự gỡ — admin quyết). Chủ kênh tắt nhúng giữa chừng → tự chuyển bài.
 - Điện thoại chuyển app / về màn hình chính / tắt màn hình → nhân vật **biến khỏi rạp ngay** với người khác, mở lại hiện
@@ -57,7 +65,7 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
 - **Kênh mặc định**: phòng trống video + hàng chờ trống quá 30 s → tự phát một kênh trực tiếp 24/7 (`DEFAULT_VIDEO`); có
   người dán link là nhường ngay; không bỏ phiếu bỏ qua được.
 - 🚩 Báo cáo video (bản quyền, không phù hợp, spam…) → admin được báo ngay; 3 người (IP khác nhau) báo cáo → tự gỡ +
-  chặn video.
+  chặn video (phòng riêng: chỉ bỏ qua trong phòng đó + báo admin).
 
 **Giao diện**
 - Rạp phủ cả cửa sổ; nút là cụm nổi nhỏ: góc trên trái 🎬 + ô phòng; góc trên phải 📺 ⛶ 🎨 ⚙️ ? 🛠; dock giữa đáy 😀 🎭
@@ -73,10 +81,12 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
 **Admin** (mở trang kèm `#admin=<ADMIN_TOKEN>` một lần → cookie HttpOnly; người thường không tải file admin, không thấy
 gì): ⏭ bỏ qua, ⏸ / ▶ dừng / chiếu tiếp cả phòng, 🚫 **gỡ hẳn video** (khiếu nại bản quyền), ⬆ đưa bài lên đầu, ✕ xoá
 bài, 🔒 khoá hàng chờ, 🧹 xoá chat; bấm vào nhân vật: 🔇 tắt tiếng 10 phút / 1 giờ, 👢 mời ra (2 phút không vào lại),
-⛔ cấm 1 ngày / vĩnh viễn; tab báo cáo, danh sách bị cấm (bỏ cấm), video bị gỡ (bỏ chặn).
+⛔ cấm 1 ngày / vĩnh viễn; tab báo cáo, 🔒 phòng riêng đang mở (tên, số người, đang chiếu — đóng phòng), danh sách bị cấm
+(bỏ cấm), video bị gỡ (bỏ chặn). Mở link phòng riêng là vào được không cần mật khẩu, không chiếm chỗ — cả phòng được báo
+"🛡 Quản trị viên rạp đang xem phòng này." (cả người vào sau) và thấy dấu 🛡 suốt lúc admin ở đó.
 
-**Pháp lý & riêng tư**: trang `/chinh-sach` (dùng dịch vụ YouTube, rạp lưu gì / không lưu gì, báo cáo / khiếu nại); chỉ
-lưu IP đã băm; không tài khoản, không quảng cáo.
+**Pháp lý & riêng tư**: trang `/chinh-sach` (dùng dịch vụ YouTube, rạp lưu gì / không lưu gì, phòng riêng, báo cáo /
+khiếu nại); chỉ lưu IP đã băm, nhật ký máy chủ web không ghi IP / phần `?…`; không tài khoản, không quảng cáo.
 
 ## 3. Luồng người dùng
 
@@ -89,9 +99,10 @@ Quay lại:  Mở trang ──► thẻ "Chào mừng quay lại" ──► bấ
 Trình phát bật, xem cùng giờ chung ─┬─ đi lại / ngồi ghế / động tác / emoji / chat
                                     ├─ 📋 dán link → server kiểm YouTube → vào hàng chờ / chiếu ngay
                                     ├─ ⏭ bỏ phiếu · 🚩 báo cáo · bấm nhân vật (vẫy, báo cáo, ẩn riêng)
-                                    ├─ ô phòng → đổi rạp (tải lại /?phong=<id>, tự vào lại bằng tên + nhân vật cũ)
+                                    ├─ ô phòng → đổi rạp tại chỗ (switch — không tải lại trang, giữ nhân vật)
                                     └─ rớt mạng → "Mất kết nối — đang nối lại…" → tự vào lại đúng nhân vật
 Bị mời ra / cấm → trình phát tắt → màn vào rạp kèm lý do (không tự nối lại)
+Link phòng riêng /#phong=p-…: đứng xem rạp chung ──► nhập mật khẩu (proom_auth → vé) hoặc có vé sẵn ──► join → welcome phòng riêng
 ```
 
 Admin: mở `/#admin=<mã>` một lần → nút 🛠 hiện; công cụ admin cũng gắn vào thẻ Đang chiếu, hàng chờ, thẻ người xem.
@@ -131,7 +142,9 @@ Trình duyệt ──HTTPS / WSS (DNS only, thẳng VPS)──► nginx (VPS dù
 | Quyết định | Lý do |
 |---|---|
 | Video phát bằng **trình phát chính thức**, server chỉ giữ đồng hồ | pháp lý (không tải / phát lại), băng thông VPS bằng 0 cho video |
-| **Không chặn bấm** vào khung video; lỡ dừng thì tự chạy lại | Điều khoản YouTube cấm chặn chức năng / link / quảng cáo của trình phát |
+| **Không chặn bấm** vào khung video; phòng chung lỡ dừng thì tự chạy lại (luật xem chung, có giải thích), phòng riêng giữ dừng trên máy đó | Điều khoản YouTube cấm chặn chức năng / link / quảng cáo của trình phát; phòng riêng đã có nút ⏸ cho cả phòng nên can thiệp ít nhất |
+| Link phòng riêng ở phần `#` (`/#phong=p-…`), rạp tự dựng iframe YouTube | phần `#` không bao giờ gửi lên máy chủ / vào Referer; iframe tự dựng thì IFrame API không gắn `forigin` (địa chỉ trang) → id phòng riêng không tới nhật ký hay YouTube |
+| Nhật ký nginx không IP / `?…` / Referer; log app không ghi phòng riêng xem gì; khoá máy trong `rooms.json` chỉ lưu băm | trang `/chinh-sach` hứa đúng như vậy; lộ file sao lưu cũng không ai vào làm chủ phòng được |
 | Hiện thanh điều khiển YouTube (`controls=1`, `disablekb=1`) nhưng tua / dừng / tốc độ riêng tự về giờ chung | "xem chung" (không ai tua / dừng riêng) + mỗi người tự bật / tắt phụ đề bằng nút CC — YouTube không có cách chính thức ẩn riêng thanh tua hay ép tắt phụ đề |
 | Client tự đi trước (dự đoán), server kiểm "ngân sách quãng đường" + va chạm | mượt ngay trên máy, vẫn chống đi xuyên tường / dịch chuyển |
 | Frame mang **giờ máy người đi** + phát lại đều theo giờ đó với đệm thích ứng phía người xem | bài học VibeCorp: giật do so le WebSocket qua Cloudflare, không phải CPU — rạp bỏ hẳn proxy Cloudflare + phát lại đều |
@@ -157,7 +170,8 @@ Trình duyệt ──HTTPS / WSS (DNS only, thẳng VPS)──► nginx (VPS dù
 | Người / phòng | 60 (130 ghế) | `ROOM_CAPACITY` |
 | Phòng / rạp | 3 (chính + 2 bản sao), mỗi phòng hàng chờ riêng | `MAX_ROOMS` |
 | Tự gỡ khi bị báo cáo | 3 IP khác nhau | `REPORT_AUTOSKIP` |
-| Kênh mặc định | `rFZHOHl-L8A` sau 30 s trống | `DEFAULT_VIDEO`, `DEFAULT_IDLE_SECONDS` |
+| Kênh mặc định | `rFZHOHl-L8A` sau 30 s trống (phòng riêng không phát) | `DEFAULT_VIDEO`, `DEFAULT_IDLE_SECONDS` |
+| Phòng riêng | 2–20 người (chủ phòng chọn), video ≤ 12 giờ (chỉ video Data API kiểm đủ), 10 video / người, trống 10 phút tự đóng; 3 phòng đang mở / mạng (IPv4 /32, IPv6 /64) + 6 / dải mạng (/24, /48), 4 lần tạo / giờ / mạng, 400 phòng cả rạp | `PRIVATE_*` |
 | Động tác | 8 động tác trong `ACTIONS` | — |
 | Điện thoại | cần ảo + chạm sàn + nút 🎭 + chụm phóng | — |
 

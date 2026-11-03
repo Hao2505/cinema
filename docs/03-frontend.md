@@ -16,7 +16,7 @@ Nguyên tắc chung:
 
 ```
 main.js ── điểm vào: nối mọi thứ (đọc §2)
- ├─ net.js        WebSocket (nối lại, ping), đăng nhập admin từ #admin=
+ ├─ net.js        WebSocket (nối lại, ping), đăng nhập admin từ #admin=, phòng trong link (linkRoom: #phong= / ?phong=)
  ├─ store.js      trạng thái + handleMessage(ServerMsg) + sự kiện + nội suy người khác + đồng hồ server
  ├─ me.js         nhân vật của mình: dự đoán, va chạm, gửi move, tự ngồi ghế, động tác, emoji
  ├─ player.js     trình phát YouTube + đồng bộ đồng hồ phòng ([04](04-youtube-va-phap-ly.md))
@@ -34,7 +34,8 @@ main.js ── điểm vào: nối mọi thứ (đọc §2)
  │   ├─ bubbles.js    bong bóng chat, bảng tên (chép VibeCorp)
  │   └─ draw.js       màu, hình cơ bản, gradient, FONT, drawEmoji, makeCanvas
  └─ ui/
-     ├─ join.js      màn vào rạp: chọn rạp, tên, bộ chọn ngoại hình + nhân vật xem trước
+     ├─ join.js      màn vào rạp: chọn rạp, tên, bộ chọn ngoại hình + nhân vật xem trước; chế độ phòng riêng (ô mật khẩu)
+     ├─ private.js   phòng riêng: tấm tạo phòng, thẻ mời bạn bè, phần phòng riêng đầu bảng chọn rạp, xác nhận mời ra (§16)
      ├─ queue.js     thẻ Đang chiếu, ô dán link, hàng chờ, bỏ phiếu, báo cáo video
      ├─ chat.js      khung chat (ngăn kéo), ô nhập trên dock, bảng emoji, khung chat nổi
      ├─ wheel.js     vòng chọn 8 động tác
@@ -54,18 +55,27 @@ main.js ── điểm vào: nối mọi thứ (đọc §2)
    chung để làm tối) và `createPlayer(...)`.
 4. UI: vòng động tác, thẻ người, hàng chờ, chat, ngăn kéo, dock, bảng cảm xúc, góc xem (📺), toàn màn hình (⛶), ⚙️, ?, 🎨,
    chọn rạp; `initInput`; `syncInsets()`.
-5. `initJoin(onSubmit, onQuick)` — màn vào rạp (form đầy đủ, hoặc thẻ "Chào mừng quay lại" khi `isReturning()`);
-   `connect()`.
-6. Sự kiện store: `hello` (nạp `ui/admin.js` nếu admin; tự `join` lại nếu đang muốn vào — nối lại sau rớt mạng),
-   `welcome` (lưu `token` vào `sessionStorage vc.token`, `rememberJoin(phòng)`, ẩn màn vào rạp, `placeMe`, bật chat, cần
-   điều khiển, **bật trình phát**), `joinError` / `kicked` (tắt trình phát **trước** rồi mới hiện màn vào rạp; đang ở thẻ
-   chào lại mà lỗi không phải tên / cấm thì báo ngay trên thẻ), `replaced` (tab khác đã nhận nhân vật), `venue` (đổi chủ
-   đề vẽ), `conn` (băng "Mất kết nối — đang nối lại…").
+5. `initJoin({ onSubmit, onQuick, onQuickPass, onCreate, onPublic })` — màn vào rạp (form đầy đủ, hoặc thẻ "Chào mừng
+   quay lại" khi `isReturning()`; chế độ phòng riêng §16.2: `onQuickPass` = mật khẩu trên thẻ chào lại, `onCreate` = 🔒
+   Tạo phòng riêng, `onPublic` = "Vào rạp chung thay thế"); `connect()`.
+6. Sự kiện store: `hello` (nạp `ui/admin.js` nếu admin; tự `join` lại nếu đang muốn vào — nối lại sau rớt mạng, phòng
+   riêng gửi kèm vé `rt`), `welcome` (lưu `token` vào `sessionStorage vc.token`, `rememberJoin(phòng)` — chỉ phòng chung,
+   **thanh địa chỉ** `/#phong=<id phòng riêng>` hoặc bỏ `phong` — cả `?phong=` lẫn `#phong=`, giữ tham số khác — khi ở
+   phòng chung (`syncUrl`), ẩn màn vào rạp, `placeMe`,
+   bật chat, cần điều khiển, **bật trình phát**), `joinError` / `kicked` (tắt trình phát **trước** rồi mới hiện màn vào
+   rạp; đang ở thẻ chào lại mà lỗi không phải tên / cấm thì báo ngay trên thẻ), `replaced` (tab khác đã nhận nhân vật),
+   `venue` (đổi chủ đề vẽ), `conn` (băng "Mất kết nối — đang nối lại…"), phòng riêng: `proomOk` / `proomNeed` /
+   `proomRes` / `priv` / `detached` (§16).
 7. Vào nhanh (`quickJoin(roomId)`): gửi `join` bằng tên + ngoại hình đã lưu (`vc.name`, `vc.look`) và phòng được chọn.
    Đổi rạp khi đã vào (`switchRoom(id)`): **không tải lại trang** — gửi `switch`, canvas tối dần + tải khung cảnh rạp mới
    ngay (`stage.setVenue`), server chuyển nhân vật sang và gửi `welcome` mới → rạp mới sáng dần; server từ chối (đầy,
-   trùng tên → `notice` warn) hoặc quá 4 s → sáng lại rạp đang ở. Mở trang mà là người quay lại và URL có `?phong=` hợp lệ
-   (hoặc cờ cũ `vc.autojoin`) → tự `quickJoin` ngay khi nhận `hello`.
+   trùng tên → `notice` warn) hoặc quá 4 s → sáng lại rạp đang ở. Mở trang mà là người quay lại và URL có `?phong=<rạp>`
+   hợp lệ (hoặc cờ cũ `vc.autojoin`) → tự `quickJoin` ngay khi nhận `hello`. Link **phòng riêng** nằm sau dấu `#`:
+   `/#phong=p-…` (`net.js linkRoom`) → màn vào rạp ở chế độ phòng riêng ngay lúc mở trang (§16.2). Link cũ `/?phong=p-…`
+   vẫn mở được: dòng đầu `main.js` gọi `privLinkToHash()` đổi tại chỗ sang `#` (`history.replaceState`) trước mọi yêu cầu
+   khác. Phần `#` đổi mà trang không tải lại (dán link mời vào tab đang mở rạp, bấm Quay lại) → `hashchange`: phòng riêng
+   trong link khác đi thì tự tải lại trang. `switchRoom(id, venue?, name?)` nhận cả phòng riêng (gửi kèm vé, tối dần sang
+   `venue`, toast "Đang vào 🔒 <tên>…").
    **Mở trang mượt**: `<html class="booting">` che thẻ vào rạp + cụm nút, hiện vòng chờ "Đang mở rạp…"; `main.js` bỏ
    lớp này khi đã dựng xong + nhận `hello` đầu tiên + phông chữ sẵn sàng (tối đa 2,5 s; CSS tự hiện sau 6 s nếu JS hỏng)
    → thẻ hiện đủ một lần, không còn cảnh ô đặt tên hiện trước rồi bảng nhân vật mới hiện sau. Server chèn
@@ -80,7 +90,7 @@ main.js ── điểm vào: nối mọi thứ (đọc §2)
 │              ┌──────────── diềm / dải trên (band) ────────────┐              │
 │              │        #screen-slot  (iframe YouTube)          │   #side      │
 │              └────────────────────────────────────────────────┘   (ngăn kéo  │
-│              #screen-tools: ▶ 🔊 📋 tên ⏭ 🔊━━ ⛶ 🚩  (trên sân khấu)   máy tính) │
+│              #screen-tools: ▶ 🔊 📋 ↩ tên [⏭ · ⏸ · 🚩 · ⛶]  (sân khấu)  máy tính) │
 │        ╲  sân khấu / sàn nhảy / ghế / người (phối cảnh, cắt dưới mép video) ╱  │
 │ #chat-feed      ╲                                                ╱             │
 │ #joystick (đt)   └──── #dock: 😀 🎭 [ô chat] 📋 💬 ────┘                       │
@@ -96,7 +106,10 @@ main.js ── điểm vào: nối mọi thứ (đọc §2)
   chat nổi góc dưới trái khi ngăn kéo đóng. `stage.js` coi `< 720 px` là màn hẹp (camera lia, chữ to hơn); `≤ 719 px` ẩn 📺.
 - `main.js syncInsets()` đo các cụm rồi gọi `stage.setInsets({ right, bottom, hudH, hudL, hudR })`: `right` = bề rộng
   ngăn kéo / tấm bên phải đang mở (`--side-w` + 20), `bottom` = chiều cao dock, `hudH / hudL / hudR` = mép dưới / bề
-  ngang hai cụm góc trên. Gọi lại khi đổi cỡ (ResizeObserver), mở / đóng ngăn kéo, tấm (`onSheetChange`).
+  ngang hai cụm góc trên. Gọi lại khi đổi cỡ (ResizeObserver), mở / đóng ngăn kéo, tấm (`onSheetChange`). Cũng đặt
+  `--hud-l-max` (= mép trái cụm phải − mép trái cụm trái − 6 px): cụm trái không bao giờ chạm cụm phải — tên phòng
+  (`.room-name`, tối đa 160 px, ≤ 899 px: `min(160px, 34vw)`) tự rút gọn "…" (tên phòng riêng tới 30 ký tự; admin có
+  thêm nút 🛠).
 - `stage.computeLayout()`:
   - `availW = cssW − right`; mép gần khán phòng `Yn = max(62 % chiều cao, cssH − bottom)` (sàn vẫn vẽ tràn dưới dock).
   - **Góc xem** (`stage.setView`, nút 📺, nhớ `localStorage vc.view`, mặc định `lon`) quyết định khán phòng giữ tối
@@ -270,32 +283,45 @@ ghế khi chụm phóng; xem lại giá của chùm máy chiếu (`drawBeam`) tr
 
 | Phần | Module | Chi tiết |
 |---|---|---|
-| Màn vào rạp `#join` | `join.js` | lớp phủ toàn trang (lúc này **trình phát chưa bật** nên không đè video đang chạy). **Lần đầu** (`#join-form`): chọn rạp (4 thẻ + số người; bấm → `spec` xem trước rạp đó ngay phía sau), tên 2–20 ký tự (nhớ `vc.name`), bộ chọn ngoại hình `lookEditor` (Dáng người 👨 / 👩 · Màu da · Kiểu tóc · Màu tóc · Áo · Quần · Phụ kiện · Râu — chỉ nam; đổi dáng thì tóc / phụ kiện quá "đặc trưng" tự đổi theo), 🎲 Ngẫu nhiên, nhân vật xem trước động (`startPreview`), link chính sách. **Người quay lại** (`#join-quick`, khi `vc.returning = 1` và còn tên hợp lệ): chân dung (`portrait`), "Chào mừng quay lại 👋 <tên>", danh sách phòng (`RoomInfo`: số người / sức chứa, "Đang chiếu: …" hoặc mô tả rạp; phòng lần trước `vc.room` lên đầu với nhãn "LẦN TRƯỚC"; phòng đầy bị khoá) → bấm là `quickJoin`; "✏️ Đổi tên / nhân vật" về form |
-| Cụm góc trên trái | `main.js` | 🎬 (về trang chủ) + ô phòng (emoji rạp, tên, `người/sức chứa`) → tấm "🎬 Chọn rạp" (đứng xem: `spec`; đã vào: tải lại `/?phong=`) |
+| Màn vào rạp `#join` | `join.js` | lớp phủ toàn trang (lúc này **trình phát chưa bật** nên không đè video đang chạy). **Lần đầu** (`#join-form`): chọn rạp (4 thẻ + số người; bấm → `spec` xem trước rạp đó ngay phía sau), tên 2–20 ký tự (nhớ `vc.name`), bộ chọn ngoại hình `lookEditor` (Dáng người 👨 / 👩 · Màu da · Kiểu tóc · Màu tóc · Áo · Quần · Phụ kiện · Râu — chỉ nam; đổi dáng thì tóc / phụ kiện quá "đặc trưng" tự đổi theo), 🎲 Ngẫu nhiên, 🔒 Tạo phòng riêng, nhân vật xem trước động (`startPreview`), link chính sách. **Người quay lại** (`#join-quick`, khi `vc.returning = 1` và còn tên hợp lệ): chân dung (`portrait`), "Chào mừng quay lại 👋 <tên>", danh sách phòng (`RoomInfo`: số người / sức chứa, "Đang chiếu: …" hoặc mô tả rạp; phòng lần trước `vc.room` lên đầu với nhãn "LẦN TRƯỚC"; phòng đầy bị khoá) → bấm là `quickJoin`; "✏️ Đổi tên / nhân vật" về form; 🔒 Tạo phòng riêng. **Chế độ phòng riêng** (link `/#phong=p-…`) của cả hai thẻ: §16.2. Mọi kết quả khi thẻ đang hiện báo ngay trên thẻ (`#join-err` / `#jq-err` / dòng `#jq-sub`) — toast nằm dưới lớp phủ |
+| Cụm góc trên trái | `main.js` | 🎬 (về trang chủ) + ô phòng (emoji rạp, tên, `người/sức chứa`; phòng riêng: "🔒 <tên>", thành viên / tối đa — `store.memberCount()`, quản trị viên rạp không chiếm chỗ —, viền vàng, `title` = tên đầy đủ; quản trị viên rạp đang xem → dấu 🛡 `#room-adm` thường trực, `title` thêm "Quản trị viên rạp đang xem phòng này" — `store.adminWatching()`) → tấm "🎬 Chọn rạp" (đứng xem: `spec`; đã vào: `switchRoom` tại chỗ). Đang ở phòng chung: hàng đầu "🔒 Tạo phòng riêng"; đang ở phòng riêng: phần phòng riêng lên đầu (§16.4) |
 | Cụm góc trên phải | `main.js` | 📺 menu góc xem (Cân / Màn lớn / Màn rộng) · ⛶ toàn màn hình cả rạp (ẩn nếu trình duyệt không hỗ trợ) · 🎨 đổi ngoại hình (sau khi vào) · ⚙️ tùy chọn · ? hướng dẫn · 🛠 quản trị (admin) |
-| Dưới màn hình `#screen-tools` | `main.js`, `queue.js` | "▶ Bấm để xem", "🔊 Bật tiếng", "📋 Dán link YouTube để chiếu" (khi trống / đang phát kênh mặc định), tên video, rồi một cụm gọn `#tool-group` (viên chia ô, ẩn hẳn khi không còn nút nào): ⏭ `n/need` (ẩn với kênh mặc định / video admin), 🚩, ⛶ video. Âm lượng + phụ đề dùng thanh điều khiển của YouTube (0.4.9 bỏ thanh âm lượng riêng) |
+| Dưới màn hình `#screen-tools` | `main.js`, `queue.js` | "▶ Bấm để xem", "🔊 Bật tiếng", "📋 Dán link YouTube để chiếu" (khi trống / đang phát kênh mặc định), "↩ Về video của rạp" (người xem tự bấm sang video gợi ý của YouTube: rạp để yên trình phát tới khi họ bấm nút này — [04](04-youtube-va-phap-ly.md) §5), tên video, rồi một cụm gọn `#tool-group` (viên chia ô; JS ẩn cả cụm khi không còn nút nào — `MutationObserver`, WebView cũ chưa có `:has()`): ⏭ `n/need` (ẩn với kênh mặc định / video admin; chủ phòng riêng: bỏ qua ngay, không số), ⏸ / ▶ dừng / phát tiếp cho cả phòng (chỉ phòng riêng, không cho live / kênh mặc định), 🚩, ⛶ video. Âm lượng + phụ đề dùng thanh điều khiển của YouTube (0.4.9 bỏ thanh âm lượng riêng). ≤ 899 px: tên video ẩn; nhiều nút cùng hiện (🔊 + ↩ + cụm của chủ phòng) thì **xuống hàng, mọc dần xuống** (xa khỏi video) thay vì tràn khỏi màn hình |
 | Dock `#dock` | `main.js`, `chat.js` | 😀 bảng 8 emoji (mở rồi bấm liên tục được) · 🎭 vòng động tác · ô chat (≤ 140, tắt khi chưa vào) · 📋 hàng chờ (badge số bài) · 💬 trò chuyện (badge chưa đọc) |
 | Ngăn kéo `#side` | `queue.js`, `chat.js` | máy tính: thẻ nổi bên phải chứa cả Đang chiếu + Hàng chờ + Trò chuyện, nhớ mở / đóng (`vc.side`); điện thoại dọc: tấm trượt 2 thẻ |
 | Đang chiếu | `queue.js` | badge (ĐANG CHIẾU / TRỰC TIẾP / TẠM DỪNG / KÊNH MẶC ĐỊNH / MÀN HÌNH TRỐNG), tên, kênh + người thêm, thanh tiến độ theo đồng hồ phòng, nút bỏ phiếu (người thêm: "Bỏ qua video của mình"), 🚩, nút admin |
-| Hàng chờ | `queue.js` | ô dán link (khoá → chỉ admin), kết quả `q_res` tự ẩn, danh sách (✕ xoá bài của mình / admin, ⬆ admin đưa lên đầu), bài mới trượt vào |
+| Hàng chờ | `queue.js` | ô dán link (khoá → chỉ admin), kết quả `q_res` tự ẩn, danh sách (✕ xoá bài của mình / admin / chủ phòng riêng — mọi bài, `proom_op remove`; ⬆ admin đưa lên đầu), bài mới trượt vào |
 | Trò chuyện | `chat.js` | đang ở cuối thì bám tin mới; đang kéo lên đọc thì hiện "↓ N tin mới"; tin `notice` loại `info` thành dòng hệ thống; giữ 120 dòng. Khung chat nổi `#chat-feed` (máy tính, ngăn kéo đóng): 4 tin mới nhất, mờ sau 12 s, không chặn bấm |
-| Thẻ người xem `#user-card` | `usercard.js` | tên, trạng thái; 👋 Vẫy chào, 🚩 Báo cáo; "Chỉ trên máy bạn": 🔇 Ẩn tin nhắn / 🙈 Ẩn động tác / 👻 Ẩn người này; admin: 🔇 10 phút / 1 giờ, 🔊, 👢 Mời ra, ⛔ Cấm 1 ngày / hẳn |
-| Tấm `#sheet` | `sheet.js` | `openSheet(id, title, content, onClose)`; máy tính: thẻ bên phải (video dời trái), điện thoại: trượt lên từ `--sheet-top` |
-| Toast | `toasts.js` | tối đa 3, không lặp cùng chữ trong 2,5 s, đặt từ `--aud-top` + 48 px (không bao giờ trên video) |
-| Quản trị 🛠 | `admin.js` | chỉ import khi `hello.admin`. Bỏ qua / dừng / chiếu tiếp / khoá / xoá chat; tab 👥 Người xem, 🚩 Báo cáo, ⛔ Bị cấm, 🚫 Video bị gỡ; "🚪 Thoát admin trên máy này". Gắn thêm nút vào thẻ Đang chiếu / hàng chờ / thẻ người qua `registerAdminHooks`, `registerUserAdmin` |
+| Thẻ người xem `#user-card` | `usercard.js` | tên, trạng thái; 👋 Vẫy chào, 🚩 Báo cáo; chủ phòng riêng: 🚪 Mời ra khỏi phòng (xác nhận trong tấm); "Chỉ trên máy bạn": 🔇 Ẩn tin nhắn / 🙈 Ẩn động tác / 👻 Ẩn người này; admin: 🔇 10 phút / 1 giờ, 🔊, 👢 Mời ra, ⛔ Cấm 1 ngày / hẳn |
+| Tấm `#sheet` | `sheet.js` | `openSheet(id, title, content, onClose)`; máy tính: thẻ bên phải (video dời trái), điện thoại: trượt lên từ `--sheet-top`. Mở lúc màn vào rạp đang hiện (tạo phòng riêng trước khi vào): nổi **trên** lớp phủ, giữa màn hình (`.join:not([hidden]) ~ .sheet`; lúc đó trình phát chưa bật) |
+| Toast | `toasts.js` | tối đa 3, không lặp cùng chữ trong 2,5 s (chữ chưa hiện lần nào thì hiện ngay — kể cả 2,5 s đầu sau khi tải trang), đặt từ `--aud-top` + 48 px (không bao giờ trên video) |
+| Quản trị 🛠 | `admin.js` | chỉ import khi `hello.admin`. Bỏ qua / dừng / chiếu tiếp / khoá / xoá chat; tab 👥 Người xem, 🚩 Báo cáo (phòng riêng ghi "🔒 <id>"), 🔒 Phòng riêng (`adm.privRooms`: tên, id, người / tối đa, đang chiếu, lúc tạo, thao tác gần nhất + [Đóng phòng] xác nhận trong tấm → `adm close_room`), ⛔ Bị cấm, 🚫 Video bị gỡ; "🚪 Thoát admin trên máy này". Gắn thêm nút vào thẻ Đang chiếu / hàng chờ / thẻ người qua `registerAdminHooks`, `registerUserAdmin` |
 
 Tự làm mờ nút (⚙️ "Tự làm mờ các nút", mặc định bật): đang xem chung mà không động chuột / chạm / phím 4 s (và không mở
-bảng nào, không gõ) → `body.ui-quiet` làm mờ cụm góc, dock, `#screen-tools` (vẫn bấm được); động là hiện lại. `body.watching`
+bảng nào, không gõ, không có nút mời bấm "↩ Về video của rạp" / "▶ Bấm để xem" / "🔊 Bật tiếng" đang hiện — chuột nằm
+trong khung YouTube thì trang không nhận sự kiện nào) → `body.ui-quiet` làm mờ cụm góc, dock, `#screen-tools` (vẫn bấm
+được); động là hiện lại. `body.watching`
 được bật khi đang xem chung.
 
 ## 10. Trạng thái client (`store.js`)
 
-`store` giữ: `ready`, `conn`, `joined`, `myId`, `token`, `admin`, `cfg` (`PublicSettings`), `rooms`, `roomId`,
-`roomName`, `venue`, `players` (Map id → actor), `queue`, `locked`, `now`, `votes`, `chat`, `bubbles`, `fx`, `clock`,
-`net`. `handleMessage(msg)` là điểm vào duy nhất cho mọi `ServerMsg` (đọc phòng thủ, chuỗi bị cắt độ dài).
+`store` giữ: `ready`, `conn`, `joined`, `myId`, `token`, `admin`, `cfg` (`PublicSettings`, kể cả `privMax`,
+`privMaxMin`, `privPerUser`, `privEmptyMin`), `rooms`, `roomId` (phòng chung hoặc riêng — `ANY_ROOM_ID_RE`), `roomName`,
+`venue` (lấy từ `snap.venue`: id phòng riêng không chứa tên rạp), `priv` (`PrivInfo` của phòng riêng đang xem — `{ name,
+cap, ownerId, members: [{ id, name, away, ghost, adm }], admins }`, `null` = phòng chung), `lastPrivRoom`, `helloSeq`
+(số hello trên socket hiện tại), `players` (Map id → actor), `queue`, `locked`, `now`, `votes`, `chat`, `bubbles`, `fx`,
+`clock`, `net`; hàm `inPrivate()` (đã vào một phòng riêng), `isOwner()` (`priv.ownerId === myId`), `memberCount()`
+(thành viên tính chỗ — bỏ quản trị viên rạp `adm` trừ chủ phòng), `adminWatching()` (`priv.admins > 0` — admin đứng
+xem — hoặc có thành viên `adm` → dấu 🛡 thường trực). `handleMessage(msg)` là điểm vào duy nhất cho mọi `ServerMsg` (đọc
+phòng thủ, chuỗi bị cắt độ dài). Vé phòng riêng: `rtFor(room)`, `saveRt(room, rt)`, `dropRt(room)` (`localStorage vc.rt`, tối đa 10
+phòng, bỏ phòng cũ nhất); `backToSpectate()` (vào lại hỏng → hiện lại phòng kết nối đang đứng xem, ảnh chụp trong hello
+gần nhất).
 
 Sự kiện (`store.on(type, fn)` → hàm huỷ): `hello`, `welcome`, `joinError`, `players`, `queue`, `now`, `votes`, `chat`,
-`chatReset`, `queueResult`, `correct`, `notice`, `rooms`, `venue`, `kicked`, `admin`, `conn`, `replaced`.
+`chatReset`, `queueResult`, `correct`, `notice`, `rooms`, `venue`, `kicked`, `admin`, `conn`, `replaced`; phòng riêng:
+`priv`, `proomNeed` `{room, exists}`, `proomOk` `{room, venue, name, created}` (vé đã lưu), `proomRes` `{ok, text,
+code, room}`, `detached` (hello thứ hai trên cùng socket lúc đang trong rạp = server đã tách nhân vật, phát **trước**
+`hello`).
 
 Actor (người trong phòng): `{ id, name, look, ghost, x, y, dir, kf[] (mốc nội suy), off, lastCt, moving, moveAmt, phase,
 seed, act {id, def, start}, bornAt, goneAt, isMe, emo, emoAt, alpha, seated }`. Người rời (`pl`) mờ dần 450 ms rồi xoá.
@@ -388,6 +414,7 @@ hiện). Người bị ẩn vẫn được cập nhật vị trí, chỉ không 
 | `vc.view` | localStorage | góc xem (`can` / `lon` / `rong`) |
 | `vc.side` | localStorage | ngăn kéo máy tính đang mở |
 | `vc.prefs` | localStorage | tùy chọn ⚙️ + danh sách người đang ẩn |
+| `vc.rt` | localStorage | vé vào lại phòng riêng `{ "p-…": rt }` (tối đa 10, xoá khi phòng đóng / bị mời ra / vé bị từ chối) — mật khẩu không bao giờ lưu |
 | `vc.token` | sessionStorage | token nối lại nhân vật (theo tab) |
 | `vc.autojoin` | sessionStorage | cờ cũ (bản tải lại trang khi đổi rạp) — vẫn đọc để tương thích |
 
@@ -401,3 +428,102 @@ Không có cookie nào cho người xem thường (chỉ `vc_admin` HttpOnly cho
   layout {screen, audTop, Yf, Yn, availW, narrow}, insets, actors, net {buffer, late, frames…}`.
 - `player()`: `{ v, state, cur, target, muted }` — so vị trí trình phát với đồng hồ phòng.
 - Giật? Xem `__vc.view().net.buffer` (90–200 ms là bình thường) và `npm run qa` (đo `stallRatio`, `hitches`).
+
+## 16. Phòng riêng (client)
+
+Phòng có mật khẩu, chủ phòng tạo, **luôn miễn phí**, không hiện trong danh sách rạp (server: [07](07-server.md), giao
+thức: [02](02-giao-thuc.md), luật YouTube: [04](04-youtube-va-phap-ly.md) §12). Id `p-` + 10 ký tự (`isPrivateRoomId`,
+`ANY_ROOM_ID_RE` trong `shared/hall.js`; `ROOM_ID_RE` / `parseRoomId` chỉ nhận phòng chung).
+
+### 16.1 Tạo phòng (`ui/private.js openCreateSheet`)
+
+- Ba lối vào: nút "🔒 Tạo phòng riêng" ở form vào rạp (kiểm tên trong form trước), ở thẻ chào lại (tên đã nhớ), và hàng
+  đầu bảng chọn rạp khi đang ở phòng chung.
+- Tấm: mật khẩu 4–40 ký tự (ô chữ thường hiện rõ, `autocapitalize="none" autocomplete="off" autocorrect="off"
+  spellcheck="false" enterkeyhint="go"`, cỡ 16 px; so như server: `normalize('NFC').trim()`), số người tối đa 2 · 4 · 6 ·
+  10 · 20 (≤ `cfg.privMax`), khung cảnh 🎭 🌳 🚗 🏖️ (chọn sẵn rạp đang xem), ghi chú "Video dài tới <`cfg.privMaxMin`> ·
+  Phòng tự đóng khi không còn ai trong <`cfg.privEmptyMin`> phút." (mức tối đa — chỉ video rạp kiểm đủ qua Data API, video
+  chỉ kiểm cơ bản vẫn như rạp chung: [04](04-youtube-va-phap-ly.md) §12; bảng ? Hướng dẫn nói rõ; rạp không có khoá API —
+  `cfg.ytReady` false, mọi video chỉ kiểm cơ bản — thì ghi "Video tối đa <`cfg.maxVideoMin`> phút như rạp chung" thay vì
+  hứa 12 giờ), "Vẫn chỉ chiếu video YouTube cho phép nhúng, kiểm như rạp chung.", "Quản trị viên rạp có thể vào phòng khi
+  xử lý báo cáo.".
+- `proom_new {pass, cap, venue, name, ck}` → `proom_ok {created}`. Chưa vào rạp: client gửi `join {room, rt}` → vào thẳng
+  phòng mới (không qua phòng chung); đã vào: server tự chuyển nhân vật (welcome). Lỗi báo trong tấm; `owned` → câu của
+  server + [Vào lại] (vào / chuyển sang phòng của mình — chủ phòng nhận theo khoá máy).
+- Vào xong mở **thẻ mời**: khung chọn được "Vào xem chung với mình trên VibeCinema 🎬 / link / 🔑 Mật khẩu: …" (mật khẩu
+  chỉ giữ trong bộ nhớ trang ngay sau khi tạo / đổi), [📋 Sao chép lời mời] (Clipboard API → dự phòng `execCommand` → chọn
+  khung + "giữ ngón tay lên khung trên để sao chép"), [📤 Gửi…] (khi có `navigator.share`).
+
+### 16.2 Mở link `/#phong=p-…`
+
+- Link mời + thanh địa chỉ dùng **phần sau dấu `#`** (`inviteLink` trong `ui/private.js`, `syncUrl`): trình duyệt không
+  bao giờ gửi phần này lên máy chủ (không vào nhật ký nginx, không vào Referer) — trình phát YouTube cũng không thấy (iframe
+  tự dựng, [04](04-youtube-va-phap-ly.md) §5). Link cũ `/?phong=p-…` vẫn mở được (`privLinkToHash()` đổi sang `#` ngay đầu
+  `main.js`). Phòng chung vẫn `?phong=<rạp>` (công khai, không cần giấu).
+- `net.js` đọc phòng trong link (`linkRoom`) rồi mở WebSocket `/ws?room=p-…`; người thường được đứng xem rạp chung mặc
+  định + `proom_need` (không ai xem lén phòng riêng), admin đứng xem thẳng phòng đó (cả phòng được báo 🛡). `main.js` bật
+  **chế độ phòng riêng** ngay lúc mở trang (`setPrivLink` → `join.setPrivate`):
+  - có vé `vc.rt`: người quay lại → thẻ chào lại "Đang vào phòng riêng…" + `join {room, rt}`; người mới → form không cần
+    ô mật khẩu;
+  - chưa có vé: form ẩn "Chọn rạp", ô "🔒 Mật khẩu phòng" ngay dưới tên, nút "Vào phòng 🔒", dòng lỗi dời lên ngay dưới ô;
+    thẻ chào lại: dòng "🔒 Bạn được mời vào một phòng riêng" + ô mật khẩu + [Vào phòng] thay danh sách rạp. Cả hai có link
+    nhỏ "Vào rạp chung thay thế" (bỏ chế độ, gỡ `#phong=`; thôi chờ mật khẩu / vé ngay — danh sách rạp chung bấm được
+    liền; nhắc / kết quả tới muộn của phòng vừa bỏ bị lờ đi, không bật lại chế độ phòng riêng — `dismissedPriv`).
+- Gửi mật khẩu: `proom_auth` → `proom_ok` (vé lưu) → `join {room, rt}`; giữ chế độ phòng riêng (đã có quyền, ẩn ô mật
+  khẩu) qua lỗi tên / đầy. Báo ngay trên thẻ: sai mật khẩu / thử nhiều quá / đầy / bị mời ra (câu của server);
+  `exists:false` → thẻ thường + dòng "Phòng riêng này đã đóng (mọi người đã rời đi). Bạn vẫn có thể vào rạp chung 👇",
+  gỡ `phong` + vé.
+- Máy này còn nhân vật cũ ở phòng chung (tab khác / vừa tải lại): server nối lại tại chỗ rồi mới báo lý do không cho sang
+  phòng riêng → `refusedWelcome()` gửi `leave`, giữ màn vào rạp (không bật trình phát), báo lý do ngay trên thẻ. `notice`
+  warn / err tới lúc màn vào rạp đang hiện (vd trùng tên trong phòng riêng) cũng lên thẻ (`joinNotice`), không thành
+  toast nằm dưới lớp phủ.
+
+### 16.3 Vào lại / rớt mạng / bị đưa ra
+
+- Thanh địa chỉ luôn theo phòng đang ở (`syncUrl`: phòng riêng `/#phong=<id>`, phòng chung bỏ `phong`); tải lại trang =
+  mở lại link (vé). Nối lại: `join` kèm `rt`; server trả `join_err priv_need` (vé cũ — mật khẩu đã đổi) / `priv_gone` /
+  `priv_kicked` → `backToJoin` (tắt trình phát **trước**, `backToSpectate`) với thẻ ở chế độ phòng riêng + "Mật khẩu
+  phòng đã đổi — nhập mật khẩu mới để vào lại." hoặc thẻ thường + "Phòng riêng đã đóng trong lúc bạn mất kết nối.".
+  `proom_need` lúc nối lại (do link) bị bỏ qua — chờ kết quả `join`.
+- Bị chủ phòng mời ra / phòng đóng: server gửi `proom_res {code:'out'}` (client xoá vé, đóng tấm, toast) rồi `welcome`
+  phòng chung — hoặc `hello` trên cùng socket khi không phòng chung nào nhận (`detached` → màn vào rạp, câu báo trên thẻ).
+
+### 16.4 Trong phòng riêng
+
+- Ô phòng "🔒 <tên>" + thành viên / tối đa (`priv.members` kể cả người đang ẩn, **trừ quản trị viên rạp** — admin không
+  chiếm chỗ, trừ khi chính là chủ phòng: `store.memberCount()`). Quản trị viên rạp đang xem (đứng xem:
+  `priv.admins > 0`; vào hẳn: thành viên `adm`) → dấu **🛡 thường trực** ở ô phòng (`#room-adm`, `title` "… — Quản trị
+  viên rạp đang xem phòng này") và dòng "🛡 Quản trị viên rạp đang xem phòng này" đầu bảng phòng
+  (`store.adminWatching()`, chữ chung `ADMIN_WATCHING`) — ngoài dòng báo "🛡 …" server gửi lúc admin vào / lúc mình vào
+  khi admin đang ở đó. Bảng phòng (`privateSection`, tự cập nhật theo `priv`): tên
+  + "n/cap người · 👑 bạn là chủ phòng", [📋 Sao chép link] (chép ngay; không được thì mở thẻ mời),
+  [🚪 Rời phòng riêng] (sang phòng chung cùng rạp, toast "Đã rời phòng riêng — mở lại link để vào lại."), danh sách thành
+  viên ("💤 đang ẩn" / "📵 mất mạng" / "🛡 quản trị viên rạp" — `PrivMember.adm`, không có nút [Mời ra] vì server không cho
+  mời quản trị viên ra); chủ phòng: [Mời ra] hỏi lại ngay trong tấm, đổi mật khẩu (→ thẻ mời mới), số người
+  tối đa (chip nhỏ hơn số người đang có bị khoá), [Đóng phòng] hỏi lại "Đóng phòng? Mọi người sẽ về rạp chung.". Không
+  dùng `window.confirm` (hộp thoại trình duyệt có thể đè trình phát, làm đứng vòng đồng bộ).
+- Dưới màn hình: ⏭ (chủ phòng: bỏ qua ngay `proom_op skip`; người khác bỏ phiếu như cũ), ⏸ / ▶ cho cả phòng
+  (`proom_op pause / resume`), 🚩, ⛶. Hàng chờ: chủ phòng có ✕ ở mọi bài. Thẻ người xem: chủ phòng có 🚪 Mời ra khỏi phòng
+  (trừ quản trị viên rạp).
+- Trình phát (`player.js`): tự dừng trên thanh YouTube **được giữ trên máy mình** (không tự phát lại), nhắc "Bạn đang dừng
+  riêng — …"; bấm ▶ trên video → xem tiếp đúng giờ chung. Tua / đổi tốc độ vẫn về giờ chung (nhắc "Phòng riêng xem chung —
+  …"). Cả phòng: nút ⏸ dưới màn hình.
+- Màn hình trống: "Phòng riêng đang trống — Dán link YouTube vào 📋 Hàng chờ để xem cùng nhau" (phòng riêng không có kênh
+  mặc định). Hướng dẫn (?): mục 🔒 Phòng riêng + luật (độ dài tối đa `privMaxMin` — lúc rạp chỉ kiểm cơ bản được video thì
+  `maxVideoMin` phút như rạp chung —, mỗi người `privPerUser` video).
+- Kết quả `proom_res` đi một đường (`main.js`): `out` → bị đưa ra; đang chờ mật khẩu → báo trên thẻ vào rạp; tấm tạo phòng /
+  công cụ chủ phòng (`privateResult`) → báo trong tấm; còn lại → toast.
+
+### 16.5 QA
+
+`npm run qa` (hoặc `--only private`) chạy kịch bản phòng riêng (`scripts/qa.ts privateFlow`; từng bước:
+[06](06-kiem-thu-qa.md) §6). Mỗi "máy" — chủ phòng (máy tính), khách (điện thoại 390×844), admin — là **một hồ sơ Chrome
+riêng** (`devicePage` mở một Chrome mới; `asDevice` đặt khoá máy, tên, cờ "đã từng vào" trước khi trang chạy):
+localStorage (`vc.ck`, `vc.rt`, tên…) và cookie không lẫn nhau, như máy thật. Kiểm chính: tạo phòng → thẻ mời `/#phong=<id>`
+(không `?phong=`), thanh địa chỉ `/#phong=<id>`; dừng riêng được giữ; khách sai / đúng mật khẩu → trong phòng (ô 🔒, ⏸,
+2/4, `checkHud`); `checkIframe` (`src` khung YouTube không có `phong` / `forigin` / `gporigin`) ở chủ phòng, khách, admin
+và sau khi bấm 🎬 từ phòng riêng sang rạp chung (`document.referrer` không chứa `phong`); `checkStrip` (390 px, mọi nút
+dưới video cùng hiện → xuống hàng, không tràn, không đè video); đổi mật khẩu → vé cũ bị từ chối → mật khẩu mới; admin mở
+link kiểu cũ `?phong=` → tự đổi sang `#phong=`, đứng xem → dấu 🛡 + dòng báo cho người trong phòng và người vào sau; admin
+vào hẳn không chiếm chỗ (vẫn 2/4); ô "Mật khẩu mới" giữ con trỏ khi bảng phòng cập nhật; đóng phòng → mọi người về rạp
+chung; link phòng đã đóng.

@@ -45,6 +45,33 @@ export interface Config {
   /** video mặc định (thường là kênh trực tiếp 24/7): phát khi phòng trống video quá defaultIdleSeconds; rỗng = tắt */
   defaultVideo: string;
   defaultIdleSeconds: number;
+  // ---- phòng riêng (có mật khẩu, chủ phòng tạo, không hiện trong danh sách rạp — docs/07 §20)
+  /**
+   * số phòng riêng tối đa cả server. Đủ thì thu hồi phòng trống lâu nhất; không có phòng trống thì chia đều: người từ dải
+   * mạng chưa có phòng nào được lấy phòng lâu không thao tác nhất của dải mạng đang giữ nhiều phòng nhất (≥ 2)
+   */
+  privateRoomsMax: number;
+  /** số phòng riêng đang mở tối đa của một MẠNG (IPv4 /32, IPv6 /64) */
+  privatePerNet: number;
+  /**
+   * số phòng riêng đang mở tối đa của một DẢI MẠNG (IPv4 /24, IPv6 /48) — một người thuê cả dải IPv6 (/56, /48 — nhà
+   * mạng / tunnel cấp miễn phí) không chiếm được cả rạp bằng cách đổi sang /64 khác
+   */
+  privatePerSubnet: number;
+  /** số lần tạo phòng riêng / giờ / mạng */
+  privateCreatePerHour: number;
+  /** số người tối đa chủ phòng chọn được */
+  privateCapMax: number;
+  /** độ dài video tối đa trong phòng riêng (phút) — coi như không giới hạn, chỉ chặn video dài vô lý */
+  privateMaxVideoMinutes: number;
+  /** mỗi người chờ tối đa bấy nhiêu video trong phòng riêng */
+  privatePerUser: number;
+  /** phòng riêng không còn ai bấy nhiêu giây thì tự đóng (đủ lâu để chủ phòng sang Zalo gửi link rồi quay lại) */
+  privateEmptySeconds: number;
+  /** không ai thao tác bấy nhiêu phút → tạm dừng video (live thì để chạy tới hết lượt) */
+  privateIdlePauseMinutes: number;
+  /** không ai thao tác bấy nhiêu phút → đóng phòng */
+  privateIdleCloseMinutes: number;
 }
 
 function str(name: string, def = ''): string {
@@ -117,6 +144,16 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     lookupsPerIpMinute: int('LOOKUPS_PER_IP_MINUTE', 6, 1, 100000),
     defaultVideo: videoId(str('DEFAULT_VIDEO', 'rFZHOHl-L8A')),
     defaultIdleSeconds: float('DEFAULT_IDLE_SECONDS', 30, 1, 3600),
+    privateRoomsMax: int('PRIVATE_ROOMS_MAX', 400, 1, 10000),
+    privatePerNet: int('PRIVATE_PER_NET', 3, 1, 1000),
+    privatePerSubnet: int('PRIVATE_PER_SUBNET', 6, 1, 10000),
+    privateCreatePerHour: int('PRIVATE_CREATE_PER_HOUR', 4, 1, 10000),
+    privateCapMax: int('PRIVATE_CAP_MAX', 20, 2, 200),
+    privateMaxVideoMinutes: int('PRIVATE_MAX_VIDEO_MINUTES', 720, 1, 1440),
+    privatePerUser: int('PRIVATE_PER_USER', 10, 1, 50),
+    privateEmptySeconds: float('PRIVATE_EMPTY_SECONDS', 600, 10, 86400),
+    privateIdlePauseMinutes: float('PRIVATE_IDLE_PAUSE_MINUTES', 240, 1, 10080),
+    privateIdleCloseMinutes: float('PRIVATE_IDLE_CLOSE_MINUTES', 480, 1, 10080),
     ...overrides,
   };
   if (cfg.adminToken && cfg.adminToken.length < 12) {

@@ -6,14 +6,14 @@ Hai tầng: **`npm test`** (tự động, không ra Internet, bắt buộc xanh 
 ## 1. `npm test`
 
 ```bash
-npm test     # = npm run typecheck && npm run test:unit && npm run smoke   (~15 giây)
+npm test     # = npm run typecheck && npm run test:unit && npm run smoke   (~35 giây)
 ```
 
 | Bước | Lệnh | Kiểm |
 |---|---|---|
 | typecheck | `tsc --noEmit` | strict, `noUnusedLocals`, gồm `src/` + `scripts/` (`tsconfig.json`). Client JS **không** được typecheck; `shared/hall.js` chỉ được nhìn qua `hall.d.ts` viết tay (lệch giữa hai file không bị phát hiện) |
-| test đơn vị | `tsx scripts/test-unit.ts` | 22 mục, hàm thuần (§2) |
-| smoke | `tsx scripts/smoke.ts` | 32 bước, app thật + WebSocket thật + YouTube giả + thư mục dữ liệu tạm (§3) |
+| test đơn vị | `tsx scripts/test-unit.ts` | 29 mục, hàm thuần (§2) |
+| smoke | `tsx scripts/smoke.ts` | 64 bước, app thật + WebSocket thật + YouTube giả + thư mục dữ liệu tạm (§3) |
 
 **Luật**: test không bao giờ ra Internet (YouTube giả `scripts/fake-youtube.ts`; smoke đặt `defaultVideo: ''` cho app
 chính để không phụ thuộc video mặc định — bước video mặc định dựng app riêng). Không dùng mã admin thật (smoke dùng
@@ -26,6 +26,7 @@ chính để không phụ thuộc video mặc định — bước video mặc đ
 | YouTube | `parseVideoId` 13 dạng link hợp lệ + link lạ (vimeo, evil.com, `javascript:`, id ngắn, kênh `@`…); `parseIsoDuration`; `checkMeta` nhận / từ chối đúng lý do từng trường hợp (chặn nhúng, riêng tư, không công khai, 18+, chặn VN, chỉ US, quá dài, sắp live, không có, live khi tắt live); `metaFromItem` thiếu trường → bị từ chối; `VideoCache` hết hạn + giới hạn cỡ |
 | Kiểm duyệt | `checkName` hợp lệ / từ chối (tên dành riêng, link, bậy, ký tự lạ, emoji, "аdmin" Kirin) — "Các bạn", "Buổi tối" không bị nhầm; `nameKey` (dấu, hoa thường, tên không Latin); `checkChat` (link, che bậy, cụm "mẹ mày", "đmmmm"); `cleanText` (ký tự vô hình, lặp, cắt theo code point); `Bucket` + `WindowCounter` |
 | Giao thức | `parseClientMsg` nhận đúng dạng, bỏ rác (kiểu sai, `d` ngoài 0–3, động tác lạ, emoji lạ, `ban` thiếu `hours`, không phải JSON) |
+| Phòng riêng | id: `parseRoomId('p-abcdefghij') = null`, `ANY_ROOM_ID_RE` nhận, `PRIVATE_ROOM_RE` từ chối 8 ký tự; `spec` / `switch` / `join` kèm `rt` (sai dạng thì bỏ trường); `proom_new` / `proom_auth` / `proom_op` + admin `close_room` nhận / bỏ đúng; `networkOf` (IPv4 /32, IPv6 /64, `::ffff:a.b.c.d` = IPv4); `subnetOf` (IPv4 /24, IPv6 /48, `::ffff:a.b.c.d` = /24 của IPv4 đó) |
 | Sơ đồ rạp | `isWalkable` (sân khấu, tường, loa, quầy), `moveWithCollision` (trượt tường, không xuyên), `clampToWalkable` + `spawnPoint` luôn đứng được, ghế (đủ 130, `nearestSeat`, `seatAt`), `normalizeLook` / `randomLook` (chỉ giá trị trong bảng, đoán dáng theo tóc, nữ không râu, ngẫu nhiên ra cả nam lẫn nữ), rạp (4 rạp, `parseRoomId`, `roomName`, id sai), 8 động tác phím 1–8 + **không có chữ "ke"** trong tên |
 
 ## 3. `scripts/smoke.ts` — toàn hệ thống
@@ -33,7 +34,8 @@ chính để không phụ thuộc video mặc định — bước video mặc đ
 Dựng `createApp` thật (YouTube giả, `roomCapacity: 8`, `maxRooms: 2`, `tickHz: 20`, thư mục dữ liệu tạm), nối nhiều
 client `ws` như trình duyệt, **mỗi client một IP giả** qua header `X-Real-IP`. Các bước (theo thứ tự trong file):
 
-1. HTTP: phiên bản tài nguyên `/v/<12 hex>/`, `immutable`, CSP, `Referrer-Policy`, `/chinh-sach`, chặn `.d.ts`, `..`, `.env`, `/api/health`.
+1. HTTP: phiên bản tài nguyên `/v/<12 hex>/`, `immutable`, CSP, `Referrer-Policy`, `/chinh-sach`, chặn `.d.ts`, `..`,
+   `.env`, `/api/health`.
 2. Admin: sai mã 403, đúng mã → cookie HttpOnly SameSite=Strict không chứa mã thật.
 3. WebSocket từ Origin lạ bị từ chối.
 4. `hello` cho người đứng xem (phòng, cài đặt, không admin).
@@ -53,21 +55,56 @@ client `ws` như trình duyệt, **mỗi client một IP giả** qua header `X-R
 25. `adm state`.
 26. Rạp: socket `?room=bien` → xem Rạp Bãi Biển; `spec` sang rạp khác; `join` vào đúng rạp đã chọn; `?room=bien-7`
     (bản sao không có) → về phòng chính `bien`.
-27. Rạp đầy (8, tính cả người đang nối lại) → mở bản sao `nhung-2`.
-28–29. Nối lại khi server còn giữ socket cũ → đóng socket cũ `4002`; rớt mạng → người khác thấy "mất mạng", nối lại
+27–29. Vào lại ở tab mới (mất token, cùng khoá máy) → đúng nhân vật; chuyển rạp tại chỗ (`switch`); đóng tab (`leave`) →
+    đi ngay, khách mới không chọn rạp → vào rạp đông nhất.
+30. Rạp đầy (8, tính cả người đang nối lại) → mở bản sao `nhung-2`.
+31–32. Nối lại khi server còn giữ socket cũ → đóng socket cũ `4002`; rớt mạng → người khác thấy "mất mạng", nối lại
     bằng token đúng nhân vật.
-30. Ngập tin → bị đóng kết nối.
-31. Tắt server → `rooms.json`; bật lại → khôi phục video đang chiếu + hàng chờ, id người mới không trùng `byId` cũ, chủ
+33. Ngập tin → bị đóng kết nối.
+34. Tắt server → `rooms.json`; bật lại → khôi phục video đang chiếu + hàng chờ, id người mới không trùng `byId` cũ, chủ
     video (cùng khoá máy) nhận lại quyền.
-32. Video mặc định (app riêng, `defaultIdleSeconds: 0.4`): phòng trống → tự phát; không bỏ phiếu được; có video mới →
+35. Video mặc định (app riêng, `defaultIdleSeconds: 0.4`): phòng trống → tự phát; không bỏ phiếu được; có video mới →
     nhường ngay.
+36. Không có `YT_API_KEY` (app riêng) → kiểm cơ bản oEmbed, đo độ dài (người thêm báo là nhận, người khác một mình không
+    đủ), nhận ra live; API hết quota cũng tự kiểm cơ bản.
+37. Video admin thêm không bỏ phiếu được; điện thoại ẩn trang → người khác thấy rời đi ngay, hiện lại đúng chỗ.
+38–55. **Phòng riêng** (docs/07 §20; giới hạn / vòng đời / lưu-khôi phục dựng app riêng với số nhỏ): tạo (kiểm dữ liệu,
+    vào thẳng, bấm đúp → "bận", không có trong danh sách rạp); link `?room=p-…` → `hello` phòng chung + `proom_need`, người
+    thường không đứng xem được; sai / đúng mật khẩu (NFD + khoảng trắng vẫn đúng), vé gắn với máy; 30 lần nhập dồn dập →
+    1 phép băm, khoá 10 lần / mạng (đúng cũng tính), 20 lần / phòng (+ báo chủ phòng); đủ người (tính cả người đang ẩn);
+    video dài vẫn nhận (có key), không video mặc định; dừng / phát tiếp cho cả phòng; lệnh chủ phòng (xoá, bỏ qua, số
+    người, mời ra → "out" rồi về phòng chung, không vào lại được; đổi mật khẩu → `proom_rt`, vé cũ hết hiệu lực; đóng
+    phòng), không đụng người phòng chung; lỗi trình phát / báo cáo chỉ tác động trong phòng; admin gỡ video tới cả phòng
+    riêng; admin thấy danh sách, đứng xem (cả phòng được báo 🛡), vào hẳn (thành viên thấy `adm`, chủ phòng không mời ra
+    được), đóng phòng; giới hạn (`owned`, mỗi mạng, mỗi giờ, cả rạp — thu hồi phòng trống lâu nhất); tự đóng khi trống /
+    lâu không ai thao tác; `rooms.json` khoá `priv` chỉ có mã băm (mật khẩu, vé, khoá máy), bật lại vào bằng vé.
+56. `rooms.json` bản trước có khoá máy thật của người thêm video (`byCk`) → nạp thành băm (`byCkH`), người thêm vẫn nhận
+    lại video; lưu lại không còn khoá thật.
+57. Quản trị viên có mặt là **trạng thái**: người vào sau vẫn biết (`welcome` có `priv.admins` + dòng báo 🛡); admin rời →
+    `priv` hết `admins`; vào lại trên cùng kết nối → báo lại; đứng xem rồi vào hẳn → chỉ một lần báo.
+58. Quản trị viên **không chiếm chỗ**: phòng 3 chỗ có 2 người + admin → bạn thứ ba vẫn vào; chủ phòng hạ số người theo
+    thành viên thật; thành viên rời rồi vào lại bằng vé không bị "đầy"; còn mỗi admin → phòng vẫn tự đóng; chủ rạp (cookie
+    admin) tự tạo phòng của mình → vẫn là thành viên (ghi rõ `adm`), ngồi chờ một mình phòng không tự đóng.
+59. Video chỉ qua kiểm cơ bản (không key) giữ giới hạn rạp chung trong phòng riêng: "không công khai" tối đa 15 phút, báo
+    dài 2 tiếng vẫn 15 phút, live tối đa `LIVE_MAX_MINUTES`.
+60. Nhật ký server không bao giờ có video / người trong phòng riêng (tên, mã video, độ dài, báo cáo, lỗi trình phát, admin
+    gỡ video từ trong phòng) — chỉ mã + tên phòng lúc tạo / đổi mật khẩu / đóng; phòng chung vẫn ghi như cũ.
+61. Chống chiếm hết phòng: mỗi dải mạng (IPv4 /24, IPv6 /48) ≤ `PRIVATE_PER_SUBNET`; rạp đủ `PRIVATE_ROOMS_MAX` mà không
+    còn phòng trống → người từ dải chưa có phòng lấy phòng lâu không thao tác nhất của dải giữ nhiều phòng nhất.
+62. Đổi mật khẩu: thành viên đang mất mạng / đang ẩn giữ vé, người đã rời mất vé; lượt dò của phòng được xoá (người có
+    mật khẩu mới vào được ngay); tối đa 5 lần / 10 phút / phòng.
+63. Lệnh admin (chiếu tiếp, bỏ qua…) tính là thao tác: video tự dừng vì lâu không ai thao tác, admin cho chiếu tiếp → không
+    bị dừng lại ở nhịp sau.
+64. Tab mới cùng máy (nhân vật cũ ở phòng chung) vào phòng riêng mà trùng tên người trong đó → nối lại tại chỗ (`welcome`)
+    rồi mới báo lý do (`proom_res` mã `name` kèm id phòng — báo được trên thẻ vào rạp).
 
 `Client.wait(pred)` / `waitT(t)`: **đăng ký chờ TRƯỚC khi gửi lệnh** để không lỡ thông điệp tới nhanh.
 
 ## 4. YouTube giả — `scripts/fake-youtube.ts`
 
-`createFakeYouTube({ delayMs?, fail? })` cài đúng interface `YouTubeClient` (`fetchVideo`, `fetchOEmbed`, `configured:
-true`, thêm `calls[]` để đếm). Bảng `FIXTURES`:
+`createFakeYouTube({ delayMs?, fail?, noKey? })` cài đúng interface `YouTubeClient` (`fetchVideo`, `fetchOEmbed`,
+`configured` = `!noKey`, thêm `calls[]` / `oembedCalls[]` để đếm; `noKey` = như rạp chưa có `YT_API_KEY` → kiểm cơ bản
+bằng oEmbed). Bảng `FIXTURES`:
 
 | id | Trường hợp |
 |---|---|
@@ -100,7 +137,7 @@ npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 20 --video aqz-KE-bpKQ 
 ## 6. QA hình — `npm run qa`
 
 ```bash
-npm run qa -- --out /tmp/vc-shots [--bots 14] [--video aqz-KE-bpKQ] [--only desktop|mobile] [--room bien]
+npm run qa -- --out /tmp/vc-shots [--bots 14] [--video aqz-KE-bpKQ] [--only desktop|mobile|private] [--room bien]
 ```
 
 `scripts/qa.ts` tự dựng app (YouTube giả, không ghi đĩa) + bot, mở Chrome headless (`scripts/cdp.ts` — DevTools
@@ -112,6 +149,26 @@ thật:
   mừng quay lại" (không hiện là lỗi) và bấm một phòng để vào nhanh.
 - **Điện thoại 390×844 @3x** (cảm ứng, UA iPhone): màn vào rạp, rạp, vòng động tác, tấm hàng chờ, thẻ chat, tùy chọn,
   xoay ngang 844×390.
+- **Phòng riêng** (`privateFlow`, chạy cả khi `--only private`): mỗi "máy" (chủ phòng máy tính, khách điện thoại, admin)
+  là **một hồ sơ Chrome riêng** (localStorage / cookie / `vc.ck` / `vc.rt` riêng như máy thật). Kịch bản:
+  - chủ phòng (tên 20 ký tự → tên phòng 30 ký tự) tạo phòng từ thẻ chào lại (tấm ghi đúng luật; mật khẩu ngắn báo lỗi
+    trong tấm) → thẻ mời: link `/#phong=<id>` (không có `?phong=`), ghi rõ quản trị viên rạp vào được; thanh địa chỉ
+    `/#phong=<id>`; thêm video → `checkIframe`; dừng riêng trên thanh YouTube được giữ, bấm phát lại về giờ chung;
+  - khách mở link → form chế độ phòng riêng → sai mật khẩu (báo trên thẻ) → đúng → trong phòng (ô 🔒, cụm ⏸, 2/4,
+    `checkHud`, `checkIframe`, thanh địa chỉ `/#phong=<id>`; `checkStrip`: ở 390 px mọi nút dưới video cùng hiện — 🔊, ↩,
+    "⏭ Bỏ qua ngay", ⏸, 🚩, ⛶ — xuống hàng chứ không tràn, không đè video); bảng phòng của khách (không có công cụ chủ
+    phòng) / chủ phòng; ⏸ / ▶ cho cả phòng; rời phòng → rạp chung, thanh địa chỉ hết `phong`; tấm tạo phòng trên điện
+    thoại; mở lại link `#phong=` ngay trong tab → tự tải lại, vào bằng vé; bấm 🎬 trong phòng riêng → trang chủ:
+    `document.referrer` không chứa `phong`, vào rạp chung → `checkIframe`;
+  - chủ phòng đổi mật khẩu → thẻ mời mới; **admin** mở link **kiểu cũ** `?phong=<id>` → tự đổi sang `/#phong=<id>`, đứng
+    xem thẳng (không hỏi mật khẩu) → chủ phòng được báo 🛡 và thấy dấu 🛡; vé cũ của khách → "Mật khẩu phòng đã đổi…" →
+    nhập mật khẩu mới → vào (người vào sau vẫn thấy dấu 🛡 + được báo); ô "Mật khẩu mới" của chủ phòng giữ con trỏ qua các
+    lần bảng phòng cập nhật; admin vào hẳn → `checkIframe`, ô phòng của khách vẫn 2/4 (admin không chiếm chỗ), dấu 🛡
+    còn; bảng 🛠 có tab 🔒 Phòng riêng liệt kê phòng;
+  - đóng phòng (xác nhận trong tấm) → mọi người về rạp chung; link phòng đã đóng → "đã đóng", thanh địa chỉ hết `phong`.
+  Ảnh `desktop-private-*.png`, `mobile-private-*.png`.
+- **`checkIframe`** (cả luồng máy tính, điện thoại và phòng riêng): `src` khung YouTube có `enablejsapi=1` + `origin`,
+  **không** có `phong` / `forigin` / `gporigin` (iframe tự dựng — [04](04-youtube-va-phap-ly.md) §5).
 - Ảnh `*.png` ghi vào `--out` (danh sách chính xác: các lệnh `shot(...)` trong `qa.ts`).
 - **`checkOverlap`**: ở mỗi ảnh quan trọng, đo khung `#screen-slot` so với mọi DOM nổi (`hud-l`, `hud-r`, `dock`,
   `side`, `sheet`, `toasts`, `react-pop`, `joystick`, `user-card`, `chat-feed`, `screen-tools`, `conn`, `focus-hint` và

@@ -4,12 +4,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { isIPv4, isIPv6 } from 'node:net';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync, constants as zlibConst, gzipSync } from 'node:zlib';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Config } from './config.js';
-import { ROOM_ID_RE } from '../public/js/shared/hall.js';
+import { ANY_ROOM_ID_RE } from '../public/js/shared/hall.js';
 import { Hub, type Conn } from './hub.js';
 import { WindowCounter, hashIp, loadOrCreateSalt } from './moderation.js';
 import { MAX_MSG_BYTES, parseClientMsg, rawToString } from './protocol.js';
@@ -134,6 +135,59 @@ export function httpsRedirectUrl(req: IncomingMessage, siteUrl: string): string 
 }
 
 const HOST_RE = /^[a-z0-9.-]{1,253}(?::\d{1,5})?$/;
+
+/**
+ * IP → dạng chuẩn: IPv4 (kể cả IPv4 nhúng trong IPv6 "::ffff:1.2.3.4") thành 4 số; IPv6 thành đủ 8 nhóm 16 bit (đuôi
+ * a.b.c.d đổi thành 2 nhóm; "::" giãn thành các nhóm 0). Không phải IP (vd 'unknown') → chuỗi đã gọt (s).
+ */
+function parseIp(ip: string): { v4: number[] } | { v6: number[] } | { s: string } {
+  let s = String(ip ?? '').trim().toLowerCase();
+  if (s.startsWith('[')) { const e = s.indexOf(']'); s = e > 0 ? s.slice(1, e) : s.slice(1); }
+  const zone = s.indexOf('%'); // fe80::1%eth0
+  if (zone >= 0) s = s.slice(0, zone);
+  if (isIPv4(s)) return { v4: s.split('.').map(Number) };
+  if (!isIPv6(s)) return { s };
+  let body = s;
+  const v4 = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(body);
+  if (v4) {
+    const [a, b, c, d] = v4.slice(1).map(Number);
+    body = `${body.slice(0, v4.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = body.split('::');
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length > 1 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length > 1 ? new Array<string>(Math.max(0, 8 - head.length - tail.length)).fill('0') : [];
+  const g = [...head, ...fill, ...tail].map((x) => parseInt(x, 16) || 0);
+  if (g.length !== 8) return { s };
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return { v4: [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255] };
+  return { v6: g };
+}
+
+/**
+ * "Mạng" của một IP — khoá cho mọi giới hạn phòng riêng (số phòng / lần tạo / lần thử mật khẩu): IPv4 = nguyên địa chỉ
+ * (/32); IPv6 = 64 bit đầu (/64 — nhà mạng cấp cả dải /64 cho MỘT thuê bao, đổi địa chỉ trong dải không lách được giới
+ * hạn); IPv4 nhúng trong IPv6 ("::ffff:1.2.3.4") = chính IPv4 đó. Chuỗi không phải IP (vd 'unknown') giữ nguyên.
+ * Chỉ dùng qua hashIp (có muối) — không lưu IP thô.
+ */
+export function networkOf(ip: string): string {
+  const p = parseIp(ip);
+  if ('s' in p) return p.s;
+  if ('v4' in p) return p.v4.join('.');
+  return `${p.v6.slice(0, 4).map((x) => x.toString(16)).join(':')}::/64`;
+}
+
+/**
+ * "Dải mạng" của một IP — giới hạn thêm số phòng riêng đang mở (PRIVATE_PER_SUBNET): IPv4 /24, IPv6 /48 (một thuê bao /
+ * tunnel IPv6 thường được cấp cả /56 hay /48 = hàng trăm dải /64 — đổi /64 không lách được giới hạn này). Nhiều người
+ * chung một dải IPv4 (4G CGNAT) thì chung giới hạn — vì vậy giới hạn dải rộng hơn giới hạn mạng.
+ */
+export function subnetOf(ip: string): string {
+  const p = parseIp(ip);
+  if ('s' in p) return p.s;
+  if ('v4' in p) return `${p.v4.slice(0, 3).join('.')}.0/24`;
+  return `${p.v6.slice(0, 3).map((x) => x.toString(16)).join(':')}::/48`;
+}
+
 const escAttr = (v: string): string => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export interface AppDeps {
@@ -475,10 +529,17 @@ export function createApp(cfg: Config, deps: AppDeps): App {
   });
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    const ipHash = hashIp(clientIp(req), salt);
+    const ip = clientIp(req);
+    const ipHash = hashIp(ip, salt);
+    // mạng (IPv4 /32, IPv6 /64) + dải mạng (IPv4 /24, IPv6 /48) băm cùng muối: khoá cho giới hạn phòng riêng (đổi địa chỉ
+    // IPv6 trong dải không lách được)
+    const net = hashIp(networkOf(ip), salt);
+    const subnet = hashIp(subnetOf(ip), salt);
     let room = '';
     try { room = new URL(req.url ?? '/', 'http://localhost').searchParams.get('room') ?? ''; } catch { room = ''; }
-    const conn: Conn | null = hub.connect(ws, { ipHash, admin: isAdminReq(req), room: ROOM_ID_RE.test(room) ? room : undefined });
+    // ?room=<phòng chung | phòng riêng>: phòng riêng thì hub tự quyết (admin đứng xem thẳng, người thường nhận proom_need)
+    const asked = room.length <= 16 && ANY_ROOM_ID_RE.test(room) ? room : undefined;
+    const conn: Conn | null = hub.connect(ws, { ipHash, net, subnet, admin: isAdminReq(req), room: asked });
     if (!conn) { ws.close(1013, 'quá nhiều kết nối'); return; }
     alive.set(ws, true);
     ws.on('pong', () => alive.set(ws, true));

@@ -4,7 +4,8 @@
 // trình phát, báo cáo tự gỡ, admin (khoá, tắt tiếng, mời ra, cấm), nhiều phòng, rớt mạng vào lại, lưu / khôi phục.
 //   npm run smoke
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -61,14 +62,26 @@ class Client {
     });
   }
   waitT(t: string, ms = 3000, extra: (m: Msg) => boolean = () => true): Promise<Msg> { return this.wait((m) => m.t === t && extra(m), ms); }
-  async join(name: string, room = ''): Promise<Msg> {
+  /** rt = vé phòng riêng (khi room là phòng riêng) */
+  async join(name: string, room = '', rt = ''): Promise<Msg> {
     const p = this.wait((m) => m.t === 'welcome' || m.t === 'join_err', 3000);
-    this.send({ t: 'join', name, look: randomLook(), room, token: this.token, ck: this.ck });
+    this.send({ t: 'join', name, look: randomLook(), room, token: this.token, ck: this.ck, ...(rt ? { rt } : {}) });
     const m = await p;
     if (m.t === 'welcome') { this.id = m.you as number; this.token = m.token as string; }
     return m;
   }
   close(): void { try { this.ws.close(); } catch { /* bỏ qua */ } }
+}
+
+/** chờ tới khi client đã nhận ít nhất n thông điệp thoả điều kiện (tính cả thông điệp đã tới) */
+async function waitCount(c: Client, pred: (m: Msg) => boolean, n: number, ms = 5000): Promise<Msg[]> {
+  const t0 = Date.now();
+  for (;;) {
+    const hits = c.msgs.filter(pred);
+    if (hits.length >= n) return hits;
+    if (Date.now() - t0 > ms) throw new Error(`hết giờ chờ: mới có ${hits.length}/${n} thông điệp`);
+    await sleep(20);
+  }
 }
 
 let passed = 0;
@@ -598,8 +611,10 @@ async function main(): Promise<void> {
     const before = (await queued).q as { v: string }[];
     for (const c of all) c.close();
     await app.close();
-    const saved = JSON.parse(readFileSync(join(dataDir, 'rooms.json'), 'utf8')) as { rooms: { id: string; queue: { v: string }[] }[] };
+    const rawSaved = readFileSync(join(dataDir, 'rooms.json'), 'utf8');
+    const saved = JSON.parse(rawSaved) as { rooms: { id: string; queue: { v: string }[] }[] };
     assert.ok(saved.rooms.find((r) => r.id === 'nhung')!.queue.length >= 1);
+    assert.ok(!rawSaved.includes(adm.ck), 'người thêm video chỉ lưu băm khoá máy (byCkH), không lưu khoá thật');
     app = createApp(makeCfg(), { youtube, dataDir, log: () => {} });
     port = await app.listen(0, '127.0.0.1');
     http = `http://127.0.0.1:${port}`;
@@ -793,12 +808,1007 @@ async function main(): Promise<void> {
     }
   });
 
+  // ------------------------------------------------------------ phòng riêng (mỗi nhóm một server riêng)
+  await privateRoomSteps(youtube, adminCookie);
+
   for (const c of all) c.close();
   await app.close();
   for (const t of timers) clearTimeout(t);
   rmSync(dataDir, { recursive: true, force: true });
   console.log(`✅ smoke: ${passed} bước đạt`);
   process.exit(0);
+}
+
+// ================================================================ phòng riêng (docs/07 §20)
+// Mỗi nhóm bước dựng server riêng (giới hạn nhỏ, thời gian chờ ngắn) để không đụng các bước trên và không phụ thuộc nhau.
+type PrivMem = { id: number; name: string; away: boolean; ghost: boolean; adm?: boolean };
+type PrivSnap = { name: string; cap: number; ownerId: number; admins?: number; members: PrivMem[] };
+type SnapP = {
+  id: string; venue: string; name: string; priv?: PrivSnap; queue: { v: string; qid: number; byId: number }[];
+  now: { v: string; paused: boolean; filler?: boolean; at: number; ends: number; dur: number } | null;
+};
+const nowV = (m: Msg): string | undefined => (m.n as { v?: string } | null)?.v;
+const sha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+const SHIELD = '🛡 Quản trị viên rạp đang xem phòng này.';
+const isShield = (m: Msg): boolean => m.t === 'notice' && m.text === SHIELD;
+
+async function privateRoomSteps(youtube: ReturnType<typeof createFakeYouTube>, adminCookie: string): Promise<void> {
+  const apps = new Set<App>();
+  const clients: Client[] = [];
+  const privDir = mkdtempSync(join(tmpdir(), 'vc-smoke-priv-'));
+  let ipN = 0;
+  type ServeOpts = { youtube?: ReturnType<typeof createFakeYouTube>; log?: (...a: unknown[]) => void };
+  const serve = async (over: Partial<Config>, dir: string | null = null, o: ServeOpts = {}): Promise<{ app: App; ws: string; http: string }> => {
+    const app = createApp(makeCfg({ persist: !!dir, dataDir: dir ?? dataDir, defaultVideo: '', ...over }), {
+      youtube: o.youtube ?? youtube, dataDir: dir, log: o.log ?? (() => {}),
+    });
+    apps.add(app);
+    const port = await app.listen(0, '127.0.0.1');
+    return { app, ws: `ws://127.0.0.1:${port}/ws`, http: `http://127.0.0.1:${port}` };
+  };
+  // mỗi client một mạng (IP) riêng — và một dải mạng /24 riêng (giới hạn phòng / dải mạng không dính các bước khác) — trừ
+  // khi chỉ định
+  const mk = async (url: string, o: { ip?: string; admin?: boolean; query?: string } = {}): Promise<Client> => {
+    ipN++;
+    const c = new Client(url + (o.query ?? ''), { 'x-real-ip': o.ip ?? `10.${50 + Math.floor(ipN / 250)}.${ipN % 250}.1`, ...(o.admin ? { cookie: adminCookie } : {}) });
+    clients.push(c);
+    await c.open();
+    await c.wait((m) => m.t === 'hello', 2000, true);
+    return c;
+  };
+  const create = (c: Client, o: { pass?: string; cap?: number; venue?: string; name?: string } = {}): Promise<Msg> => {
+    const r = c.wait((m) => m.t === 'proom_ok' || (m.t === 'proom_res' && m.code !== 'out'), 4000);
+    c.send({ t: 'proom_new', pass: o.pass ?? 'matkhau1', cap: o.cap ?? 4, venue: o.venue ?? 'bien', name: o.name ?? '', ck: c.ck });
+    return r;
+  };
+  const auth = (c: Client, room: string, pass: string): Promise<Msg> => {
+    const r = c.wait((m) => (m.t === 'proom_ok' || m.t === 'proom_res' || m.t === 'proom_need') && m.room === room, 4000);
+    c.send({ t: 'proom_auth', room, pass, ck: c.ck });
+    return r;
+  };
+  /** chưa vào rạp: nhập mật khẩu → join kèm vé → đã ở trong phòng riêng. Trả vé */
+  const enter = async (c: Client, room: string, pass: string, name: string): Promise<string> => {
+    const ok = await auth(c, room, pass);
+    assert.equal(ok.t, 'proom_ok', JSON.stringify(ok));
+    const w = await c.join(name, room, ok.rt as string);
+    assert.equal(w.t, 'welcome', JSON.stringify(w));
+    assert.equal(w.room, room);
+    return ok.rt as string;
+  };
+  // thao tác phòng riêng: server cho dồn 3, hồi 1 / 2 s mỗi người → client tự đợi đủ lượt rồi mới gửi
+  const opTok = new Map<Client, { t: number; at: number }>();
+  const op = async (c: Client, m: Record<string, unknown>): Promise<void> => {
+    const s = opTok.get(c) ?? { t: 3, at: Date.now() };
+    const refill = (): void => { const now = Date.now(); s.t = Math.min(3, s.t + ((now - s.at) / 1000) * 0.5); s.at = now; };
+    refill();
+    if (s.t < 1.05) { await sleep(Math.ceil(((1.05 - s.t) / 0.5) * 1000)); refill(); }
+    s.t -= 1;
+    opTok.set(c, s);
+    c.send({ t: 'proom_op', ...m });
+  };
+  const qadd = async (c: Client, id: string): Promise<Msg> => {
+    await sleep(25);
+    const r = c.waitT('q_res', 3000);
+    c.send({ t: 'q_add', url: `https://youtu.be/${id}` });
+    return r;
+  };
+  const snapOf = (m: Msg): SnapP => m.snap as SnapP;
+  const isPrivMsg = (pred: (p: PrivSnap) => boolean) => (m: Msg): boolean => m.t === 'priv' && pred(m.priv as PrivSnap);
+
+  try {
+    // ---------------------------------------------------------- server A: luồng chính (có video mặc định ở phòng chung)
+    const A = await serve({ defaultVideo: 'liveNow0001', defaultIdleSeconds: 0.3 });
+    const PASS_A = 'Xem phim tối';
+    let roomA = ''; // của O: Rạp Bãi Biển, tối đa 3 người
+    let roomN = ''; // của N (tạo khi chưa vào rạp)
+    let roomC = ''; // của OC (lỗi trình phát, báo cáo, admin)
+    const O = await mk(A.ws);
+    const N = await mk(A.ws);
+    const Q = await mk(A.ws); // người xem phòng chung
+    const AD = await mk(A.ws, { admin: true });
+    let M!: Client; // thành viên phòng A
+    let rtM = '';
+    let memN!: Client; // thành viên phòng N
+    let OC!: Client;
+    const memC: Client[] = [];
+
+    await step('phòng riêng: tạo — kiểm dữ liệu; đã vào rạp → proom_ok rồi vào thẳng phòng; chưa vào → join kèm vé; bấm đúp → "bận"; không có trong danh sách rạp', async () => {
+      assert.equal((await O.join('Chủ Phòng', 'nhung')).t, 'welcome');
+      const bad: [{ pass?: string; cap?: number; venue?: string }, RegExp][] = [
+        [{ pass: 'abc' }, /4–40 ký tự/], [{ pass: '   abc    ' }, /4–40 ký tự/], [{ pass: 'x'.repeat(41) }, /4–40 ký tự/],
+        [{ cap: 1 }, /từ 2 đến 20/], [{ cap: 21 }, /từ 2 đến 20/], [{ venue: 'xyz' }, /rạp/],
+      ];
+      for (const [o, re] of bad) {
+        const r = await create(O, o);
+        assert.equal(r.code, 'invalid', JSON.stringify(r));
+        assert.match(String(r.text), re);
+      }
+      const moved = O.wait((m) => m.t === 'welcome' && String(m.room).startsWith('p-'), 4000);
+      const ok = await create(O, { pass: `  ${PASS_A} `, cap: 3, venue: 'bien' });
+      assert.equal(ok.t, 'proom_ok', JSON.stringify(ok));
+      assert.equal(ok.created, true);
+      assert.match(String(ok.room), /^p-[a-z0-9]{10}$/);
+      assert.equal(ok.venue, 'bien');
+      assert.equal(ok.name, 'Phòng của Chủ Phòng');
+      assert.match(String(ok.rt), /^[A-Za-z0-9_-]{24}$/);
+      roomA = ok.room as string;
+      const w = await moved;
+      assert.equal(w.room, roomA);
+      assert.equal(w.you, O.id, 'giữ nguyên nhân vật');
+      assert.ok(O.msgs.indexOf(ok) < O.msgs.indexOf(w), 'proom_ok tới trước welcome');
+      const s = snapOf(w);
+      assert.equal(s.venue, 'bien');
+      assert.equal(s.name, 'Phòng của Chủ Phòng');
+      assert.deepEqual(s.priv, { name: 'Phòng của Chủ Phòng', cap: 3, ownerId: O.id, members: [{ id: O.id, name: 'Chủ Phòng', away: false, ghost: false }] });
+      // chưa vào rạp: tên kiểm như tên nhân vật → tạo → join kèm vé (chủ phòng vào bằng khoá máy)
+      const badName = await create(N, { name: 'admin', pass: 'matkhau2', cap: 2, venue: 'congvien' });
+      assert.equal(badName.code, 'invalid');
+      assert.match(String(badName.text), /dành cho rạp/);
+      const ok2 = await create(N, { name: 'Người Mới', pass: 'matkhau2', cap: 2, venue: 'congvien' });
+      assert.equal(ok2.t, 'proom_ok', JSON.stringify(ok2));
+      assert.equal(ok2.name, 'Phòng của Người Mới');
+      roomN = ok2.room as string;
+      const w2 = await N.join('Người Mới', roomN, ok2.rt as string);
+      assert.equal(w2.room, roomN);
+      assert.equal(snapOf(w2).priv!.ownerId, N.id);
+      // bấm đúp: lần hai trả "bận" ngay (mỗi kết nối một phép băm), chỉ một phòng được tạo
+      const D = await mk(A.ws);
+      const two = waitCount(D, (m) => m.t === 'proom_ok' || m.t === 'proom_res', 2);
+      for (let i = 0; i < 2; i++) D.send({ t: 'proom_new', pass: 'matkhau3', cap: 2, venue: 'nhung', name: 'Bấm Đúp', ck: D.ck });
+      assert.deepEqual((await two).map((m) => (m.t === 'proom_ok' ? 'ok' : m.code)).sort(), ['busy', 'ok']);
+      // không có trong danh sách rạp; /api/health đếm riêng
+      const h = (await mk(A.ws)).msgs.find((m) => m.t === 'hello')!;
+      assert.equal((h.rooms as { id: string }[]).length, VENUES.length);
+      assert.ok(!(h.rooms as { id: string }[]).some((r) => r.id.startsWith('p-')));
+      const health = await (await fetch(`${A.http}/api/health`)).json() as { rooms: number; priv: number };
+      assert.equal(health.priv, 3);
+      assert.equal(health.rooms, VENUES.length);
+    });
+
+    await step('phòng riêng: link ?room=p-… → hello của phòng chung + proom_need; người thường không đứng xem được (spec / join không vé); id lạ → exists:false', async () => {
+      const S = await mk(A.ws, { query: `?room=${roomA}` });
+      const h = S.msgs.find((m) => m.t === 'hello')!;
+      assert.equal(h.room, 'nhung', 'đứng xem phòng chung mặc định trong lúc nhập mật khẩu');
+      assert.equal(snapOf(h).priv, undefined);
+      const need = await S.wait((m) => m.t === 'proom_need', 2000, true);
+      assert.deepEqual({ room: need.room, exists: need.exists }, { room: roomA, exists: true });
+      const n2 = S.waitT('proom_need', 2000);
+      S.send({ t: 'spec', room: roomA });
+      assert.equal((await n2).exists, true);
+      await assert.rejects(S.wait((m) => m.t === 'hello' && m.room === roomA, 300), 'không được đứng xem phòng riêng');
+      const lost = await mk(A.ws, { query: '?room=p-zzzzzzzzzz' });
+      assert.equal((await lost.wait((m) => m.t === 'proom_need', 2000, true)).exists, false);
+      const n3 = S.waitT('proom_need', 2000);
+      assert.equal((await S.join('Lén Nhìn', roomA)).code, 'priv_need');
+      assert.equal((await n3).exists, true);
+      assert.equal((await S.join('Lén Nhìn', 'p-zzzzzzzzzz')).code, 'priv_gone');
+    });
+
+    await step('phòng riêng: sai / đúng mật khẩu (gõ NFD + dính khoảng trắng vẫn đúng); vé gắn với máy; rời rồi mở lại bằng vé → vào thẳng', async () => {
+      M = await mk(A.ws);
+      const wrong = await auth(M, roomA, 'sai mật khẩu');
+      assert.equal(wrong.code, 'bad_pass');
+      assert.equal(wrong.text, 'Mật khẩu chưa đúng — xem lại tin nhắn bạn bè gửi nhé.');
+      assert.equal((await auth(M, roomA, 'abc')).code, 'bad_pass');
+      const ok = await auth(M, roomA, `  ${PASS_A.normalize('NFD')}  `);
+      assert.equal(ok.t, 'proom_ok', JSON.stringify(ok));
+      assert.equal(ok.venue, 'bien');
+      assert.equal(ok.name, 'Phòng của Chủ Phòng');
+      assert.equal(ok.created, undefined);
+      rtM = ok.rt as string;
+      const seen = O.wait(isPrivMsg((p) => p.members.length === 2), 2000);
+      assert.equal((await M.join('Thành Viên', roomA, rtM)).room, roomA);
+      await seen;
+      // vé của máy khác (khoá máy khác) không dùng được
+      const X = await mk(A.ws);
+      assert.equal((await X.join('Kẻ Lạ', roomA, rtM)).code, 'priv_need');
+      // rời (đóng tab) → kết nối cũ hết quyền nghe phòng, về đứng xem phòng chung; mở lại (cùng máy, vé cũ) → vào thẳng
+      const backToPublic = M.wait((m) => m.t === 'hello' && m.room === 'bien', 2000);
+      M.send({ t: 'leave' });
+      await backToPublic;
+      const M2 = await mk(A.ws);
+      M2.ck = M.ck;
+      const w2 = await M2.join('Thành Viên', roomA, rtM);
+      assert.equal(w2.room, roomA, JSON.stringify(w2));
+      M = M2;
+    });
+
+    await step('phòng riêng: 30 lần nhập mật khẩu dồn dập từ một kết nối → chỉ 1 phép băm chạy; mạng chạm 10 lần → khoá (đúng cũng phải đợi); phòng chạm 20 lần → khoá + báo chủ phòng; vé vẫn vào được', async () => {
+      const O4 = await mk(A.ws);
+      assert.equal((await O4.join('Chủ Phòng Bốn', 'doxe')).t, 'welcome');
+      const ok = await create(O4, { pass: 'bon bon bon', cap: 4, venue: 'doxe' });
+      assert.equal(ok.t, 'proom_ok');
+      const r4 = ok.room as string;
+      const B = await mk(A.ws);
+      const burst = waitCount(B, (m) => m.t === 'proom_res' && m.room === r4, 30);
+      for (let i = 0; i < 30; i++) B.send({ t: 'proom_auth', room: r4, pass: `sai ${i}`, ck: B.ck });
+      const codes = (await burst).map((m) => String(m.code));
+      const hashed = codes.filter((x) => x === 'bad_pass').length;
+      assert.equal(codes.filter((x) => x === 'busy').length + hashed, 30, codes.join(','));
+      assert.ok(hashed >= 1 && hashed <= 3, `mỗi kết nối chỉ 1 phép băm cùng lúc — đã băm ${hashed}`);
+      // tiếp từng lần: tổng số lần thật sự được kiểm của mạng này dừng ở 10
+      let total = hashed;
+      for (let i = 0; i < 15; i++) {
+        const r = await auth(B, r4, `sai nữa ${i}`);
+        if (r.code === 'rate') break;
+        assert.equal(r.code, 'bad_pass');
+        total++;
+      }
+      assert.equal(total, 10, 'mỗi mạng 10 lần / 10 phút');
+      const right = await auth(B, r4, 'bon bon bon');
+      assert.equal(right.code, 'rate', 'đã khoá thì mật khẩu đúng cũng phải đợi (không dò tiếp được)');
+      assert.equal(right.text, 'Sai nhiều lần quá — đợi 10 phút rồi thử lại nhé.');
+      const B2 = await mk(A.ws); // mạng khác vẫn vào được
+      const ok2 = await auth(B2, r4, 'bon bon bon');
+      assert.equal(ok2.t, 'proom_ok');
+      // mạng thứ ba dò tiếp: phòng chạm 20 lần → khoá phòng + chủ phòng được báo
+      const B3 = await mk(A.ws);
+      const warned = O4.waitT('notice', 4000, (m) => m.text === 'Có người nhập sai mật khẩu phòng nhiều lần.');
+      let locked = false;
+      for (let i = 0; i < 10 && !locked; i++) {
+        const r = await auth(B3, r4, `dò ${i}`);
+        locked = r.code === 'rate';
+        if (!locked) assert.equal(r.code, 'bad_pass');
+      }
+      assert.ok(locked, 'phòng phải khoá khi đủ 20 lần');
+      await warned;
+      // vé không bao giờ bị khoá / tính lượt
+      assert.equal((await B2.join('Khách Có Vé', r4, ok2.rt as string)).room, r4);
+    });
+
+    await step('phòng riêng: đủ người (tính cả người đang ẩn) → "đầy"; thành viên ẩn / hiện → cả phòng nhận priv', async () => {
+      const M3 = await mk(A.ws);
+      await enter(M3, roomA, PASS_A, 'Thành Viên Ba'); // 3/3
+      const away = O.wait(isPrivMsg((p) => p.members.some((x) => x.name === 'Thành Viên Ba' && x.away)), 2000);
+      M3.send({ t: 'away' });
+      await away;
+      const Y = await mk(A.ws);
+      const ok = await auth(Y, roomA, PASS_A);
+      assert.equal(ok.t, 'proom_ok', 'mật khẩu đúng vẫn được vé (vào được khi có chỗ)');
+      const j = await Y.join('Khách Thứ Tư', roomA, ok.rt as string);
+      assert.equal(j.code, 'full');
+      assert.equal(j.text, 'Phòng đã đủ 3/3 người — nhờ chủ phòng tăng số người nhé.');
+      const back = O.wait(isPrivMsg((p) => p.members.length === 3 && p.members.every((x) => !x.away)), 2000);
+      M3.send({ t: 'back' });
+      await back;
+    });
+
+    await step('phòng riêng: video dài vẫn nhận (tooLong0001 — phòng chung từ chối); không tự phát video mặc định', async () => {
+      assert.equal((await Q.join('Người Ngoài', 'nhung')).t, 'welcome');
+      const filler = (m: Msg): boolean => (m.t === 'now' && !!(m.n as { filler?: boolean } | null)?.filler)
+        || ((m.t === 'welcome' || m.t === 'hello') && !!snapOf(m).now?.filler);
+      assert.ok(Q.msgs.some(filler), 'phòng chung của server này đang phát video mặc định');
+      assert.ok(!N.msgs.some((m) => m.t === 'now' && !!(m.n as { filler?: boolean } | null)?.filler), 'phòng riêng không phát video mặc định');
+      assert.equal(snapOf(N.msgs.filter((m) => m.t === 'welcome').pop()!).now, null);
+      const playing = M.wait((m) => m.t === 'now' && nowV(m) === 'tooLong0001', 3000);
+      const r = await qadd(O, 'tooLong0001');
+      assert.equal(r.ok, true, String(r.text));
+      const n = (await playing).n as { dur: number; at: number; ends: number };
+      assert.equal(n.dur, 7200);
+      assert.ok(Math.abs(n.ends - n.at - 7200_000) < 5000, 'chiếu hết 2 tiếng');
+      assert.match(String((await qadd(Q, 'tooLong0001')).text), /tối đa 15 phút/);
+    });
+
+    await step('phòng riêng: thành viên dừng / phát tiếp cho cả phòng (cả phòng thấy ai bấm); thành viên không dùng được lệnh chủ phòng', async () => {
+      const paused = O.wait((m) => m.t === 'now' && (m.n as { paused?: boolean } | null)?.paused === true, 2000);
+      const note1 = O.waitT('notice', 2000, (m) => m.text === '⏸ Thành Viên đã dừng video cho cả phòng');
+      await op(M, { op: 'pause' });
+      await paused;
+      await note1;
+      const resumed = O.wait((m) => m.t === 'now' && (m.n as { paused?: boolean } | null)?.paused === false, 2000);
+      const note2 = O.waitT('notice', 2000, (m) => m.text === '▶ Thành Viên đã phát tiếp');
+      await op(M, { op: 'resume' });
+      await resumed;
+      await note2;
+      const denied = M.waitT('proom_res', 2000, (m) => m.code === 'denied');
+      await op(M, { op: 'skip' });
+      assert.equal((await denied).text, 'Chỉ chủ phòng làm được việc này.');
+    });
+
+    await step('phòng riêng: chủ phòng xoá bài / bỏ qua / đổi số người (không dưới số người đang có); không đụng được người ở phòng chung', async () => {
+      assert.equal((await qadd(O, 'jNQXAC9IVRw')).ok, true);
+      const queued = O.wait((m) => m.t === 'queue' && (m.q as { v: string }[]).some((q) => q.v === 'YE7VzlLtp-4'), 3000);
+      assert.equal((await qadd(M, 'YE7VzlLtp-4')).ok, true);
+      const qid = ((await queued).q as { v: string; qid: number }[]).find((q) => q.v === 'YE7VzlLtp-4')!.qid;
+      const removed = M.wait((m) => m.t === 'queue' && !(m.q as { v: string }[]).some((q) => q.v === 'YE7VzlLtp-4'), 2000);
+      await op(O, { op: 'remove', qid });
+      await removed;
+      const skipped = M.wait((m) => m.t === 'now' && nowV(m) === 'jNQXAC9IVRw', 2000);
+      const note = M.waitT('notice', 2000, (m) => m.text === '⏭ Chủ phòng đã bỏ qua video.');
+      await op(O, { op: 'skip' });
+      await skipped;
+      await note;
+      const tooFew = O.waitT('proom_res', 2000);
+      await op(O, { op: 'cap', cap: 2 });
+      const tf = await tooFew;
+      assert.equal(tf.code, 'invalid');
+      assert.match(String(tf.text), /đang có 3 người/);
+      // chủ phòng khác (N): không mời được người ở phòng chung; số người ngoài khoảng → lỗi; hợp lệ → cả phòng nhận priv
+      const deny = N.waitT('proom_res', 2000);
+      await op(N, { op: 'kick', pid: Q.id });
+      assert.equal((await deny).code, 'denied');
+      const big = N.waitT('proom_res', 2000);
+      await op(N, { op: 'cap', cap: 21 });
+      assert.equal((await big).code, 'invalid');
+      const cap3 = N.wait(isPrivMsg((p) => p.cap === 3), 2000);
+      await op(N, { op: 'cap', cap: 3 });
+      await cap3;
+      assert.ok(!Q.msgs.some((m) => m.t === 'proom_res'), 'người ở phòng chung không bị gì');
+      assert.equal(Q.msgs.filter((m) => m.t === 'welcome').pop()!.room, 'nhung');
+    });
+
+    await step('phòng riêng: chủ phòng mời ra → người đó nhận "out" rồi về phòng chung (giữ nhân vật); không vào lại được (mật khẩu, vé, switch, tab mới)', async () => {
+      const out = M.waitT('proom_res', 4000, (m) => m.code === 'out');
+      const landed = M.wait((m) => m.t === 'welcome' && m.room !== roomA, 4000);
+      const res = O.waitT('proom_res', 4000, (m) => m.code === 'ok');
+      await op(O, { op: 'kick', pid: M.id });
+      const o = await out;
+      assert.equal(o.text, 'Chủ phòng đã mời bạn ra khỏi phòng riêng.');
+      assert.equal(o.room, roomA);
+      const w = await landed;
+      assert.equal(w.room, 'bien', 'về phòng chính chung của cùng rạp');
+      assert.equal(w.you, M.id, 'giữ nguyên nhân vật');
+      assert.ok(M.msgs.indexOf(o) < M.msgs.indexOf(w), "'out' tới trước welcome");
+      assert.equal((await res).text, 'Đã mời Thành Viên ra. Họ vẫn biết mật khẩu — đổi mật khẩu nếu không muốn họ vào lại.');
+      assert.equal((await auth(M, roomA, PASS_A)).code, 'kicked', 'đúng mật khẩu cũng không vào được');
+      const sw = M.wait((m) => m.t === 'proom_res' && m.code === 'kicked', 2000);
+      M.send({ t: 'switch', room: roomA, rt: rtM });
+      await sw;
+      // tab mới cùng máy, vé cũ: nối lại nhân vật ở phòng chung, không vào được phòng riêng
+      const M4 = await mk(A.ws);
+      M4.ck = M.ck;
+      const refused = M4.wait((m) => m.t === 'proom_res' && m.code === 'kicked', 3000);
+      const w4 = await M4.join('Thành Viên', roomA, rtM);
+      assert.equal(w4.t, 'welcome');
+      assert.equal(w4.room, 'bien');
+      await refused;
+    });
+
+    await step('phòng riêng: đổi mật khẩu → người đang trong phòng nhận vé mới (proom_rt), vé cũ hết hiệu lực; mật khẩu cũ sai, mới đúng', async () => {
+      const W = await mk(A.ws);
+      const rtOld = await enter(W, roomN, 'matkhau2', 'Bạn Của Mới');
+      const rtN = N.waitT('proom_rt', 4000);
+      const rtW = W.waitT('proom_rt', 4000);
+      const done = N.waitT('proom_res', 4000, (m) => m.code === 'ok');
+      await op(N, { op: 'pass', pass: 'mật khẩu mới' });
+      assert.equal((await done).text, 'Đã đổi mật khẩu. Người đang trong phòng vẫn ở lại; ai vào sau cần mật khẩu mới.');
+      assert.equal((await rtN).room, roomN);
+      const fresh = (await rtW).rt as string;
+      assert.notEqual(fresh, rtOld);
+      // W tắt tab rồi mở lại: vé cũ → cần mật khẩu; vé mới → vào thẳng
+      W.send({ t: 'leave' });
+      await sleep(50);
+      memN = await mk(A.ws);
+      memN.ck = W.ck;
+      assert.equal((await memN.join('Bạn Của Mới', roomN, rtOld)).code, 'priv_need');
+      assert.equal((await memN.join('Bạn Của Mới', roomN, fresh)).room, roomN);
+      const Z = await mk(A.ws);
+      assert.equal((await auth(Z, roomN, 'matkhau2')).code, 'bad_pass');
+      assert.equal((await auth(Z, roomN, 'mật khẩu mới')).t, 'proom_ok');
+    });
+
+    await step('phòng riêng: cùng máy đang ở phòng chung, nhập đúng mật khẩu ở tab mới → nối lại đúng nhân vật, vào thẳng phòng riêng', async () => {
+      const K = await mk(A.ws);
+      assert.equal((await K.join('Khách Cũ', 'nhung')).t, 'welcome');
+      const K2 = await mk(A.ws);
+      K2.ck = K.ck;
+      const closed = new Promise<number>((res) => K.ws.once('close', (code) => res(code)));
+      const ok = await auth(K2, roomA, PASS_A);
+      assert.equal(ok.t, 'proom_ok');
+      const w = await K2.join('Khách Cũ', roomA, ok.rt as string);
+      assert.equal(w.t, 'welcome');
+      assert.equal(w.room, roomA);
+      assert.equal(w.you, K.id, 'đúng nhân vật cũ');
+      assert.equal(await closed, 4002);
+    });
+
+    await step('phòng riêng: lỗi trình phát chỉ chuyển bài trong phòng (phòng chung vẫn thêm được); đủ báo cáo chỉ bỏ qua trong phòng + báo admin (không gỡ khỏi rạp)', async () => {
+      OC = await mk(A.ws);
+      assert.equal((await OC.join('Chủ Phòng Ba', 'congvien')).t, 'welcome');
+      const ok = await create(OC, { pass: 'ba ba ba', cap: 5, venue: 'congvien' });
+      roomC = ok.room as string;
+      await OC.wait((m) => m.t === 'welcome' && m.room === roomC, 2000, true);
+      const playing = OC.wait((m) => m.t === 'now' && nowV(m) === 'privFail001', 3000);
+      assert.equal((await qadd(OC, 'privFail001')).ok, true);
+      await playing;
+      const skipped = OC.wait((m) => m.t === 'now' && nowV(m) !== 'privFail001', 3000);
+      OC.send({ t: 'vid_err', v: 'privFail001', code: 150 }); // một mình trong phòng: 1 máy là đủ số
+      await skipped;
+      const pub = await qadd(Q, 'privFail001');
+      assert.equal(pub.ok, true, `phòng chung vẫn thêm được: ${pub.text}`);
+      for (const n of ['Bạn Một', 'Bạn Hai']) { const c = await mk(A.ws); await enter(c, roomC, 'ba ba ba', n); memC.push(c); }
+      const playing2 = OC.wait((m) => m.t === 'now' && nowV(m) === 'privRep0001', 3000);
+      assert.equal((await qadd(OC, 'privRep0001')).ok, true);
+      await playing2;
+      const note = AD.wait((m) => m.t === 'adm' && m.kind === 'note' && /chưa gỡ khỏi rạp/.test(String(m.text)), 3000);
+      const gone = OC.wait((m) => m.t === 'now' && nowV(m) !== 'privRep0001', 3000);
+      for (const c of [OC, ...memC]) c.send({ t: 'report', kind: 'video', target: 'privRep0001', reason: 'copyright', note: '' });
+      await gone;
+      assert.ok(String((await note).text).includes(roomC));
+      assert.equal((await qadd(Q, 'privRep0001')).ok, true, 'không bị gỡ khỏi cả rạp');
+    });
+
+    await step('admin gỡ hẳn video → tới cả phòng riêng (hàng chờ + đang chiếu); phòng riêng cũng không thêm lại được', async () => {
+      const playing = OC.wait((m) => m.t === 'now' && nowV(m) === 'blockNow001', 3000);
+      assert.equal((await qadd(OC, 'blockNow001')).ok, true);
+      await playing;
+      assert.equal((await qadd(memC[0], 'blockQue001')).ok, true);
+      const dequeued = OC.wait((m) => m.t === 'queue' && !(m.q as { v: string }[]).some((q) => q.v === 'blockQue001'), 2000);
+      AD.send({ t: 'adm', op: 'block', v: 'blockQue001' });
+      await dequeued;
+      const stopped = OC.wait((m) => m.t === 'now' && nowV(m) !== 'blockNow001', 2000);
+      const why = OC.waitT('notice', 2000, (m) => /khỏi rạp/.test(String(m.text)));
+      AD.send({ t: 'adm', op: 'block', v: 'blockNow001' });
+      await stopped;
+      await why;
+      assert.match(String((await qadd(OC, 'blockNow001')).text), /đã bị gỡ/);
+    });
+
+    await step('admin: thấy danh sách phòng riêng; mở link phòng riêng → đứng xem thẳng, cả phòng được báo 🛡; vào hẳn → thành viên thấy ghi rõ quản trị viên, chủ phòng không mời ra được; đóng phòng → mọi người về phòng chung', async () => {
+      const st = AD.waitT('adm', 2000, (m) => m.kind === 'state');
+      AD.send({ t: 'adm', op: 'state' });
+      const list = (await st).privRooms as { id: string; name: string; venue: string; count: number; cap: number; now: string; v: string; createdAt: number; lastInput: number }[];
+      const c = list.find((r) => r.id === roomC)!;
+      assert.ok(c, 'phòng riêng có trong bảng admin');
+      assert.deepEqual([c.name, c.venue, c.count, c.cap], ['Phòng của Chủ Phòng Ba', 'congvien', 3, 5]);
+      assert.ok(c.createdAt > 0 && c.lastInput >= c.createdAt);
+      assert.ok(list.every((r, i) => i === 0 || list[i - 1].lastInput >= r.lastInput), 'mới thao tác xếp trước');
+      // người thường gửi lệnh admin: như không tồn tại
+      OC.send({ t: 'adm', op: 'close_room', room: roomC });
+      await sleep(150);
+      assert.ok(!OC.msgs.some((m) => m.t === 'proom_res' && m.code === 'out'));
+      const told = OC.waitT('notice', 2000, (m) => m.text === '🛡 Quản trị viên rạp đang xem phòng này.');
+      const AD2 = await mk(A.ws, { admin: true, query: `?room=${roomC}` });
+      const h = AD2.msgs.find((m) => m.t === 'hello')!;
+      assert.equal(h.room, roomC);
+      assert.equal(snapOf(h).priv!.cap, 5);
+      await told;
+      // admin vào hẳn (không mật khẩu / vé, không tính chỗ): cả phòng thấy người đó ghi rõ là quản trị viên (adm) — chủ phòng
+      // không mời ra được (giao diện không hiện nút "Mời ra" cho người này)
+      type Mem = { id: number; name: string; adm?: boolean };
+      const AD3 = await mk(A.ws, { admin: true, query: `?room=${roomC}` });
+      const privAdm = OC.waitT('priv', 2000, (m) => (m.priv as { members: Mem[] }).members.some((x) => x.name === 'Người Trực' && x.adm === true));
+      assert.equal((await AD3.join('Người Trực', roomC)).room, roomC);
+      const mems = ((await privAdm).priv as { members: Mem[] }).members;
+      assert.deepEqual(mems.filter((x) => x.adm).map((x) => x.id), [AD3.id], 'chỉ admin có cờ adm');
+      const denied = OC.waitT('proom_res', 2000, (m) => m.code === 'denied');
+      OC.send({ t: 'proom_op', op: 'kick', pid: AD3.id });
+      assert.equal((await denied).text, 'Không mời người này ra được.');
+      AD3.close();
+      const outs = [OC, ...memC].map((x) => x.waitT('proom_res', 3000, (m) => m.code === 'out'));
+      const landed = [OC, ...memC].map((x) => x.wait((m) => m.t === 'welcome' && m.room === 'congvien', 3000));
+      const admHello = AD2.wait((m) => m.t === 'hello' && m.room === 'congvien', 3000);
+      const admNote = AD2.waitT('notice', 3000, (m) => m.text === 'Quản trị viên đã đóng phòng riêng này.');
+      AD2.send({ t: 'adm', op: 'close_room', room: roomC });
+      for (const o of await Promise.all(outs)) assert.equal(o.text, 'Quản trị viên đã đóng phòng riêng này.');
+      await Promise.all(landed);
+      await admHello;
+      await admNote;
+      assert.equal((await auth(Q, roomC, 'ba ba ba')).exists, false, 'phòng đã đóng');
+    });
+
+    await step('phòng riêng: chủ phòng đóng phòng → mọi người nhận "out" rồi về phòng chung, phòng biến mất', async () => {
+      const outs = [N, memN].map((x) => x.waitT('proom_res', 3000, (m) => m.code === 'out'));
+      const landed = [N, memN].map((x) => x.wait((m) => m.t === 'welcome' && m.room === 'congvien', 3000));
+      await op(N, { op: 'close' });
+      for (const o of await Promise.all(outs)) assert.equal(o.text, 'Chủ phòng đã đóng phòng riêng.');
+      await Promise.all(landed);
+      assert.equal((await auth(Q, roomN, 'mật khẩu mới')).exists, false);
+    });
+
+    // ---------------------------------------------------------- server L: giới hạn tạo phòng (nhỏ để dễ chạm)
+    await step('phòng riêng — giới hạn: máy đang có phòng còn người → "owned" (phòng trống thì được thay); mỗi mạng 2 phòng; 3 lần tạo / giờ / mạng; cả rạp 3 phòng (thu hồi phòng trống lâu nhất)', async () => {
+      const L = await serve({ privatePerNet: 2, privateCreatePerHour: 3, privateRoomsMax: 3 });
+      const probe = await mk(L.ws);
+      const exists = async (room: unknown): Promise<boolean> => {
+        const r = probe.waitT('proom_need', 2000, (m) => m.room === room);
+        probe.send({ t: 'spec', room });
+        return (await r).exists === true;
+      };
+      const net1 = '10.60.0.1';
+      const c1 = await mk(L.ws, { ip: net1 });
+      const r1 = await create(c1, { name: 'Một' });
+      assert.equal(r1.t, 'proom_ok');
+      const r1b = await create(c1, { name: 'Một' }); // phòng cũ của máy này còn trống → được thay
+      assert.equal(r1b.t, 'proom_ok', JSON.stringify(r1b));
+      assert.equal(await exists(r1.room), false, 'phòng trống cũ của máy này đã đóng');
+      assert.equal((await c1.join('Một', r1b.room as string, r1b.rt as string)).room, r1b.room);
+      const owned = await create(c1);
+      assert.equal(owned.code, 'owned');
+      assert.equal(owned.room, r1b.room);
+      assert.equal(owned.text, 'Bạn đang có phòng 🔒 Phòng của Một — vào lại phòng đó nhé.');
+      const c1b = await mk(L.ws, { ip: net1 });
+      const r2 = await create(c1b, { name: 'Hai' }); // lần tạo thứ 3 của mạng này, mạng có 2 phòng
+      assert.equal(r2.t, 'proom_ok');
+      const lim = await create(await mk(L.ws, { ip: net1 }), { name: 'Ba' });
+      assert.equal(lim.code, 'limit');
+      assert.equal(lim.text, 'Mạng bạn đang dùng đã có nhiều phòng riêng — thử lại sau ít phút nhé.');
+      const rate = await create(c1b, { name: 'Hai' }); // phòng của nó trống (không tính vào mạng) nhưng hết lượt tạo / giờ
+      assert.equal(rate.code, 'rate');
+      assert.equal(await exists(r2.room), true, 'bị từ chối thì phòng cũ không bị đóng oan');
+      // cả rạp tối đa 3: r1b (có người) + r2 (trống) + r3 → phòng thứ 4 thu hồi phòng trống lâu nhất (r2)
+      const c2 = await mk(L.ws);
+      const r3 = await create(c2, { name: 'Bốn' });
+      assert.equal(r3.t, 'proom_ok');
+      const c3 = await mk(L.ws);
+      const r4 = await create(c3, { name: 'Năm' });
+      assert.equal(r4.t, 'proom_ok', JSON.stringify(r4));
+      assert.equal(await exists(r2.room), false, 'phòng trống lâu nhất bị thu hồi');
+      assert.equal(await exists(r3.room), true);
+      assert.equal((await c2.join('Bốn', r3.room as string, r3.rt as string)).room, r3.room);
+      assert.equal((await c3.join('Năm', r4.room as string, r4.rt as string)).room, r4.room);
+      const full = await create(await mk(L.ws), { name: 'Sáu' });
+      assert.equal(full.code, 'limit');
+      assert.equal(full.text, 'Rạp đang có nhiều phòng riêng quá — thử lại sau ít phút nhé.');
+    });
+
+    // ---------------------------------------------------------- server E: vòng đời (thời gian chờ rất ngắn)
+    await step('phòng riêng — vòng đời: không còn ai quá thời gian chờ → tự đóng; lâu không ai thao tác → tạm dừng video (+ báo) rồi đóng phòng', async () => {
+      const E = await serve({ privateEmptySeconds: 0.5, privateIdlePauseMinutes: 0.7 / 60, privateIdleCloseMinutes: 2 / 60 });
+      const probe = await mk(E.ws);
+      const exists = async (room: unknown): Promise<boolean> => {
+        const r = probe.waitT('proom_need', 2000, (m) => m.room === room);
+        probe.send({ t: 'spec', room });
+        return (await r).exists === true;
+      };
+      const e1 = await mk(E.ws);
+      const r = await create(e1, { name: 'Vắng Vẻ' });
+      assert.equal((await e1.join('Vắng Vẻ', r.room as string, r.rt as string)).room, r.room);
+      assert.equal(await exists(r.room), true);
+      e1.send({ t: 'leave' });
+      await sleep(900);
+      assert.equal(await exists(r.room), false, 'không còn ai quá 0,5 s → đóng');
+      const e2 = await mk(E.ws);
+      assert.equal((await e2.join('Ngồi Im', 'doxe')).t, 'welcome');
+      const r2 = await create(e2, { venue: 'doxe' });
+      await e2.wait((m) => m.t === 'welcome' && m.room === r2.room, 2000, true);
+      const paused = e2.wait((m) => m.t === 'now' && (m.n as { paused?: boolean } | null)?.paused === true, 3000);
+      const note = e2.waitT('notice', 3000, (m) => m.text === '⏸ Đã tạm dừng vì lâu không ai thao tác — bấm ▶ để xem tiếp.');
+      assert.equal((await qadd(e2, 'eRsGyueVLvQ')).ok, true);
+      await paused;
+      await note;
+      const out = e2.waitT('proom_res', 4000, (m) => m.code === 'out');
+      const home = e2.wait((m) => m.t === 'welcome' && m.room === 'doxe', 4000);
+      assert.equal((await out).text, 'Phòng riêng đã đóng vì lâu không ai thao tác.');
+      await home;
+    });
+
+    // ---------------------------------------------------------- server P: lưu / khôi phục (thư mục dữ liệu riêng)
+    await step('phòng riêng — lưu / khôi phục: rooms.json khoá "priv" chỉ có BĂM (mật khẩu, vé, khoá máy chủ phòng / người có vé / người bị mời ra / người thêm video — lộ file cũng không vào được phòng); bật lại → vào bằng vé, chủ phòng vào bằng khoá máy, người thêm video vẫn là chủ video, người bị mời ra vẫn bị chặn', async () => {
+      const P1 = await serve({}, privDir);
+      const po = await mk(P1.ws);
+      assert.equal((await po.join('Chủ Lưu', 'doxe')).t, 'welcome');
+      const ok = await create(po, { pass: 'luu lai nhe', cap: 4, venue: 'doxe' });
+      const room = ok.room as string;
+      await po.wait((m) => m.t === 'welcome' && m.room === room, 2000, true);
+      const pm = await mk(P1.ws);
+      const rt = await enter(pm, room, 'luu lai nhe', 'Khách Lưu');
+      const pk = await mk(P1.ws);
+      const rtK = await enter(pk, room, 'luu lai nhe', 'Khách Bị Mời');
+      const kicked = pk.waitT('proom_res', 3000, (m) => m.code === 'out');
+      await op(po, { op: 'kick', pid: pk.id });
+      await kicked;
+      const playing = po.wait((m) => m.t === 'now' && nowV(m) === 'persist0003', 3000);
+      assert.equal((await qadd(po, 'persist0003')).ok, true);
+      await playing;
+      const queued = po.wait((m) => m.t === 'queue' && (m.q as { v: string }[]).some((q) => q.v === 'persist0004'), 3000);
+      assert.equal((await qadd(pm, 'persist0004')).ok, true);
+      await queued;
+      po.close();
+      pm.close();
+      pk.close();
+      apps.delete(P1.app);
+      await P1.app.close();
+      const raw = readFileSync(join(privDir, 'rooms.json'), 'utf8');
+      const saved = JSON.parse(raw) as { rooms: { id: string }[]; priv: Record<string, unknown>[] };
+      assert.ok(saved.rooms.every((x) => !x.id.startsWith('p-')), 'phòng riêng không lẫn vào rooms[]');
+      const pr = saved.priv.find((x) => x.id === room)!;
+      assert.ok(pr, 'có phòng riêng trong khoá priv');
+      assert.deepEqual([pr.venue, pr.cap, pr.name], ['doxe', 4, 'Phòng của Chủ Lưu']);
+      assert.match(String(pr.passHash), /^[a-f0-9]{64}$/);
+      assert.match(String(pr.salt), /^[a-f0-9]{32}$/);
+      assert.ok(!raw.includes('luu lai nhe') && !raw.includes(rt) && !raw.includes(rtK) && !raw.includes(String(ok.rt)), 'không lưu mật khẩu / vé thật');
+      // khoá máy: chỉ có băm sha256 — chủ phòng, vé {h, ckh, at}, người bị mời ra, người thêm video (byCkH)
+      for (const ck of [po.ck, pm.ck, pk.ck]) assert.ok(!raw.includes(ck), `rooms.json không được có khoá máy thật ${ck}`);
+      assert.equal(pr.ownerCkH, sha256(po.ck));
+      assert.ok(!('ownerCk' in pr) && !('kickedCk' in pr));
+      const toks = pr.tokens as Record<string, unknown>[];
+      assert.ok(toks.length >= 2 && toks.every((t) => /^[a-f0-9]{64}$/.test(String(t.h)) && /^[a-f0-9]{64}$/.test(String(t.ckh)) && !('ck' in t)));
+      assert.ok(toks.some((t) => t.ckh === sha256(pm.ck)), 'vé của khách còn trong phòng');
+      assert.ok(!toks.some((t) => t.ckh === sha256(pk.ck)), 'người bị mời ra mất vé');
+      assert.deepEqual(pr.kickedCkH, [sha256(pk.ck)]);
+      const items = [...(pr.queue as Record<string, unknown>[]), pr.now as Record<string, unknown>];
+      assert.ok(items.every((q) => !('byCk' in q) && /^[a-f0-9]{64}$/.test(String(q.byCkH))), 'người thêm video chỉ lưu băm');
+      const P2 = await serve({}, privDir);
+      const pm2 = await mk(P2.ws);
+      pm2.ck = pm.ck;
+      const w = await pm2.join('Khách Lưu', room, rt);
+      assert.equal(w.room, room, JSON.stringify(w));
+      const s = snapOf(w);
+      assert.deepEqual([s.venue, s.name, s.priv!.cap], ['doxe', 'Phòng của Chủ Lưu', 4]);
+      assert.equal(s.now?.v, 'persist0003');
+      assert.deepEqual(s.queue.map((q) => q.v), ['persist0004']);
+      assert.equal(s.queue[0].byId, w.you, 'người thêm video nhận lại video của mình (so băm khoá máy)');
+      const po2 = await mk(P2.ws);
+      po2.ck = po.ck;
+      const w2 = await po2.join('Chủ Lưu', room);
+      assert.equal(w2.room, room, 'chủ phòng vào lại bằng khoá máy, không cần vé');
+      assert.equal(snapOf(w2).priv!.ownerId, w2.you);
+      const pk2 = await mk(P2.ws);
+      pk2.ck = pk.ck;
+      assert.equal((await pk2.join('Khách Bị Mời', room, rtK)).code, 'priv_kicked', 'người bị mời ra vẫn bị chặn sau khi khởi động lại');
+    });
+
+    await step('rooms.json bản trước (khoá máy THẬT của người thêm video — byCk): nạp thành băm, người thêm vẫn nhận lại video; lưu lại không còn khoá thật', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'vc-smoke-legacy-'));
+      try {
+        const ck = 'abcdef0123456789';
+        const at = Date.now();
+        const item = (v: string, qid: number): Record<string, unknown> => ({
+          qid, v, title: `Video ${v}`, ch: 'Kênh', dur: 200, live: false, by: 'Người Cũ', byId: 9, byCk: ck, addedAt: at,
+        });
+        writeFileSync(join(dir, 'rooms.json'), JSON.stringify({
+          savedAt: at, qid: 20, pid: 40,
+          rooms: [{ id: 'congvien', queue: [item('legacy00002', 12)], now: { ...item('legacy00001', 11), at, paused: false, pos: 0, ends: at + 200_000 }, locked: false }],
+          blocked: [],
+        }));
+        const L1 = await serve({}, dir);
+        const c = await mk(L1.ws);
+        c.ck = ck;
+        const w = await c.join('Người Cũ', 'congvien');
+        const s = snapOf(w);
+        assert.equal(s.now?.v, 'legacy00001');
+        assert.equal(s.queue[0].byId, w.you, 'nhận lại video theo khoá máy (so băm)');
+        c.close();
+        apps.delete(L1.app);
+        await L1.app.close();
+        const raw = readFileSync(join(dir, 'rooms.json'), 'utf8');
+        assert.ok(!raw.includes(ck) && raw.includes(sha256(ck)), 'lưu lại: chỉ còn băm');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    // ---------------------------------------------------------- quản trị viên trong phòng riêng (mỗi bước một server)
+    await step('phòng riêng — quản trị viên có mặt là TRẠNG THÁI: người vào sau vẫn biết (welcome có priv.admins + báo 🛡 sau welcome); admin rời → priv hết admins; vào lại trên cùng kết nối → báo lại; đứng xem rồi vào hẳn → chỉ một lần báo', async () => {
+      const S = await serve({});
+      const own = await mk(S.ws);
+      assert.equal((await own.join('Chủ Trạng Thái', 'nhung')).t, 'welcome');
+      const ok = await create(own, { pass: 'trang thai', cap: 4, venue: 'nhung' });
+      const room = ok.room as string;
+      await own.wait((m) => m.t === 'welcome' && m.room === room, 2000, true);
+      // admin mở link → đứng xem thẳng: cả phòng được báo + priv.admins = 1
+      const told = own.wait(isShield, 2000);
+      const watching = own.wait(isPrivMsg((p) => p.admins === 1), 2000);
+      const ad = await mk(S.ws, { admin: true, query: `?room=${room}` });
+      assert.equal(ad.msgs.find((m) => m.t === 'hello')!.room, room);
+      await told;
+      await watching;
+      // người vào SAU lúc admin đang xem: welcome đã có admins = 1, và được báo 🛡 ngay sau welcome
+      const late = await mk(S.ws);
+      await enter(late, room, 'trang thai', 'Khách Đến Sau');
+      const w = late.msgs.find((m) => m.t === 'welcome' && m.room === room)!;
+      assert.equal(snapOf(w).priv!.admins, 1);
+      const n = await late.wait(isShield, 2000, true);
+      assert.ok(late.msgs.indexOf(w) < late.msgs.indexOf(n), 'báo 🛡 tới sau welcome');
+      // admin sang phòng khác → cả phòng nhận priv không còn quản trị viên
+      const gone = late.wait(isPrivMsg((p) => !p.admins && !p.members.some((x) => x.adm)), 2000);
+      ad.send({ t: 'spec', room: 'nhung' });
+      await gone;
+      // quay lại trên CÙNG kết nối = vào lại thật → cả phòng được báo lại
+      const again = [own, late].map((c) => c.wait(isShield, 2000));
+      ad.send({ t: 'spec', room });
+      await Promise.all(again);
+      // đứng xem rồi vào hẳn trên cùng kết nối: không báo thêm; thành viên có adm, hết người đứng xem
+      const before = own.msgs.filter(isShield).length;
+      const asMember = own.wait(isPrivMsg((p) => !p.admins && p.members.some((x) => x.adm && x.name === 'Người Trực Ca')), 2000);
+      assert.equal((await ad.join('Người Trực Ca', room)).room, room);
+      await asMember;
+      await sleep(150);
+      assert.equal(own.msgs.filter(isShield).length, before, 'đứng xem → vào hẳn trên cùng kết nối: chỉ một lần báo');
+      // người vào sau lúc admin đang có nhân vật trong phòng → cũng được báo, welcome ghi rõ quản trị viên
+      const late2 = await mk(S.ws);
+      await enter(late2, room, 'trang thai', 'Khách Thứ Ba');
+      await late2.wait(isShield, 2000, true);
+      assert.ok(snapOf(late2.msgs.find((m) => m.t === 'welcome' && m.room === room)!).priv!.members.some((x) => x.adm));
+      // admin mất kết nối rồi nối lại (kết nối mới) → vào lại thật → báo lại
+      const back = own.wait(isShield, 3000);
+      ad.close();
+      await own.wait(isPrivMsg((p) => p.members.some((x) => x.adm && x.ghost)), 2000);
+      const ad2 = await mk(S.ws, { admin: true, query: `?room=${room}` });
+      ad2.ck = ad.ck;
+      ad2.token = ad.token;
+      assert.equal((await ad2.join('Người Trực Ca', room)).room, room);
+      await back;
+    });
+
+    await step('phòng riêng — quản trị viên KHÔNG chiếm chỗ: vào hẳn phòng 3 chỗ đang có 2 người → bạn thứ ba vẫn vào được; chủ phòng hạ số người theo thành viên thật; thành viên rời rồi vào lại bằng vé không bị "đầy"; còn mỗi admin → phòng vẫn tự đóng khi hết thời gian chờ; chủ rạp (cookie admin) tạo phòng của chính mình → vẫn là thành viên, ngồi chờ một mình không bị đóng', async () => {
+      const S = await serve({ privateEmptySeconds: 0.8 });
+      const own = await mk(S.ws);
+      assert.equal((await own.join('Chủ Ghế', 'congvien')).t, 'welcome');
+      const ok = await create(own, { pass: 'ghe ngoi', cap: 3, venue: 'congvien' });
+      const room = ok.room as string;
+      await own.wait((m) => m.t === 'welcome' && m.room === room, 2000, true);
+      const m1 = await mk(S.ws);
+      const rt1 = await enter(m1, room, 'ghe ngoi', 'Bạn Ghế Một');
+      const ad = await mk(S.ws, { admin: true, query: `?room=${room}` });
+      assert.equal((await ad.join('Kiểm Duyệt', room)).room, room);
+      // bạn thứ ba: 2 thành viên + admin trong phòng 3 chỗ → vẫn còn chỗ
+      const m2 = await mk(S.ws);
+      await enter(m2, room, 'ghe ngoi', 'Bạn Ghế Hai');
+      const st = ad.waitT('adm', 2000, (m) => m.kind === 'state');
+      ad.send({ t: 'adm', op: 'state' });
+      assert.equal(((await st).privRooms as { id: string; count: number }[]).find((r) => r.id === room)!.count, 3, 'admin không tính vào số người');
+      // m2 rời; chủ phòng hạ xuống 2 chỗ (thành viên thật: chủ + m1 — admin không tính)
+      const without = (name: string) => isPrivMsg((p) => !p.members.some((x) => x.name === name));
+      const m2Left = own.wait(without('Bạn Ghế Hai'), 2000);
+      m2.send({ t: 'leave' });
+      await m2Left;
+      const cap2 = own.wait(isPrivMsg((p) => p.cap === 2), 2000);
+      await op(own, { op: 'cap', cap: 2 });
+      await cap2;
+      // m1 tắt tab rồi mở lại bằng vé: phòng 2 chỗ, đang có chủ phòng + admin → vẫn vào được
+      const m1Left = own.wait(without('Bạn Ghế Một'), 2000);
+      m1.send({ t: 'leave' });
+      await m1Left;
+      const m1b = await mk(S.ws);
+      m1b.ck = m1.ck;
+      assert.equal((await m1b.join('Bạn Ghế Một', room, rt1)).room, room, 'admin không giữ chỗ của thành viên');
+      // mọi thành viên rời, còn mỗi admin (có nhân vật) → hết thời gian chờ phòng vẫn đóng; admin về phòng chung
+      const out = ad.waitT('proom_res', 4000, (m) => m.code === 'out');
+      const home = ad.wait((m) => m.t === 'welcome' && m.room === 'congvien', 4000);
+      m1b.send({ t: 'leave' });
+      own.send({ t: 'leave' });
+      await out;
+      await home;
+      // chủ rạp (trình duyệt có cookie admin) tạo phòng riêng của CHÍNH MÌNH: là thành viên bình thường (chiếm chỗ, ngồi chờ
+      // bạn bè một mình phòng không tự đóng) và KHÔNG bị gắn 🛡 / không bật "quản trị viên đang xem" trong phòng của mình
+      const boss = await mk(S.ws, { admin: true });
+      assert.equal((await boss.join('Chủ Rạp Đây', 'congvien')).t, 'welcome');
+      const mine = await create(boss, { pass: 'phong cua toi', cap: 2, venue: 'congvien' });
+      assert.equal(mine.t, 'proom_ok', JSON.stringify(mine));
+      const bw = await boss.wait((m) => m.t === 'welcome' && m.room === mine.room, 2000, true);
+      const bp = snapOf(bw).priv!;
+      assert.ok(bp.members.some((x) => x.id === bp.ownerId && !x.adm), 'chủ phòng là admin trong phòng của mình: không gắn adm');
+      assert.ok(!bp.admins, 'không tính là quản trị viên đang xem');
+      assert.ok(!boss.msgs.some((m) => m.t === 'notice' && /Quản trị viên rạp đang xem/.test(String(m.text))), 'không tự báo "quản trị viên đang xem" trong phòng mình');
+      assert.equal(bp.members.filter((x) => !x.adm).length, 1, 'client đếm chủ phòng là thành viên');
+      await sleep(1500); // > PRIVATE_EMPTY_SECONDS (0,8 s) của bước này
+      const br = S.app.hub.rooms.get(mine.room as string);
+      assert.ok(br && !br.priv!.closed, 'phòng của chủ rạp không tự đóng lúc chủ rạp ngồi chờ một mình');
+      assert.equal(br!.members(), 1);
+      assert.ok(!boss.msgs.some((m) => m.t === 'proom_res' && m.code === 'out'));
+    });
+
+    await step('phòng riêng — video chỉ qua kiểm cơ bản (không có YT_API_KEY) giữ giới hạn rạp chung: "không công khai" chiếu tối đa 15 phút, báo dài 2 tiếng vẫn 15 phút, live tối đa LIVE_MAX_MINUTES (12 giờ chỉ dành cho video Data API kiểm đủ)', async () => {
+      type N = { v: string; unk?: boolean; live: boolean; dur: number; at: number; ends: number };
+      const S = await serve({}, null, { youtube: createFakeYouTube({ noKey: true }) });
+      const own = await mk(S.ws);
+      assert.equal((await own.join('Chủ Cơ Bản', 'bien')).t, 'welcome');
+      const ok = await create(own, { pass: 'co ban nhe', cap: 2, venue: 'bien' });
+      await own.wait((m) => m.t === 'welcome' && m.room === ok.room, 2000, true);
+      const mins = (n: N): number => (n.ends - n.at) / 60_000;
+      const playing = own.wait((m) => m.t === 'now' && nowV(m) === 'unlisted001', 3000);
+      assert.equal((await qadd(own, 'unlisted001')).ok, true);
+      const n1 = (await playing).n as N;
+      assert.equal(n1.unk, true);
+      assert.ok(Math.abs(mins(n1) - 15) < 0.1, `chiếu tối đa 15 phút, được ${mins(n1)} phút`);
+      const fixed = own.wait((m) => m.t === 'now' && nowV(m) === 'unlisted001' && !(m.n as N).unk, 3000);
+      own.send({ t: 'vid_dur', v: 'unlisted001', d: 7200, live: false });
+      const n2 = (await fixed).n as N;
+      assert.equal(n2.dur, 7200);
+      assert.ok(Math.abs(mins(n2) - 15) < 0.1, `người thêm báo 2 tiếng vẫn 15 phút, được ${mins(n2)} phút`);
+      assert.equal((await qadd(own, 'liveNow0001')).ok, true);
+      const liveNow = own.wait((m) => m.t === 'now' && nowV(m) === 'liveNow0001', 3000);
+      await op(own, { op: 'skip' });
+      await liveNow;
+      const isLive = own.wait((m) => m.t === 'now' && nowV(m) === 'liveNow0001' && (m.n as N).live, 3000);
+      own.send({ t: 'vid_dur', v: 'liveNow0001', d: 600, live: true });
+      const n3 = (await isLive).n as N;
+      assert.ok(Math.abs(mins(n3) - 30) < 0.1, `live chiếu tối đa 30 phút, được ${mins(n3)} phút`);
+    });
+
+    await step('phòng riêng — nhật ký server không bao giờ có video / người trong phòng riêng (tên, mã video, độ dài, báo cáo, lỗi trình phát, admin gỡ video từ trong phòng) — chỉ mã + tên phòng lúc tạo / đổi mật khẩu / đóng; phòng chung vẫn ghi như cũ', async () => {
+      const logs: string[] = [];
+      const S = await serve({}, null, { youtube: createFakeYouTube({ noKey: true }), log: (...a) => { logs.push(a.map(String).join(' ')); } });
+      const own = await mk(S.ws);
+      assert.equal((await own.join('Lan Anh', 'nhung')).t, 'welcome');
+      const ok = await create(own, { pass: 'nhat ky kin', cap: 3, venue: 'nhung' });
+      const room = ok.room as string;
+      await own.wait((m) => m.t === 'welcome' && m.room === room, 2000, true);
+      const mem = await mk(S.ws);
+      await enter(mem, room, 'nhat ky kin', 'Bạn Của Lan');
+      const playing = own.wait((m) => m.t === 'now' && nowV(m) === 'eRsGyueVLvQ', 3000);
+      assert.equal((await qadd(own, 'eRsGyueVLvQ')).ok, true);
+      await playing;
+      const timed = own.wait((m) => m.t === 'now' && nowV(m) === 'eRsGyueVLvQ' && (m.n as { dur: number }).dur === 888, 2000);
+      own.send({ t: 'vid_dur', v: 'eRsGyueVLvQ', d: 888, live: false });
+      await timed;
+      const reported = mem.waitT('notice', 2000, (m) => /Đã gửi báo cáo/.test(String(m.text)));
+      mem.send({ t: 'report', kind: 'video', target: 'eRsGyueVLvQ', reason: 'copyright', note: 'ghi chú riêng tư' });
+      await reported;
+      const skipped = own.wait((m) => m.t === 'now' && nowV(m) !== 'eRsGyueVLvQ', 3000);
+      for (const c of [own, mem]) c.send({ t: 'vid_err', v: 'eRsGyueVLvQ', code: 150 });
+      await skipped;
+      // admin đứng trong phòng riêng gỡ video đang chiếu khỏi cả rạp: log không có mã video
+      const bunny = own.wait((m) => m.t === 'now' && nowV(m) === 'YE7VzlLtp-4', 3000);
+      assert.equal((await qadd(mem, 'YE7VzlLtp-4')).ok, true);
+      await bunny;
+      const ad = await mk(S.ws, { admin: true, query: `?room=${room}` });
+      const blocked = ad.waitT('notice', 2000, (m) => /Đã gỡ hẳn/.test(String(m.text)));
+      ad.send({ t: 'adm', op: 'block', v: '' });
+      await blocked;
+      const changed = own.waitT('proom_res', 4000, (m) => m.code === 'ok');
+      await op(own, { op: 'pass', pass: 'mat khau moi' });
+      await changed;
+      const out = own.waitT('proom_res', 3000, (m) => m.code === 'out');
+      await op(own, { op: 'close' });
+      await out;
+      // đối chứng phòng chung: cùng thao tác thì nhật ký có tên video (bộ bắt nhật ký hoạt động)
+      const pub = await mk(S.ws);
+      assert.equal((await pub.join('Người Chung', 'bien')).t, 'welcome');
+      const pubPlaying = pub.wait((m) => m.t === 'now' && nowV(m) === 'jNQXAC9IVRw', 3000);
+      assert.equal((await qadd(pub, 'jNQXAC9IVRw')).ok, true);
+      await pubPlaying;
+      const pubTimed = pub.wait((m) => m.t === 'now' && nowV(m) === 'jNQXAC9IVRw' && (m.n as { dur: number }).dur === 19, 2000);
+      pub.send({ t: 'vid_dur', v: 'jNQXAC9IVRw', d: 19, live: false });
+      await pubTimed;
+      assert.ok(logs.some((l) => l.includes('Me at the zoo')), `phòng chung: nhật ký có tên video — ${logs.join(' | ')}`);
+      const all = logs.join('\n');
+      assert.ok(logs.some((l) => l.startsWith('🚫 Admin gỡ một video')), 'có dòng admin gỡ video (không mã)');
+      for (const bad of ['Sintel', 'eRsGyueVLvQ', 'Big Buck Bunny', 'YE7VzlLtp-4', 'ghi chú riêng tư', 'Bạn Của Lan', 'nhat ky kin', 'mat khau moi', String(ok.rt)]) {
+        assert.ok(!all.includes(bad), `nhật ký không được có "${bad}":\n${all}`);
+      }
+      const privLines = logs.filter((l) => l.includes(room));
+      assert.equal(privLines.length, 3, `chỉ 3 dòng có mã phòng (tạo / đổi mật khẩu / đóng):\n${privLines.join('\n')}`);
+      assert.ok(privLines[0].includes('Phòng của Lan Anh') && /đổi mật khẩu/.test(privLines[1]) && /Đóng phòng riêng/.test(privLines[2]));
+    });
+
+    await step('phòng riêng — chống chiếm hết phòng: mỗi dải mạng (IPv4 /24, IPv6 /48) tối đa PRIVATE_PER_SUBNET phòng; rạp đủ PRIVATE_ROOMS_MAX mà không có phòng trống → người từ dải mạng chưa có phòng lấy phòng lâu không thao tác nhất của dải mạng giữ nhiều phòng nhất', async () => {
+      const S = await serve({ privatePerNet: 3, privatePerSubnet: 2, privateRoomsMax: 3 });
+      // tạo + vào phòng (phòng có thành viên, không phải phòng trống)
+      const own = async (ip: string, name: string): Promise<{ c: Client; room: string }> => {
+        const c = await mk(S.ws, { ip });
+        const r = await create(c, { name, pass: 'chia deu nhe', cap: 2, venue: 'nhung' });
+        assert.equal(r.t, 'proom_ok', JSON.stringify(r));
+        assert.equal((await c.join(name, r.room as string, r.rt as string)).room, r.room);
+        return { c, room: r.room as string };
+      };
+      const a1 = await own('10.70.1.1', 'Dải A Một');
+      await sleep(20);
+      await own('10.70.1.2', 'Dải A Hai');
+      const lim = await create(await mk(S.ws, { ip: '10.70.1.3' }), { name: 'Dải A Ba' });
+      assert.equal(lim.code, 'limit', 'cùng dải /24 đã có 2 phòng (mạng /32 khác vẫn tính chung)');
+      assert.equal(lim.text, 'Mạng bạn đang dùng đã có nhiều phòng riêng — thử lại sau ít phút nhé.');
+      await own('2001:db8:aa:1::1', 'Dải B Một'); // rạp đủ 3 phòng
+      // cùng dải /48 (khác /64) với phòng B: dải đã có phòng → không được lấy chỗ của ai
+      const sameB = await create(await mk(S.ws, { ip: '2001:db8:aa:2::1' }), { name: 'Dải B Hai' });
+      assert.equal(sameB.code, 'limit');
+      assert.equal(sameB.text, 'Rạp đang có nhiều phòng riêng quá — thử lại sau ít phút nhé.');
+      // dải mạng mới: phòng lâu không thao tác nhất của dải A (giữ 2 phòng) nhường chỗ
+      const out = a1.c.waitT('proom_res', 3000, (m) => m.code === 'out');
+      const landed = a1.c.wait((m) => m.t === 'welcome' && m.room === 'nhung', 3000);
+      const fresh = await create(await mk(S.ws, { ip: '10.80.0.1' }), { name: 'Dải Mới' });
+      assert.equal(fresh.t, 'proom_ok', JSON.stringify(fresh));
+      assert.equal((await out).text, 'Rạp đang đủ số phòng riêng — phòng này đã đóng để nhường chỗ cho người khác.');
+      await landed;
+      assert.equal((await auth(await mk(S.ws), a1.room, 'chia deu nhe')).exists, false, 'phòng bị thu hồi đã đóng');
+    });
+
+    await step('phòng riêng — đổi mật khẩu: thành viên đang mất mạng / đang ẩn GIỮ vé (quay lại bằng vé cũ được), người đã rời mất vé; đổi mật khẩu xoá lượt dò của phòng (phòng bị dò tới khoá thì người có mật khẩu mới vào được ngay); tối đa 5 lần / 10 phút / phòng', async () => {
+      const S = await serve({});
+      const own = await mk(S.ws);
+      assert.equal((await own.join('Chủ Đổi Khoá', 'doxe')).t, 'welcome');
+      const ok = await create(own, { pass: 'khoa so mot', cap: 6, venue: 'doxe' });
+      const room = ok.room as string;
+      await own.wait((m) => m.t === 'welcome' && m.room === room, 2000, true);
+      let pass = 'khoa so mot';
+      let changes = 0;
+      const change = async (next: string): Promise<Msg> => {
+        const r = own.waitT('proom_res', 6000, (m) => m.code === 'ok' || m.code === 'rate');
+        await op(own, { op: 'pass', pass: next });
+        const m = await r;
+        if (m.code === 'ok') { pass = next; changes++; }
+        return m;
+      };
+      // G: mất mạng (đang là "ma") đúng lúc đổi; H: đang ẩn (điện thoại tắt màn hình); X: đã vào rồi rời hẳn trước khi đổi
+      const g = await mk(S.ws);
+      const rtG = await enter(g, room, pass, 'Bạn Mất Mạng');
+      const h = await mk(S.ws);
+      const rtH = await enter(h, room, pass, 'Bạn Đang Ẩn');
+      const x = await mk(S.ws);
+      const rtX = await enter(x, room, pass, 'Bạn Đã Về');
+      const states = own.wait(isPrivMsg((p) => p.members.some((m) => m.name === 'Bạn Mất Mạng' && m.ghost)
+        && p.members.some((m) => m.name === 'Bạn Đang Ẩn' && m.away) && !p.members.some((m) => m.name === 'Bạn Đã Về')), 3000);
+      g.close();
+      h.send({ t: 'away' });
+      x.send({ t: 'leave' });
+      await states;
+      assert.equal((await change('khoa so hai')).code, 'ok');
+      // G nối lại (cùng tab: token + khoá máy) → đúng chỗ; đóng tab hẳn → mở lại bằng vé cũ → vào thẳng
+      const g2 = await mk(S.ws);
+      g2.ck = g.ck;
+      g2.token = g.token;
+      assert.equal((await g2.join('Bạn Mất Mạng', room, rtG)).room, room);
+      g2.send({ t: 'leave' });
+      await sleep(50);
+      const g3 = await mk(S.ws);
+      g3.ck = g.ck;
+      assert.equal((await g3.join('Bạn Mất Mạng', room, rtG)).room, room, 'mất mạng lúc đổi mật khẩu vẫn giữ vé');
+      // H: socket chết lúc đang ẩn (bị bỏ ngay) → mở lại bằng vé cũ → vào thẳng
+      const hGone = own.wait(isPrivMsg((p) => !p.members.some((m) => m.name === 'Bạn Đang Ẩn')), 2000);
+      h.close();
+      await hGone;
+      const h2 = await mk(S.ws);
+      h2.ck = h.ck;
+      assert.equal((await h2.join('Bạn Đang Ẩn', room, rtH)).room, room, 'đang ẩn lúc đổi mật khẩu vẫn giữ vé');
+      // X: đã rời trước khi đổi → vé cũ hết hiệu lực
+      const x2 = await mk(S.ws);
+      x2.ck = x.ck;
+      assert.equal((await x2.join('Bạn Đã Về', room, rtX)).code, 'priv_need');
+      // phòng bị dò tới khoá (2 mạng × 10 lần = 20 / 10 phút): người có mật khẩu đúng cũng phải đợi → đổi mật khẩu → vào ngay
+      for (const c of [await mk(S.ws), await mk(S.ws)]) {
+        for (let i = 0; i < 10; i++) assert.equal((await auth(c, room, `doan bua ${i}`)).code, 'bad_pass');
+      }
+      assert.equal((await auth(await mk(S.ws), room, pass)).code, 'rate', 'phòng đang khoá vì bị dò');
+      assert.equal((await change('khoa so ba')).code, 'ok');
+      assert.equal((await auth(await mk(S.ws), room, pass)).t, 'proom_ok', 'mật khẩu mới: lượt dò cũ không còn tính');
+      // tối đa 5 lần đổi / 10 phút / phòng (mỗi lần một phép băm scrypt)
+      while (changes < 5) assert.equal((await change(`khoa so ${changes + 10}`)).code, 'ok');
+      const r6 = await change('khoa qua nhieu');
+      assert.equal(r6.code, 'rate');
+      assert.equal(r6.text, 'Đổi mật khẩu nhiều quá — đợi vài phút rồi thử lại nhé.');
+      assert.equal((await auth(await mk(S.ws), room, pass)).t, 'proom_ok', 'bị từ chối thì mật khẩu cũ vẫn dùng được');
+    });
+
+    await step('phòng riêng — lệnh admin là thao tác thật: video tự dừng vì lâu không ai thao tác, admin cho chiếu tiếp → không bị dừng lại ngay nhịp sau', async () => {
+      const S = await serve({ privateIdlePauseMinutes: 0.6 / 60, privateIdleCloseMinutes: 1 });
+      const own = await mk(S.ws);
+      assert.equal((await own.join('Chủ Ngủ Gật', 'nhung')).t, 'welcome');
+      const ok = await create(own, { pass: 'ngu gat nhe', cap: 2, venue: 'nhung' });
+      const room = ok.room as string;
+      await own.wait((m) => m.t === 'welcome' && m.room === room, 2000, true);
+      const ad = await mk(S.ws, { admin: true, query: `?room=${room}` });
+      const isPaused = (v: boolean) => (m: Msg): boolean => m.t === 'now' && (m.n as { paused?: boolean } | null)?.paused === v;
+      const paused = own.wait(isPaused(true), 3000);
+      assert.equal((await qadd(own, 'eRsGyueVLvQ')).ok, true);
+      await paused;
+      const resumed = own.wait(isPaused(false), 2000);
+      const done = ad.waitT('notice', 2000, (m) => m.text === 'Đã chiếu tiếp.');
+      ad.send({ t: 'adm', op: 'resume' });
+      await resumed;
+      await done;
+      await assert.rejects(own.wait(isPaused(true), 350), 'không bị dừng lại ngay nhịp sau');
+    });
+
+    await step('phòng riêng: tab mới cùng máy (nhân vật cũ ở phòng chung) vào phòng riêng mà trùng tên người trong đó → nối lại tại chỗ (welcome) rồi MỚI báo lý do (proom_res "name" kèm id phòng — báo được ngay trên thẻ vào rạp)', async () => {
+      const S = await serve({});
+      const own = await mk(S.ws);
+      assert.equal((await own.join('Trùng Tên', 'nhung')).t, 'welcome');
+      const ok = await create(own, { pass: 'trung ten a', cap: 4, venue: 'nhung' });
+      const room = ok.room as string;
+      await own.wait((m) => m.t === 'welcome' && m.room === room, 2000, true);
+      const d1 = await mk(S.ws);
+      assert.equal((await d1.join('Trùng Tên', 'bien')).t, 'welcome');
+      const d2 = await mk(S.ws);
+      d2.ck = d1.ck;
+      const a = await auth(d2, room, 'trung ten a');
+      assert.equal(a.t, 'proom_ok');
+      const refused = d2.wait((m) => m.t === 'proom_res' && m.code === 'name', 2000);
+      const w = await d2.join('Trùng Tên', room, a.rt as string);
+      assert.equal(w.t, 'welcome');
+      assert.equal(w.room, 'bien', 'nối lại tại chỗ');
+      const r = await refused;
+      assert.equal(r.room, room);
+      assert.equal(r.text, 'Tên "Trùng Tên" đang có người dùng trong Phòng của Trùng Tên — đổi tên rồi vào nhé.');
+      assert.ok(d2.msgs.indexOf(w) < d2.msgs.indexOf(r), 'lý do tới SAU welcome');
+      assert.ok(!d2.msgs.slice(0, d2.msgs.indexOf(w)).some((m) => m.t === 'notice'), 'không có lời báo nào lọt trước welcome');
+    });
+  } finally {
+    for (const c of clients) c.close();
+    for (const a of apps) await a.close();
+    rmSync(privDir, { recursive: true, force: true });
+  }
 }
 
 main().catch((e) => {

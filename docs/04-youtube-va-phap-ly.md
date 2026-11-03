@@ -18,6 +18,13 @@ tới video, trình phát, bố cục quanh màn hình thì đọc lại cả tr
 | Nút báo cáo, có khiếu nại thì gỡ ngay | 🚩 dưới màn hình / thẻ Đang chiếu → `report`; admin "🚫 Gỡ hẳn" (`adm block`) (§8) |
 | Không affiliate / quảng cáo sát trình phát | không có trong code — giữ nguyên như vậy |
 | `YT_API_KEY` chỉ ở `.env`, không in / commit | `server.ts` không in key; `youtube.ts` chỉ đặt key trong URL gọi API, lỗi chỉ ghi lý do |
+| Không chặn link video liên quan / gợi ý của trình phát | `player.js` (`offVideo`): bấm video gợi ý thì **không** tự quay lại — nút "↩ Về video của rạp" ngoài khung video (§5) |
+| Phòng riêng: mật khẩu chỉ khoá **phòng** (ngoại lệ "login" của III.F.3.b — thao tác không đặc thù YouTube), không bao giờ khoá một video; không đòi đăng ký kênh / thích / chia sẻ | `ui/private.js`, server `hub.ts` (§12) |
+| Phòng riêng **luôn miễn phí** — không bán phòng, mật khẩu, chỗ ngồi, "VIP" (III.F.3.a/c, III.G.1.b) | không có gì thu tiền trong code — giữ nguyên như vậy; `/chinh-sach` §3–4 |
+| Giới hạn 15 phút là luật **của rạp**, không phải của YouTube → phòng riêng nới tới 12 giờ, **chỉ với video Data API đã kiểm đủ**; video chỉ kiểm cơ bản (oEmbed, item `basic`) giữ giới hạn của rạp chung ở mọi phòng; mọi điều kiện khác giữ nguyên | server `hub.ts` (`PRIVATE_MAX_VIDEO_MINUTES`, `onQueueAdd`, `Room.playMs`) (§3.1, §12) |
+| Xem chung: tự dừng trên thanh YouTube → **phòng chung** chạy lại ngay (luật cốt lõi của rạp: cả phòng một đồng hồ, có giải thích, chỉ dùng hàm API có tài liệu); **phòng riêng** giữ dừng trên máy đó (phòng có nút ⏸ cho cả phòng ngoài khung video nên không cần ép từng máy — can thiệp ít nhất vào trình phát) | `player.js onState / sync` (§5, §12) |
+| Gỡ video bản quyền phải tới cả phòng riêng | server: phòng riêng nằm trong `Hub.rooms` — `adm block`, danh sách `blocked`, `embedFail` áp như thường |
+| Không để lộ id phòng riêng cho YouTube | link + thanh địa chỉ dùng **phần `#`** (`/#phong=p-…` — không bao giờ gửi lên máy chủ, không vào Referer); `player.js` **tự dựng `<iframe>`** (cách "tự tạo iframe" có tài liệu của IFrame API) với `src` chỉ gồm tham số cố định + `origin` / `widget_referrer` = gốc trang → widget API không thêm `forigin` / `gporigin` (§5) |
 
 ## 2. Tách link — `parseVideoId`
 
@@ -42,7 +49,7 @@ Server gọi `GET https://www.googleapis.com/youtube/v3/videos?part=status,conte
 | không phải buổi live sắp phát (`liveBroadcastContent: upcoming`) | "Buổi phát trực tiếp này chưa bắt đầu." |
 | live (`liveBroadcastContent: live`): `ALLOW_LIVE` | "Rạp đang không nhận video phát trực tiếp." |
 | không live: đọc được độ dài > 0 | "Không đọc được độ dài video." |
-| độ dài ≤ `MAX_VIDEO_MINUTES` (admin: `ADMIN_MAX_VIDEO_MINUTES`) | "Video dài … — rạp chỉ nhận video tối đa …" |
+| độ dài ≤ `MAX_VIDEO_MINUTES` (admin: `ADMIN_MAX_VIDEO_MINUTES`; phòng riêng: `PRIVATE_MAX_VIDEO_MINUTES`, admin lấy số lớn hơn — `Room.maxSeconds`) | "Video dài … — rạp chỉ nhận video tối đa …" |
 
 Không gọi được Data API (bảng dưới) → **không chặn người xem nữa** (0.4.6): chuyển sang kiểm cơ bản §3.1. Log server
 ghi một lần `⚠️ YouTube Data API không dùng được (<code>) — tạm kiểm video cơ bản bằng oEmbed`.
@@ -61,7 +68,7 @@ oEmbed công khai `https://www.youtube.com/oembed?url=…` (miễn phí, không 
 
 | oEmbed | Người xem thấy |
 |---|---|
-| 200 (tên + kênh) | nhận, item `unk: true` (chưa rõ độ dài), `cap` = `MAX_VIDEO_MINUTES` (admin `ADMIN_MAX_VIDEO_MINUTES`) × 60 |
+| 200 (tên + kênh) | nhận, item `unk: true` (chưa rõ độ dài) + `basic: true` (chỉ kiểm cơ bản — giữ mãi, kể cả khi đo xong độ dài), `cap` = `MAX_VIDEO_MINUTES` (admin `ADMIN_MAX_VIDEO_MINUTES`) × 60 **ở mọi phòng**, kể cả phòng riêng (12 giờ chỉ dành cho video Data API kiểm đủ — §12) |
 | 401 / 403 (chặn nhúng / riêng tư) | "Video riêng tư hoặc chủ kênh không cho phát trên trang khác." |
 | 400 / 404 | "Không tìm thấy video — có thể đã bị xoá hoặc để riêng tư." |
 | mạng / lỗi khác | "Không kiểm tra được video lúc này, thử lại sau nhé." |
@@ -75,9 +82,13 @@ Phần oEmbed không biết thì giữ luật theo cách khác:
   là nhận (họ vốn tự bỏ qua được bài mình); người khác cần đủ số mạng như `vid_err`, lấy trung vị. Nhận xong: `unk` bỏ,
   `dur` = độ dài thật, `ends` = `at + min(dur, cap)`; dài hơn `cap` thì báo "chiếu tối đa … rồi chuyển bài".
 - **Live**: độ dài tăng dần giữa 2 lần đo (live: `getDuration` = thời gian đã phát của luồng) → `live: true` → chiếu
-  tối đa `LIVE_MAX_MINUTES`, máy người xem nạp lại theo đầu live (`loadedLive`); `ALLOW_LIVE=false` thì chuyển bài.
+  tối đa `LIVE_MAX_MINUTES` — ở mọi phòng, kể cả phòng riêng (item `basic`; live **đã kiểm đủ qua Data API** trong phòng
+  riêng mới được `PRIVATE_MAX_VIDEO_MINUTES`), máy người xem nạp lại theo đầu live (`loadedLive`); `ALLOW_LIVE=false` thì
+  chuyển bài.
 - Còn hở: video **không công khai** (unlisted) vẫn vào được (oEmbed trả 200 như video công khai) — vẫn hợp lệ với YouTube
-  (cho nhúng), chỉ chặt hơn được khi có key. Hàng chờ hiện "chưa rõ thời lượng" tới khi đo xong.
+  (cho nhúng), chỉ chặt hơn được khi có key; `/chinh-sach` §5 nói rõ. Vì vậy video chỉ kiểm cơ bản **không bao giờ** được
+  nới độ dài của phòng riêng (phòng có mật khẩu + video dài + chưa kiểm công khai = đúng kiểu "chiếu phim full" §12.8 cảnh
+  báo). Hàng chờ hiện "chưa rõ thời lượng" tới khi đo xong.
 Thử trên máy: `NO_KEY=1 npx tsx scripts/qa-server.ts` (YouTube giả không key, trình phát thật đo độ dài).
 
 ## 4. Bộ đệm & quota
@@ -93,32 +104,58 @@ Thử trên máy: `NO_KEY=1 npx tsx scripts/qa-server.ts` (YouTube giả không 
 
 - Tải `https://www.youtube.com/iframe_api` (lỗi → thử lại sau 20 s, báo một lần "Không tải được trình phát YouTube
   (mạng / trình chặn quảng cáo?)"). Host `https://www.youtube-nocookie.com` khi `YT_NOCOOKIE=true` (`cfg.noCookie`).
-- `playerVars`: `autoplay: 1, controls: 1, disablekb: 1, playsinline: 1, rel: 0, fs: 0, enablejsapi: 1, origin,
-  widget_referrer`. Thanh điều khiển YouTube **hiện** (0.4.8 — chủ dự án muốn mỗi người tự bật / tắt phụ đề bằng nút CC;
-  YouTube chỉ có tham số ÉP BẬT phụ đề `cc_load_policy=1`, không có cách chính thức ép tắt). YouTube không cho ẩn riêng
-  thanh tua / nút dừng, nên **xem chung** giữ bằng cách đưa về giờ chung (chỉ hàm / sự kiện có tài liệu):
-  - bấm dừng → `onState(PAUSED)` không do mình ra lệnh → `playVideo()` ngay;
+- **Rạp tự dựng thẻ `<iframe>`** (`buildFrame`) rồi đưa cho `new YT.Player(iframe, { events })` — cách "tự tạo iframe"
+  có trong tài liệu IFrame API (trang nhúng đặt sẵn `<iframe src="…/embed/…?enablejsapi=1&origin=…">`, API gắn vào thẻ
+  đó). `src` = `<host>/embed/?autoplay=1&controls=1&disablekb=1&playsinline=1&rel=0&fs=0&enablejsapi=1&origin=<gốc
+  trang>&widget_referrer=<gốc trang>/` — không có gì của trang ngoài gốc; thẻ có `title="Trình phát YouTube"`, `allow`
+  (autoplay, encrypted-media, picture-in-picture…), `allowfullscreen`, `referrerpolicy="strict-origin-when-cross-origin"`
+  (YouTube cần Referer, thiếu là lỗi 153 — chỉ gửi gốc trang). **Vì sao không để API tự tạo iframe**: khi tự tạo, widget
+  API luôn gắn thêm `forigin` = `location.href` (cả đường dẫn lẫn `?…` / `#…`) và `gporigin` (theo `document.referrer`)
+  vào URL nhúng → id phòng riêng sang YouTube (đo thật: `forigin=…%3Fphong%3Dp-…`); với iframe tự dựng API không thêm
+  gì, `src` giữ nguyên. Thêm vào đó link phòng riêng nằm ở phần `#` (`/#phong=p-…`) — không bao giờ gửi lên máy chủ hay vào
+  Referer (`Referrer-Policy: strict-origin-when-cross-origin` chỉ gửi gốc trang sang YouTube). Thanh điều khiển YouTube
+  **hiện** (0.4.8 — chủ dự án muốn mỗi người tự bật / tắt phụ đề bằng nút CC; YouTube chỉ có tham số ÉP BẬT phụ đề
+  `cc_load_policy=1`, không có cách chính thức ép tắt). YouTube không cho ẩn riêng thanh tua / nút dừng, nên **xem chung**
+  giữ bằng cách đưa về giờ chung (chỉ hàm / sự kiện có tài liệu):
+  - bấm dừng → `onState(PAUSED)` không do mình ra lệnh: **phòng chung** → `playVideo()` ngay — đây là **luật cốt lõi của
+    rạp chung** (rạp của người lạ: cả phòng một "đồng hồ phòng" — cùng cảnh, cùng tiếng cười, nhảy / chat theo cùng lúc;
+    một người dừng riêng là lệch hẳn khỏi cả rạp). Rạp không chặn hay che nút dừng (bấm vẫn được, trình phát nguyên vẹn),
+    chỉ ra lệnh phát tiếp bằng hàm có tài liệu và **giải thích** ngay: "Rạp đang xem chung — … Muốn xem riêng thì bấm logo
+    YouTube." (mở video trên YouTube để xem tự do) — giới hạn tính năng có báo trước ("Permitted Feature Limitation"
+    III.C.6–7). **Phòng riêng** → giữ dừng trên máy đó (`sync()` không tự phát lại / không tua): phòng có nút ⏸ cho cả
+    phòng **ngoài** khung video nên không cần ép từng máy — can thiệp vào trình phát ít nhất có thể; nhắc "Bạn đang dừng
+    riêng — bấm ⏸ dưới màn hình để dừng cho cả phòng, ▶ trên video để xem tiếp đúng giờ chung."; bấm ▶ → tua về giờ chung
+    (live: nạp lại theo đầu live). Dừng ngay sau khi đổi toàn màn hình / ẩn hiện trang (< 1 s) là trình duyệt tự dừng →
+    phát lại như thường;
   - kéo thanh tua → `sync()` thấy giờ video nhảy tới nhanh hơn thời gian thật > 3 s hoặc lùi > 3 s so với lần đo trước
     (quảng cáo / mạng chậm chỉ làm video chạy chậm hơn nên không nhầm) → tua về giờ chung ngay (đo thật: ~1,7 s);
   - đổi tốc độ (⚙ của YouTube) → `onPlaybackRateChange` → `setPlaybackRate(1)`;
-  - bấm video gợi ý ("More videos", màn hình cuối) → `getVideoUrl()` khác video của rạp (đã phát ổn định > 3 s) → nạp lại
-    video của rạp;
-  - mỗi lần như vậy nhắc nhẹ (tối đa 1 lần / 45 s): "Rạp đang xem chung — không tua, dừng hay đổi tốc độ riêng được…".
-  `disablekb: 1` tắt phím tắt trong khung; `fs: 0` ẩn nút toàn màn hình của YouTube (rạp có nút riêng). Một trang chỉ có
+  - bấm video gợi ý ("More videos", màn hình cuối) → `getVideoUrl()` khác video của rạp (đã phát ổn định > 3 s) → **không
+    tự quay lại** (hướng dẫn tuân thủ của YouTube coi "chặn link video liên quan" là vi phạm): `offVideo` — thôi điều
+    khiển trình phát hẳn (không nạp bài mới của rạp, không dừng / tua / ẩn khung, không báo lỗi / đo độ dài theo video
+    đó), hiện nút "↩ Về video của rạp" dưới màn hình (ngoài khung video) tới khi người xem bấm (→ nạp video rạp đang chiếu
+    đúng giờ chung, rạp hết video thì về màn hình trống) hoặc tự quay về đúng video của rạp;
+  - nhắc nhẹ (mỗi câu tối đa 1 lần / 45 s): phòng chung "Rạp đang xem chung — tua, dừng hay đổi tốc độ sẽ tự về giờ chung
+    (luật của rạp). Muốn xem riêng thì bấm logo YouTube."; phòng riêng "Phòng riêng xem chung — tua / đổi tốc độ sẽ về
+    giờ chung. Bấm ⏸ để dừng cho cả phòng.".
+  `disablekb=1` tắt phím tắt trong khung; `fs=0` ẩn nút toàn màn hình của YouTube (rạp có nút riêng). Một trang chỉ có
   một trình phát.
 - Trình phát chỉ được bật (`player.enable()`) **sau khi** người xem bấm "Vào rạp" (có thao tác người dùng → trình duyệt
   cho phát có tiếng). Bị mời ra / phải vào lại → `player.disable()` dừng + ẩn khung **trước** khi hiện màn vào rạp (lớp
   phủ không bao giờ nằm trên video đang chạy).
 - Lỡ bấm vào video (trình phát tự dừng): `onStateChange(PAUSED)` mà phòng đang chạy, tab đang hiện, không phải lệnh của
-  mình trong 400 ms → chạy lại **ngay**, lặng lẽ, rồi tua về giờ chung. Bàn phím được trả về trang (`input.js` blur →
-  focus canvas) để WASD / E vẫn điều khiển nhân vật; nếu vẫn kẹt thì hiện "Bấm vào khán phòng để điều khiển nhân vật".
+  mình trong 400 ms → phòng chung: chạy lại **ngay**, rồi tua về giờ chung; phòng riêng: giữ dừng riêng (xem trên). Bàn
+  phím được trả về trang (`input.js` blur → focus canvas) để WASD / E vẫn điều khiển nhân vật; nếu vẫn kẹt thì hiện "Bấm
+  vào khán phòng để điều khiển nhân vật".
 - **Cố ý KHÔNG chặn bấm vào khung video** (`pointer-events: none`, lớp phủ trong suốt…): Điều khoản YouTube API cấm
   "modify, build upon, or block any portion or functionality of a YouTube player" (III.I.6), "remove, obscure, alter,
   or disable any links that appear in YouTube players" (III.I.4), "interfere with … or block advertisements" (III.I.5) —
-  chặn bấm sẽ chặn nút "Bỏ qua quảng cáo", link quảng cáo, logo / tiêu đề YouTube. Tự chạy lại cho kết quả như nhau mà
-  không vi phạm.
-- Nút **dưới** màn hình (`#screen-tools`, không đè video): cụm gọn ⏭ · 🚩 · ⛶ toàn màn hình (âm lượng dùng thanh của
-  YouTube từ 0.4.9; "🔊 Bật tiếng" chỉ hiện khi trình duyệt tự tắt tiếng lúc phát đầu — `autoMuted`); ⛶ toàn màn hình
+  chặn bấm sẽ chặn nút "Bỏ qua quảng cáo", link quảng cáo, logo / tiêu đề YouTube. Phòng chung tự chạy lại (hàm có tài
+  liệu, có giải thích — xem trên) cho kết quả xem chung như nhau mà không chặn phần nào của trình phát; phòng riêng thì
+  không tự chạy lại.
+- Nút **dưới** màn hình (`#screen-tools`, không đè video): cụm gọn ⏭ · ⏸ / ▶ (phòng riêng: dừng / phát tiếp cho cả
+  phòng) · 🚩 · ⛶ toàn màn hình, "↩ Về video của rạp" khi đang ở video gợi ý (âm lượng dùng thanh của YouTube từ 0.4.9;
+  "🔊 Bật tiếng" chỉ hiện khi trình duyệt tự tắt tiếng lúc phát đầu — `autoMuted`); ⛶ toàn màn hình
   khung video (`requestFullscreen` lên `#screen-slot`; iPhone dùng `webkitEnterFullscreen` của iframe), "▶ Bấm để xem"
   khi trình duyệt chặn tự phát (iPhone), "🔊 Bật tiếng" khi trình duyệt tự tắt tiếng.
 - Không che: `#screen-slot` (iframe) nằm trên canvas, đặt khít ô màn hình (`stage.placeSlot`). Canvas cắt (clip) mọi thứ
@@ -134,8 +171,10 @@ Thử trên máy: `NO_KEY=1 npx tsx scripts/qa-server.ts` (YouTube giả không 
 ## 6. Đồng bộ "đồng hồ phòng"
 
 Server (`Room.now`) giữ `{ v, at, paused, pos, ends, live, dur, filler? }` — `at` = giờ server ứng với giây 0 (bài mới:
-lúc chọn + 2 s cho mọi máy kịp tải); hết `ends` (+1,5 s) → bài kế. Chỉ admin dừng được, và dừng là **cả phòng** dừng
-cùng vị trí.
+lúc chọn + 2 s cho mọi máy kịp tải); hết `ends` (+1,5 s) → bài kế. Phòng chung: chỉ admin dừng được; phòng riêng: mọi
+thành viên dừng / phát tiếp bằng nút ⏸ / ▶ dưới màn hình (`proom_op pause / resume`, server báo "⏸ {tên} đã dừng video
+cho cả phòng" / "▶ {tên} đã phát tiếp"). Dừng là **cả phòng** dừng cùng vị trí; phòng vừa phát tiếp thì máy xin phát
+ngay (không chờ nhịp 2,5 s, không tưởng nhầm là bị chặn tự phát).
 
 Client:
 
@@ -164,8 +203,13 @@ Client:
 
 - 🚩 dưới màn hình (hoặc nút "🚩 Báo cáo" ở thẻ Đang chiếu) → chọn lý do (bản quyền, không phù hợp, spam / lừa đảo, khác)
   + ghi chú → `report {kind: 'video'}`. Bấm vào nhân vật → báo cáo người (quấy rối, spam, tên / hành vi không phù hợp, khác).
-- Server ghi `data/reports.jsonl` + log, báo ngay mọi admin đang mở trang (toast + tab "🚩 Báo cáo" trong 🛠).
-- `REPORT_AUTOSKIP` (3) **IP khác nhau** báo cùng video đang chiếu → gỡ ngay + chặn video (admin bỏ chặn được).
+- Server ghi `data/reports.jsonl` (đủ: lúc, phòng, video / người, lý do, ghi chú, tên người báo) + log, báo ngay mọi admin
+  đang mở trang (toast + tab "🚩 Báo cáo" trong 🛠). Báo cáo từ phòng riêng: dòng log chỉ là "🚩 Báo cáo trong một phòng
+  riêng (video / người xem) — <lý do>" — không mã phòng, không tên / mã video, không ghi chú (nhật ký của app không bao giờ
+  ghi phòng riêng xem gì — [05](05-van-hanh-deploy.md) §11); bản đủ vẫn ở `reports.jsonl` + bảng admin.
+- `REPORT_AUTOSKIP` (3) **IP khác nhau** báo cùng video đang chiếu → gỡ ngay + chặn video (admin bỏ chặn được). Trong
+  phòng riêng: chỉ bỏ qua video trong phòng đó + báo admin (vài người quen nhau dễ đủ số báo cáo) — gỡ toàn rạp là việc
+  của admin.
 - Admin: "⏭" (chỉ bỏ qua) và **"🚫 Gỡ hẳn"** (`adm block`: xoá khỏi mọi hàng chờ, dừng ở mọi phòng đang chiếu, không ai
   thêm lại được, lưu `rooms.json`) — dùng khi có khiếu nại bản quyền. Tab "🚫 Video bị gỡ" để bỏ chặn.
 - Khiếu nại bản quyền: trang `/chinh-sach` hướng dẫn dùng nút báo cáo (ghi cách liên hệ trong ghi chú) hoặc email
@@ -184,12 +228,23 @@ Client:
 
 ## 10. Trang chính sách (`public/chinh-sach.html` → `/chinh-sach`)
 
-Nói rõ: dùng dịch vụ YouTube API (link Điều khoản YouTube, Chính sách quyền riêng tư Google, trang quản lý quyền truy cập
-Google); trình phát chính thức, không tải / chỉnh / che / chặn quảng cáo; rạp lưu gì (tên, ngoại hình, vị trí, chat ~50
-tin trong bộ nhớ, IP băm một chiều, khoá ngẫu nhiên của trình duyệt, báo cáo, dữ liệu localStorage) và không làm gì
-(không tài khoản, không bán dữ liệu, không quảng cáo cạnh trình phát); cookie chỉ dành cho admin; cách báo cáo / khiếu
-nại bản quyền (`CONTACT_EMAIL` được `policy.js` gắn thành link nếu có). Đổi cách thu thập dữ liệu → **cập nhật trang này**
-(và ngày cập nhật ở đầu trang).
+Nói rõ: dùng dịch vụ YouTube API (link Điều khoản YouTube, Chính sách quyền riêng tư Google, trang quản lý quyền truy
+cập Google); trình phát chính thức, không tải / chỉnh / che / chặn quảng cáo; kiểm video bằng Data API, hay chỉ kiểm cơ
+bản bằng oEmbed khi chưa dùng được API (18+ / chặn VN do trình phát từ chối, máy người xem đo độ dài; video "không công
+khai" có thể lọt — §3.1); rạp lưu gì (tên, ngoại hình, vị trí, chat ~50 tin trong bộ nhớ, hàng chờ ghi ra đĩa kèm tên +
+băm khoá máy người thêm ở mọi phòng, IP băm một chiều, khoá ngẫu nhiên của trình duyệt, báo cáo kèm phòng, dữ liệu
+localStorage kể cả vé phòng riêng `vc.rt`; **nhật ký máy chủ web không có IP / phần `?…` / Referer** —
+`deploy/nginx.*.conf`, [05](05-van-hanh-deploy.md) §7 — chỉ dòng lỗi nghiêm trọng có thể kèm IP) và không làm gì (không
+tài khoản, không bán dữ liệu / phòng / mật khẩu / "VIP", không quảng cáo cạnh trình phát); **phòng riêng** (§3 của
+trang: link `/#phong=…` — mã phòng không vào nhật ký truy cập, không sang YouTube; tên phòng; mật khẩu chỉ lưu băm
+scrypt có muối; vé vào lại — server lưu băm vé + băm khoá máy + lúc cấp, hết hạn 30 ngày; trình duyệt giữ vé trong
+`vc.rt` ≤ 10 phòng; băm khoá máy chủ phòng + mạng / dải mạng băm; băm khoá máy bị mời ra; đổi mật khẩu thì người đang
+trong phòng giữ vé; tất cả xoá khi phòng đóng; nhật ký của app chỉ ghi id + tên phòng lúc tạo / đổi mật khẩu / đóng —
+không ghi video, mật khẩu, vé; quản trị viên thấy danh sách phòng riêng (tên, số người, video đang chiếu, giờ) không cần
+vào, vào phòng thì cả phòng được báo + dấu 🛡 suốt lúc đó, không chiếm chỗ); luật video (12 giờ ở phòng riêng chỉ với
+video Data API kiểm đủ; báo cáo trong phòng riêng chỉ bỏ qua trong phòng + báo admin); cookie chỉ dành cho admin; cách
+báo cáo / khiếu nại bản quyền (`CONTACT_EMAIL` được `policy.js` gắn thành link nếu có). Đổi cách thu thập / ghi log dữ
+liệu → **cập nhật trang này** (và ngày cập nhật ở đầu trang).
 
 ## 11. Checklist khi sửa vùng video
 
@@ -199,3 +254,44 @@ nại bản quyền (`CONTACT_EMAIL` được `policy.js` gắn thành link nế
 3. Trình phát ≥ 200×200 ở mọi cỡ màn (thử 390×844, 844×390, 1280×680, 1440×900).
 4. Chỉ dùng tham số / hàm IFrame API có tài liệu.
 5. `npm test` + `npm run qa` không có lỗi console thật, không có dòng "… đè video".
+6. `controls=1` giờ là **bắt buộc**: âm lượng + phụ đề chỉ còn trên thanh của YouTube (0.4.9) — hướng dẫn YouTube nói dịch
+   vụ "không được làm mất … phụ đề, âm lượng". Quay về `controls=0` thì phải làm lại nút âm lượng (+ CC) riêng của rạp.
+7. Không tự quay lại khi người xem bấm video gợi ý; không tự phát lại khi thành viên phòng riêng tự dừng (§5, §12).
+8. Không để id phòng riêng tới YouTube: giữ iframe tự dựng (đừng quay về `new YT.Player(<div>, { playerVars })` — API sẽ
+   gắn `forigin` / `gporigin`), `src` chỉ có gốc trang; link / thanh địa chỉ phòng riêng dùng `#phong=`, không `?phong=`.
+   `npm run qa` kiểm `src` của iframe không chứa `phong` / `forigin` / `gporigin`.
+
+## 12. Phòng riêng — giữ luật YouTube thế nào
+
+Phòng có mật khẩu do người xem tạo để xem chung với người quen (client: [03](03-frontend.md) §16, server:
+[07](07-server.md)). Được phép theo Điều khoản YouTube API (không điều nào cấm xem đồng bộ / phòng mời riêng / video dài),
+với các điều kiện:
+
+1. **Luôn miễn phí** — không bán phòng, mật khẩu, chỗ ngồi, "VIP", không thưởng vì xem (III.F.3.a/c, III.G.1.b). Mật khẩu
+   chỉ khoá **phòng** (thao tác không đặc thù YouTube, như đăng nhập — ngoại lệ của III.F.3.b), không bao giờ khoá một
+   video; tạo / vào phòng không bao giờ đòi đăng ký kênh, thích hay chia sẻ.
+2. **Cùng trình phát chính thức + cùng kiểm tra lúc thêm** (công khai, cho nhúng, không 18+, xem được ở VN). Chỉ nới luật
+   **của rạp**: mỗi người chờ 10 video, và không giới hạn 15 phút (tối đa 12 giờ — `PRIVATE_MAX_VIDEO_MINUTES`, cả live) —
+   nhưng **chỉ với video Data API đã kiểm đủ** (biết chắc công khai). Video chỉ qua kiểm cơ bản (oEmbed — chưa có / hỏng /
+   hết lượt key; item `basic`) giữ giới hạn rạp chung ở mọi phòng: 15 phút (admin 240), live `LIVE_MAX_MINUTES` — vì
+   oEmbed không phân biệt "không công khai" (§3.1).
+3. **Gỡ bản quyền tới được phòng riêng**: phòng riêng nằm trong `Hub.rooms` → "🚫 Gỡ hẳn" (`adm block`), danh sách
+   `blocked`, `embedFail` áp như phòng chung; admin xem danh sách phòng riêng và đóng được (tab 🔒 Phòng riêng). Báo cáo từ
+   phòng riêng tới admin (ghi id phòng); đủ báo cáo chỉ bỏ qua trong phòng đó, không tự chặn toàn rạp.
+4. **Nói thật**: tấm tạo phòng + `/chinh-sach` §3 ghi quản trị viên có thể vào phòng khi xử lý báo cáo và thấy danh sách
+   phòng riêng (tên, số người, video đang chiếu, giờ tạo / thao tác) không cần vào. Có mặt của admin là **trạng thái**,
+   không phải một lần báo: admin vào (đứng xem hay vào hẳn — mỗi lần vào thật, kể cả vào lại) thì cả phòng được báo "🛡
+   Quản trị viên rạp đang xem phòng này."; ai vào sau lúc admin còn đó cũng được báo; ô phòng + đầu bảng phòng riêng hiện
+   dấu 🛡 suốt lúc đó (`priv.admins` = admin đứng xem, `PrivMember.adm` = admin đã vào hẳn). Admin vào hẳn **không chiếm
+   chỗ** của thành viên (không tính vào số người / phòng đầy / phòng trống) — không bao giờ lặng lẽ, không đẩy ai ra.
+   Riêng phòng do chính admin tạo (chủ rạp dùng phòng riêng của mình) thì admin đó là chủ phòng, tính như thành viên;
+   dấu 🛡 vẫn hiện.
+5. **Ít can thiệp vào trình phát**: thành viên tự dừng trên thanh YouTube thì dừng trên máy họ (không tự phát lại — khác
+   phòng chung, nơi tự chạy lại là luật xem chung có giải thích, §5); dừng cho cả phòng là nút ⏸ riêng **ngoài** khung
+   video (không biến cú bấm trong trình phát thành thao tác cả phòng). Tua / đổi tốc độ vẫn về giờ chung (tính năng cốt lõi,
+   có giải thích).
+6. **Không chặn link video gợi ý** ở mọi phòng: nút "↩ Về video của rạp" thay cho tự nạp lại.
+7. **Id phòng riêng không lộ sang YouTube**: link + thanh địa chỉ dùng phần `#` (`/#phong=p-…`), iframe tự dựng với `src`
+   chỉ có gốc trang (widget API không thêm `forigin` / `gporigin`), Referer chỉ là gốc trang (§5).
+8. Không quảng bá phòng riêng để xem "phim full / phim lậu" (III.E.1.c) — chữ trong giao diện / README / ảnh chia sẻ giữ
+   trung tính.

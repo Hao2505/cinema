@@ -11,7 +11,10 @@ export function initToasts(node) {
 export function toast(text, kind = 'info', ms = 3800) {
   if (!host || !text) return;
   const now = performance.now();
-  if (now - (recent.get(text) || 0) < 2500) return;
+  // chưa hiện lần nào → hiện ngay (so với mốc 0 thì mọi thông báo trong 2,5 s đầu sau khi tải trang bị nuốt mất —
+  // vd vào phòng riêng bằng link rồi bị mời ra / tự rời ngay)
+  const last = recent.get(text);
+  if (last !== undefined && now - last < 2500) return;
   recent.set(text, now);
   if (recent.size > 30) recent.delete(recent.keys().next().value);
   const node = el('div', { class: `toast ${kind}`, role: kind === 'err' ? 'alert' : 'status', text });
