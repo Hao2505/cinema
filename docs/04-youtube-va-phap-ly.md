@@ -1,89 +1,164 @@
-# YouTube & pháp lý
+# 04 · YouTube & pháp lý
 
-Luật gốc: `../CLAUDE.md` §2. Tài liệu này chỉ ra **code nào giữ luật nào** — sửa vùng này thì kiểm lại cả bảng.
+Luật gốc: `CLAUDE.md` §2 (yêu cầu của chủ dự án). Tài liệu này chỉ ra **code nào giữ luật nào** — sửa bất cứ gì đụng
+tới video, trình phát, bố cục quanh màn hình thì đọc lại cả trang và chạy `npm run qa` (kiểm chồng lấn).
 
-## 1. Chỉ nhận video được phép (`src/youtube.ts`)
+## 1. Bảng luật → code
 
-`parseVideoId` nhận `youtube.com/watch?v=`, `youtu.be/`, `/shorts/`, `/live/`, `/embed/`, `m.`/`music.`,
-`youtube-nocookie.com` hoặc id 11 ký tự; host khác → từ chối. Server gọi
-`videos.list?part=status,contentDetails,snippet&id=…` (1 lượt quota) rồi `checkMeta`:
-
-| Điều kiện | Không đạt → lý do hiện cho người xem |
+| Luật | Giữ ở đâu |
 |---|---|
-| tìm thấy | "Không tìm thấy video — có thể đã bị xoá hoặc để riêng tư." |
-| `privacyStatus === 'public'` | "Video không công khai." / "đang để không công khai" |
-| `embeddable === true` | "Chủ kênh không cho phép phát video này trên trang khác." |
+| Chỉ nhúng video công khai, cho nhúng, không giới hạn tuổi, xem được ở VN, giới hạn độ dài | `src/youtube.ts` `checkMeta` + `metaFromItem`; gọi từ `hub.ts onQueueAdd` (§3) |
+| Không đạt → từ chối, báo rõ lý do | lý do tiếng Việt trong `checkMeta` → `q_res.text` |
+| Chủ kênh tắt nhúng giữa chừng (101/150) → tự sang bài kế | `player.js onError` → `vid_err` → `hub.ts onVideoError` (§7) |
+| Đúng trình phát chính thức, không chỉnh / che | `player.js` (IFrame Player API, tham số chính thức); `stage.js` cắt mọi lớp vẽ dưới mép video; `main.js syncInsets` + `stage.computeLayout` chừa chỗ cho mọi nút; `scripts/qa.ts checkOverlap` |
+| Không chặn quảng cáo | `player.js` không đụng quảng cáo; **cố ý không chặn bấm** vào khung video (§5) |
+| Trình phát ≥ 200×200 px | `stage.js computeLayout` (ép tối thiểu, chạm mức thì giữ 356×200 đúng 16:9) |
+| Không tải / phát lại video, video không qua VPS | server chỉ gọi `videos.list` / oEmbed lấy siêu dữ liệu; trình duyệt tải video thẳng từ YouTube |
+| Trang chính sách nói rõ dùng dịch vụ YouTube | `public/chinh-sach.html` (`/chinh-sach`), link ở màn vào rạp + bảng Hướng dẫn |
+| Nút báo cáo, có khiếu nại thì gỡ ngay | 🚩 dưới màn hình / thẻ Đang chiếu → `report`; admin "🚫 Gỡ hẳn" (`adm block`) (§8) |
+| Không affiliate / quảng cáo sát trình phát | không có trong code — giữ nguyên như vậy |
+| `YT_API_KEY` chỉ ở `.env`, không in / commit | `server.ts` không in key; `youtube.ts` chỉ đặt key trong URL gọi API, lỗi chỉ ghi lý do |
+
+## 2. Tách link — `parseVideoId`
+
+Nhận id 11 ký tự (`[A-Za-z0-9_-]`) hoặc link: `youtube.com/watch?v=`, `youtu.be/<id>`, `/shorts/`, `/live/`, `/embed/`,
+`/v/`, `/e/`, tiền tố `www.` / `m.` / `music.`, `youtube-nocookie.com`, có hoặc không có `https://`, có tham số thừa
+(`&t=42s`, `?si=…`, `&list=…`). Host khác (kể cả `evil.com/watch?v=<id>`) → `null` → "Đây không phải link video YouTube".
+
+## 3. Kiểm tra video — `videos.list` + `checkMeta`
+
+Server gọi `GET https://www.googleapis.com/youtube/v3/videos?part=status,contentDetails,snippet&id=<id>&key=…`
+(1 đơn vị quota, timeout 6 s). `metaFromItem` đọc **phòng thủ**: trường thiếu = giá trị an toàn nhất (bị từ chối) —
+`embeddable` phải đúng `true`, `privacyStatus` thiếu = `unknown`, `uploadStatus` thiếu coi như đã xử lý.
+
+| Điều kiện (theo thứ tự) | Lý do khi không đạt |
+|---|---|
+| tìm thấy video | "Không tìm thấy video — có thể đã bị xoá hoặc để riêng tư." |
+| `privacyStatus === 'public'` | "Video đang để "không công khai" — chỉ chiếu video công khai." / "Video không công khai." |
+| `status.embeddable === true` | "Chủ kênh không cho phép phát video này trên trang khác." |
 | `uploadStatus === 'processed'` | "Video chưa xử lý xong trên YouTube." |
 | `contentRating.ytRating !== 'ytAgeRestricted'` | "Video bị giới hạn độ tuổi trên YouTube." |
-| `regionRestriction` cho xem ở `YT_REGION` (VN) | "Video không xem được ở Việt Nam." |
-| không phải buổi live sắp phát (`upcoming`) | "Buổi phát trực tiếp này chưa bắt đầu." |
+| `regionRestriction`: có `allowed` thì phải chứa `YT_REGION`; `blocked` không chứa | "Video không xem được ở Việt Nam." |
+| không phải buổi live sắp phát (`liveBroadcastContent: upcoming`) | "Buổi phát trực tiếp này chưa bắt đầu." |
+| live (`liveBroadcastContent: live`): `ALLOW_LIVE` | "Rạp đang không nhận video phát trực tiếp." |
+| không live: đọc được độ dài > 0 | "Không đọc được độ dài video." |
 | độ dài ≤ `MAX_VIDEO_MINUTES` (admin: `ADMIN_MAX_VIDEO_MINUTES`) | "Video dài … — rạp chỉ nhận video tối đa …" |
-| live: `ALLOW_LIVE` | "Rạp đang không nhận video phát trực tiếp." |
 
-Trường thiếu trong phản hồi API → coi như **không đạt** (`metaFromItem`). Kết quả nhớ 6 giờ (`VideoCache`), cùng một id
-đang hỏi thì dùng chung một yêu cầu. Lỗi quota / key / mạng → báo rõ, không cho vào hàng chờ. Key chỉ nằm trong URL gọi
-API, không bao giờ ghi log. Không có key → không ai thêm được video (log khởi động cảnh báo).
+Lỗi gọi API → không cho vào hàng chờ, báo rõ:
 
-## 2. Dùng đúng trình phát chính thức (`public/js/player.js`)
+| Trường hợp | `code` | Người xem thấy |
+|---|---|---|
+| chưa có `YT_API_KEY` | `no_key` | "Rạp chưa cấu hình kiểm tra video (thiếu YT_API_KEY) — báo admin nhé." |
+| 403 quota / rateLimit | `quota` | "Hôm nay rạp đã dùng hết lượt kiểm tra video của YouTube — thử lại vào ngày mai nhé." |
+| 400, 403 key / accessNotConfigured / ipRefererBlocked | `bad_key` | "Rạp đang lỗi cấu hình kiểm tra video — báo admin nhé." (log server ghi lý do, không ghi key) |
+| HTTP lỗi khác | `api` | "YouTube đang trục trặc, thử lại sau ít phút nhé." |
+| mạng / timeout | `network` | "Không kiểm tra được video lúc này, thử lại sau nhé." |
 
-- YouTube IFrame Player API (`https://www.youtube.com/iframe_api`), host `youtube-nocookie.com` khi `YT_NOCOOKIE=true`,
-  `origin` + `widget_referrer` = trang mình, `playsinline`, `rel: 0`.
-- **Xem chung**: ẩn thanh điều khiển bằng tham số chính thức `controls: 0`, `disablekb: 1`, `fs: 0` → không ai tua / dừng
-  riêng. Lỡ bấm vào video (trình phát tự dừng) → `onStateChange(PAUSED)` cho chạy lại NGAY, lặng lẽ, tua về đúng giờ chung;
-  bàn phím được trả về trang ngay để WASD / E tiếp tục điều khiển nhân vật. Chỉ admin dừng / chiếu tiếp được, và dừng là
-  **cả phòng** dừng cùng vị trí.
-- **Cố ý KHÔNG chặn bấm vào khung video** (vd `pointer-events: none` hay lớp phủ trong suốt): chính sách YouTube API cấm
-  "modify, build upon, or block any portion or functionality of a YouTube player" (III.I.6), "remove, obscure, alter, or
-  disable any links that appear in YouTube players" (III.I.4), "interfere with … or block advertisements" (III.I.5) — chặn
-  bấm sẽ chặn luôn nút "Bỏ qua quảng cáo", link quảng cáo, logo / tiêu đề YouTube. Tự chạy lại ngay cho kết quả như nhau mà
+## 4. Bộ đệm & quota
+
+- Quota miễn phí 10.000 đơn vị / ngày; `videos.list` = 1 đơn vị / link mới. Hướng dẫn tạo key: `README.md`.
+- `VideoCache`: nhớ kết quả 6 giờ (tối đa 2000 video); cùng một id đang hỏi thì các yêu cầu dùng chung một Promise
+  (`inflight`). Lỗi không được cache.
+- Chống đốt quota: link **chưa có trong cache** → mỗi IP ≤ `LOOKUPS_PER_IP_MINUTE` (6) / phút, cả server ≤ 120 / phút
+  (admin bỏ qua giới hạn theo IP).
+- Video mặc định kiểm bằng oEmbed (không tốn quota) + 1 lượt `videos.list` mỗi 6 giờ khi có key.
+
+## 5. Trình phát chính thức — `public/js/player.js`
+
+- Tải `https://www.youtube.com/iframe_api` (lỗi → thử lại sau 20 s, báo một lần "Không tải được trình phát YouTube
+  (mạng / trình chặn quảng cáo?)"). Host `https://www.youtube-nocookie.com` khi `YT_NOCOOKIE=true` (`cfg.noCookie`).
+- `playerVars`: `autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, fs: 0, enablejsapi: 1, origin,
+  widget_referrer`. **Xem chung**: `controls: 0` + `disablekb: 1` (tham số chính thức) ẩn thanh tua / dừng — không ai tua
+  / dừng riêng được. Một trang chỉ có một trình phát.
+- Trình phát chỉ được bật (`player.enable()`) **sau khi** người xem bấm "Vào rạp" (có thao tác người dùng → trình duyệt
+  cho phát có tiếng). Bị mời ra / phải vào lại → `player.disable()` dừng + ẩn khung **trước** khi hiện màn vào rạp (lớp
+  phủ không bao giờ nằm trên video đang chạy).
+- Lỡ bấm vào video (trình phát tự dừng): `onStateChange(PAUSED)` mà phòng đang chạy, tab đang hiện, không phải lệnh của
+  mình trong 400 ms → chạy lại **ngay**, lặng lẽ, rồi tua về giờ chung. Bàn phím được trả về trang (`input.js` blur →
+  focus canvas) để WASD / E vẫn điều khiển nhân vật; nếu vẫn kẹt thì hiện "Bấm vào khán phòng để điều khiển nhân vật".
+- **Cố ý KHÔNG chặn bấm vào khung video** (`pointer-events: none`, lớp phủ trong suốt…): Điều khoản YouTube API cấm
+  "modify, build upon, or block any portion or functionality of a YouTube player" (III.I.6), "remove, obscure, alter,
+  or disable any links that appear in YouTube players" (III.I.4), "interfere with … or block advertisements" (III.I.5) —
+  chặn bấm sẽ chặn nút "Bỏ qua quảng cáo", link quảng cáo, logo / tiêu đề YouTube. Tự chạy lại cho kết quả như nhau mà
   không vi phạm.
-- Âm lượng (🔊 + thanh trượt, nhớ trong localStorage) và toàn màn hình (⛶, `requestFullscreen` lên khung video) là nút
-  riêng nằm DƯỚI màn hình.
-- **Không che**: khung `#screen-slot` nằm trên canvas, mọi lớp vẽ khán phòng bị cắt dưới mép màn hình, tường bên vẽ với
-  clip chừa khung video, không phần tử DOM nào đặt chồng lên khung (nút, tấm trượt, toast — toast đặt từ `--aud-top` xuống
-  —, vòng động tác, thẻ người). Bị mời ra / phải vào lại thì `player.disable()` dừng + ẩn video TRƯỚC khi hiện màn vào rạp.
-- **Không chặn quảng cáo**: không đụng tới quảng cáo (vẫn hiện nút "Bỏ qua quảng cáo" của YouTube); chỉ ra lệnh tải / phát /
-  dừng / tua theo đồng hồ phòng.
-- Trình phát ≥ 200×200 px (`computeLayout` ép tối thiểu). Không tải video về server, không phát lại luồng của người khác.
-- Chỉ tự phát khi trình phát đang hiện: tab đang ẩn thì bài mới chỉ được nạp sẵn (`cueVideoById`), quay lại tab mới phát
-  (đúng giờ chung). Một trang chỉ có một trình phát.
+- Nút **dưới** màn hình (`#screen-tools`, không đè video): 🔊 + thanh âm lượng (nhớ `vc.vol`, `vc.muted`), ⛶ toàn màn hình
+  khung video (`requestFullscreen` lên `#screen-slot`; iPhone dùng `webkitEnterFullscreen` của iframe), "▶ Bấm để xem"
+  khi trình duyệt chặn tự phát (iPhone), "🔊 Bật tiếng" khi trình duyệt tự tắt tiếng.
+- Không che: `#screen-slot` (iframe) nằm trên canvas, đặt khít ô màn hình (`stage.placeSlot`). Canvas cắt (clip) mọi thứ
+  của khán phòng dưới mép video; tường / hiệu ứng trời vẽ với clip `evenodd` chừa khung video; mọi DOM nổi (cụm nút góc,
+  dock, ngăn kéo, tấm, toast, vòng động tác, thẻ người, khung chat nổi) được đặt ngoài khung — `npm run qa` kiểm từng
+  ảnh chụp ([06](06-kiem-thu-qa.md) §6).
+- Chỉ tự phát khi trình phát đang hiện: tab ẩn thì bài mới chỉ được nạp sẵn (`cueVideoById`), quay lại tab mới phát đúng
+  giờ chung.
 - Đối chiếu: [YouTube Required Minimum Functionality](https://developers.google.com/youtube/terms/required-minimum-functionality)
-  — "không thay đổi trình phát ngoài những gì tài liệu API mô tả" (`controls`, `disablekb`, `fs`, play / pause / seek đều là
-  tham số / hàm chính thức), "không đặt lớp phủ, khung hay phần tử nào trước trình phát", "khung tối thiểu 200×200 px",
-  "chỉ tự phát khi trình phát đang hiện, không quá một trình phát tự phát cùng lúc".
+  — chỉ đổi trình phát bằng tham số / hàm API có tài liệu (`controls`, `disablekb`, `fs`, play / pause / seek / volume),
+  không đặt lớp phủ trước trình phát, khung ≥ 200×200 px, chỉ tự phát khi đang hiện, không quá một trình phát tự phát.
 
-## 3. Đồng bộ "đồng hồ phòng"
+## 6. Đồng bộ "đồng hồ phòng"
 
-Server (`hub.ts Room`) giữ `now = { v, at, paused, pos, ends, live, dur }`: `at` = giờ server ứng với giây 0 (bài mới:
-`at = lúc chọn + 2 s` để mọi máy kịp tải). Hết `ends` → bài kế. Client (`player.js sync`, mỗi 500 ms):
+Server (`Room.now`) giữ `{ v, at, paused, pos, ends, live, dur, filler? }` — `at` = giờ server ứng với giây 0 (bài mới:
+lúc chọn + 2 s cho mọi máy kịp tải); hết `ends` (+1,5 s) → bài kế. Chỉ admin dừng được, và dừng là **cả phòng** dừng
+cùng vị trí.
 
-- giờ server = `performance.now() + offset` (ping/pong kiểu NTP, giữ mẫu RTT thấp nhất; `store.onPong`; ước lượng ngay từ
-  `hello.s`);
-- chưa tới giây 0 → `cueVideoById` rồi đúng giờ mới `playVideo` (mọi máy bắt đầu cùng lúc);
-- lần PLAYING đầu sau khi tải: lệch > 0,6 s thì tua bù thời gian tải (đo trên máy dev: lệch còn ~0,2 s);
-- lệch > 1 s → `seekTo` (tối đa 1 lần / 2,5 s; lần tua trước "không ăn" — thường do đang quảng cáo — thì giãn nhịp tới 4×,
-  nên **xem quảng cáo xong tự tua về đúng chỗ** mà không phá quảng cáo);
-- trình duyệt chặn tự phát (iPhone) → "▶ Bấm để xem"; bị trình duyệt tắt tiếng → "🔊 Bật tiếng" (cả hai dưới màn hình);
-- live: theo đầu live, không tua.
+Client:
 
-## 4. Lỗi giữa chừng (chủ kênh tắt nhúng…)
+- Giờ server = `performance.now() + offset` (`store.serverNow()`): `hello.s` cho ước lượng đầu; `ping / pong` kiểu NTP
+  (`store.onPong`) giữ mẫu có RTT thấp nhất, mẫu tệ chỉ nhích nhẹ.
+- Vị trí đích `target = (serverNow − at) / 1000` (đang dừng: `pos`).
+- `player.load(n)` khi đổi bài: tab ẩn → `cueVideoById` (không tự phát); live → `loadVideoById` (theo đầu live); chưa
+  tới giây 0 → cue ở 0 rồi `setTimeout` đúng giờ mới `playVideo` (mọi máy bắt đầu cùng lúc); đã qua → `loadVideoById`
+  tại `target`.
+- Lần `PLAYING` đầu sau khi tải: lệch > 0,6 s → tua tới `target + 0,35 s` (bù thời gian tải).
+- `sync()` mỗi 500 ms: phòng dừng → `pauseVideo` + tua nếu lệch > 1 s; đang chờ giây 0 → đợi; `CUED / UNSTARTED / PAUSED`
+  → xin `playVideo` (2,5 s một lần, tua nếu lệch), quá 2 s vẫn không chạy → hiện "▶ Bấm để xem"; `ENDED` sớm → tua +
+  phát; live → để YouTube giữ đầu live; `PLAYING` lệch > 1 s → `seekTo`, tối đa 1 lần / 2,5 s — lần tua trước "không ăn"
+  (thường do đang quảng cáo) thì giãn nhịp tới 4× → **xem quảng cáo xong tự tua về đúng chỗ** mà không phá quảng cáo.
+- Bỏ phiếu, tiến độ (thẻ Đang chiếu) cũng tính theo `serverNow()`.
 
-`onError` mã 100 / 101 / 150 (và 2) → client gửi `vid_err`. Server cần đủ **mạng (IP) khác nhau** cùng báo cho đúng video
-đang chiếu — ≥ 30 % và ≥ 2 (ít người thì tất cả) — một người mở nhiều tab không đủ → chuyển bài, ghi `embedFail` 24 giờ
-(không cho thêm lại), xoá cache. Mã 153 (thiếu Referer) là lỗi
-cấu hình của mình → chỉ báo trên máy đó, không chuyển bài.
+## 7. Lỗi giữa chừng
 
-## 5. Báo cáo & gỡ
+`onError`: mã 2 / 100 / 101 / 150 → `vid_err {v, code}`. Server cần đủ **mạng (IP) khác nhau** cùng báo cho đúng video
+đang chiếu — `max(2, 30 %)` số IP có mặt, ít người thì tất cả — một người mở nhiều tab không đủ. Đủ → chuyển bài; 101 /
+150 ghi `embedFail` 24 giờ (không cho thêm lại), xoá cache; nếu là video mặc định → tắt video mặc định 30 phút. Mã 153
+(trang nhúng thiếu Referer) là lỗi cấu hình của mình → chỉ báo trên máy đó, không chuyển bài (giữ
+`Referrer-Policy: strict-origin-when-cross-origin`).
 
-Nút 🚩 dưới màn hình / thẻ Đang chiếu → chọn lý do (bản quyền, không phù hợp, spam, khác) + ghi chú. Server ghi
-`data/reports.jsonl`, báo ngay cho mọi admin đang mở trang (toast + tab Báo cáo). `REPORT_AUTOSKIP` (3) người khác nhau
-báo cùng video đang chiếu (đếm theo **IP khác nhau**) → gỡ ngay + chặn video (admin bỏ chặn được). Mỗi người tối đa 3 báo
-cáo / phút, cùng một video chỉ tính một lần / 10 phút. Admin: "⏭ Admin bỏ qua" (chỉ bỏ qua) và **"🚫 Gỡ hẳn"** (chặn video
-khỏi mọi hàng chờ + dừng ở mọi phòng đang chiếu — dùng khi có khiếu nại bản quyền).
+## 8. Báo cáo & gỡ
 
-## 6. Chính sách quyền riêng tư (`public/chinh-sach.html`, đường dẫn `/chinh-sach`)
+- 🚩 dưới màn hình (hoặc nút "🚩 Báo cáo" ở thẻ Đang chiếu) → chọn lý do (bản quyền, không phù hợp, spam / lừa đảo, khác)
+  + ghi chú → `report {kind: 'video'}`. Bấm vào nhân vật → báo cáo người (quấy rối, spam, tên / hành vi không phù hợp, khác).
+- Server ghi `data/reports.jsonl` + log, báo ngay mọi admin đang mở trang (toast + tab "🚩 Báo cáo" trong 🛠).
+- `REPORT_AUTOSKIP` (3) **IP khác nhau** báo cùng video đang chiếu → gỡ ngay + chặn video (admin bỏ chặn được).
+- Admin: "⏭" (chỉ bỏ qua) và **"🚫 Gỡ hẳn"** (`adm block`: xoá khỏi mọi hàng chờ, dừng ở mọi phòng đang chiếu, không ai
+  thêm lại được, lưu `rooms.json`) — dùng khi có khiếu nại bản quyền. Tab "🚫 Video bị gỡ" để bỏ chặn.
+- Khiếu nại bản quyền: trang `/chinh-sach` hướng dẫn dùng nút báo cáo (ghi cách liên hệ trong ghi chú) hoặc email
+  `CONTACT_EMAIL` nếu có; video vẫn nằm trên YouTube nên chủ sở hữu cũng gửi được yêu cầu gỡ cho YouTube.
 
-Nói rõ: dùng dịch vụ YouTube API, link Điều khoản YouTube + Chính sách quyền riêng tư Google + trang quản lý quyền truy
-cập Google; rạp lưu gì (tên, ngoại hình, chat trong bộ nhớ, IP băm, khoá trình duyệt, báo cáo), không lưu gì; cookie
-(chỉ admin); cách báo cáo / khiếu nại bản quyền (email lấy từ `CONTACT_EMAIL` nếu có). Màn vào rạp có link tới trang này.
-Không gắn quảng cáo / affiliate cạnh trình phát.
+## 9. Video mặc định (kênh trực tiếp khi phòng trống)
+
+- `DEFAULT_VIDEO` (mặc định `rFZHOHl-L8A`, một kênh phát trực tiếp 24/7; rỗng / sai dạng = tắt). Phòng không có video +
+  hàng chờ trống quá `DEFAULT_IDLE_SECONDS` (30 s) → rạp tự phát, `now.filler = true`, badge "KÊNH MẶC ĐỊNH".
+- Vẫn chịu đủ luật: oEmbed 401/403 (chặn nhúng) hoặc 404 → tắt; có `YT_API_KEY` thì `checkMeta` (công khai, không 18+, xem
+  được ở VN, cho nhúng — bỏ giới hạn độ dài). Kiểm lại mỗi 6 giờ. Bị báo cáo / admin gỡ hẳn → không phát nữa (danh sách
+  `blocked`).
+- Có người thêm video → nhường **ngay** ở nhịp kế; không bỏ phiếu được (server trả `notice` hướng dẫn); admin ⏭ → phòng
+  đó tạm không phát lại 10 phút; lỗi trình phát → tắt 30 phút.
+- Không lưu vào `rooms.json`. Chi tiết server: [07](07-server.md) §13.
+
+## 10. Trang chính sách (`public/chinh-sach.html` → `/chinh-sach`)
+
+Nói rõ: dùng dịch vụ YouTube API (link Điều khoản YouTube, Chính sách quyền riêng tư Google, trang quản lý quyền truy cập
+Google); trình phát chính thức, không tải / chỉnh / che / chặn quảng cáo; rạp lưu gì (tên, ngoại hình, vị trí, chat ~50
+tin trong bộ nhớ, IP băm một chiều, khoá ngẫu nhiên của trình duyệt, báo cáo, dữ liệu localStorage) và không làm gì
+(không tài khoản, không bán dữ liệu, không quảng cáo cạnh trình phát); cookie chỉ dành cho admin; cách báo cáo / khiếu
+nại bản quyền (`CONTACT_EMAIL` được `policy.js` gắn thành link nếu có). Đổi cách thu thập dữ liệu → **cập nhật trang này**
+(và ngày cập nhật ở đầu trang).
+
+## 11. Checklist khi sửa vùng video
+
+1. Không thêm phần tử nào (DOM hay vẽ canvas) có thể nằm trên khung `#screen-slot`; DOM mới nổi trên rạp phải được thêm
+   vào danh sách `checkOverlap` trong `scripts/qa.ts`, và nếu chiếm chỗ thì báo qua `stage.setInsets`.
+2. Không thêm `pointer-events: none` / lớp phủ lên iframe; không đụng quảng cáo; không tự tua khi đang quảng cáo dồn dập.
+3. Trình phát ≥ 200×200 ở mọi cỡ màn (thử 390×844, 844×390, 1280×680, 1440×900).
+4. Chỉ dùng tham số / hàm IFrame API có tài liệu.
+5. `npm test` + `npm run qa` không có lỗi console thật, không có dòng "… đè video".

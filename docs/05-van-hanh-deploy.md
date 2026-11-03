@@ -1,80 +1,176 @@
-# Vận hành & deploy
+# 05 · Vận hành & deploy
 
-> Không có IP, mật khẩu, `ADMIN_TOKEN`, `YT_API_KEY` thật ở đây. Giá trị thật nằm trong `deploy/vps.env` và
-> `deploy/.env.production` (cả hai trong `.gitignore`, rsync cũng loại trừ).
+> Tài liệu này **không** chứa IP, cổng SSH, user, mật khẩu, `ADMIN_TOKEN`, `YT_API_KEY`. Giá trị thật nằm trong
+> `deploy/vps.env` và `deploy/.env.production` — cả hai trong `.gitignore`, rsync cũng loại trừ. Không in / commit / chép
+> chúng vào tài liệu, log, tin nhắn hay bộ nhớ của AI.
+>
+> **Chỉ deploy khi chủ dự án bảo.**
 
 ## 1. Production chạy ở đâu
 
 | Thành phần | Giá trị |
 |---|---|
 | Tên miền | `cinema.vibe-coder.fun` (biến `DOMAIN` trong `deploy/vps.env`) |
-| Máy chủ | VPS Ubuntu **dùng chung** với VibeCorp (`vibecorp`, cổng 3200) và `tokivietnam.com` (cổng 3000) — **không đụng** hai app đó |
-| Thư mục | `/opt/vibecinema` (chủ: user `deploy`), dữ liệu sống ở `/opt/vibecinema/data/` |
-| Tiến trình | pm2 tên **`vibecinema`**, lệnh `npm start` = `tsx src/server.ts` (không build) |
-| Cổng | **3300** (`PORT` trong `.env.production` = `APP_PORT` trong script) |
-| nginx | site riêng `/etc/nginx/sites-available/cinema.vibe-coder.fun` (bật `realip` CHỈ trong site này: tin `CF-Connecting-IP` khi kết nối đến từ dải IP Cloudflare, ghi `X-Real-IP` cho app, xoá `CF-Connecting-IP` client tự gửi) + `/etc/nginx/conf.d/vibecinema-limit.conf` (vùng `vcin_api` — khác tên với VibeCorp `vpa_api`: trùng tên zone là nginx lỗi cả máy). Dải IP Cloudflare lấy từ https://www.cloudflare.com/ips/ — đổi thì sửa `deploy/nginx.site.conf` rồi `--setup` lại |
-| Phía trước | Cloudflare proxy, SSL **Full** (đo 2026-11-03 — ghi chú cũ "Flexible" của VibeCorp không đúng): khách vào https → Cloudflare nối cổng **443** của VPS; khách vào http → cổng 80. Site nghe cả hai; HTTPS dùng chứng chỉ Let's Encrypt riêng (`certbot certonly --webroot`, `--setup` tự lấy; `snap.certbot.renew.timer` tự gia hạn). Origin **không** redirect http → https (để Cloudflare lo). Thiếu khối 443 thì nginx rơi vào site mặc định → chuyển sang tokivietnam.com |
+| Máy chủ | VPS Ubuntu **dùng chung** với VibeCorp (pm2 `vibecorp`, cổng 3200) và `tokivietnam.com` (pm2, cổng 3000) |
+| Thư mục | `/opt/vibecinema` (chủ: user `deploy`); dữ liệu sống ở `/opt/vibecinema/data/` |
+| Tiến trình | pm2 tên **`vibecinema`**, lệnh `npm start` = `tsx src/server.ts` (không build), chạy dưới user `deploy` |
+| Cổng app | **3300** (`PORT` trong `.env.production` = `APP_PORT` trong script), chỉ nghe `127.0.0.1` |
+| nginx | site riêng `/etc/nginx/sites-available/cinema.vibe-coder.fun` (+ symlink `sites-enabled`) và `/etc/nginx/conf.d/vibecinema-limit.conf` (vùng `limit_req` tên **`vcin_api`**) |
+| HTTPS | Cloudflare proxy (đám mây cam) ở chế độ SSL **Full** (đo 2026-11-03 — ghi chú "Flexible" cũ của VibeCorp / `CLAUDE.md` không đúng) → origin nghe cả 80 lẫn 443 với chứng chỉ **Let's Encrypt** riêng cho `cinema.vibe-coder.fun` |
+| Mã nguồn | https://github.com/Hao2505/cinema (VPS không có `.git` — chỉ nhận file qua rsync) |
 
-## 2. DNS trên Cloudflare (chủ dự án tự làm)
+## 2. Quy tắc VPS dùng chung (không được phá)
 
-1. Vào https://dash.cloudflare.com → chọn tên miền **vibe-coder.fun**.
-2. Menu trái **DNS → Records → Add record**.
-3. **Type**: `A` · **Name**: `cinema` · **IPv4 address**: IP của VPS (giống bản ghi `corp` của VibeCorp — xem trong
-   danh sách bản ghi, hoặc `deploy/vps.env` dòng `VPS_HOST`) · **Proxy status**: bật (đám mây **cam**) · **TTL**: Auto → **Save**.
-4. **SSL/TLS → Overview**: để nguyên chế độ đang dùng (**Full**) — đừng đổi, VibeCorp đang chạy cùng chế độ này.
-5. **SSL/TLS → Edge Certificates → Always Use HTTPS**: bật (nếu chưa) — Cloudflare ép HTTPS cho người xem.
-6. Đợi 1–5 phút rồi mở `https://cinema.vibe-coder.fun/api/health` → thấy `{"ok":true,…}` là xong (sau khi đã deploy).
+1. **Không đụng** tiến trình pm2, site nginx, file cấu hình, chứng chỉ của `vibecorp` và `tokivietnam.com`.
+2. Mọi thứ của rạp có tên riêng: thư mục `/opt/vibecinema`, pm2 `vibecinema`, cổng 3300, site `cinema.vibe-coder.fun`,
+   file `conf.d/vibecinema-limit.conf`, zone `vcin_api`. **Trùng tên zone `limit_req` là nginx lỗi cả máy** (VibeCorp đã
+   dùng `vpa_api` trong `/etc/nginx/conf.d/vpa-limit.conf`).
+3. Luôn `nginx -t` trước khi `systemctl reload nginx` (`deploy.sh` làm sẵn); lỗi thì gỡ đúng phần của rạp, không reload.
+4. Trước khi chiếm cổng mới: `ss -ltnp` kiểm còn trống (`deploy.sh --setup` làm sẵn).
+5. Không redirect http → https ở origin (Cloudflare lo; tránh vòng lặp nếu ai đổi chế độ SSL).
 
-WebSocket qua Cloudflare chạy sẵn (mặc định bật), không cần chỉnh gì thêm.
+## 3. Đường đi của một request
 
-## 3. Chuẩn bị (máy dev)
-
-- `bash`, `ssh`, `sshpass`, `rsync`, `curl`.
-- `deploy/vps.env` — chép từ VibeCorp (`../agent_office/deploy/vps.env`), đổi `DOMAIN=cinema.vibe-coder.fun`. Tên biến:
-  `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_PASS`, `DOMAIN` (tuỳ chọn `APP_PORT`).
-- `deploy/.env.production` — chép `.env.example`; bắt buộc: `PORT=3300`, `ADMIN_TOKEN` (≥ 12 ký tự, `openssl rand -hex 16`),
-  `YT_API_KEY` (README mục "Tạo YouTube API key"), `PERSIST=true`, `SITE_URL=https://cinema.vibe-coder.fun`.
-- `npm test` xanh.
-
-## 4. `deploy/deploy.sh`
-
-```bash
-bash deploy/deploy.sh --setup   # lần đầu
-bash deploy/deploy.sh           # cập nhật
-bash deploy/logs.sh [số dòng]   # xem log pm2
+```
+Trình duyệt ──https / wss──► Cloudflare (proxy, SSL Full, WebSocket bật sẵn)
+                               │  khách vào https → nối cổng 443 của VPS · khách vào http → cổng 80
+                               ▼
+                       nginx site cinema.vibe-coder.fun
+                         ├─ realip: CHỈ tin CF-Connecting-IP khi kết nối đến từ dải IP Cloudflare
+                         ├─ /.well-known/acme-challenge/ → /var/www/html (certbot)
+                         ├─ = /ws   → 127.0.0.1:3300 (Upgrade, đọc / ghi 3600 s, không buffer, không access log)
+                         ├─ /api/   → 127.0.0.1:3300 + limit_req zone=vcin_api (2 r/s / IP, burst 10, 429)
+                         └─ /       → 127.0.0.1:3300 (?admin=… thì tắt access log)
+                         mọi location ghi X-Real-IP = IP thật, XOÁ CF-Connecting-IP client tự gửi, X-Forwarded-Proto
+                               ▼
+                       Node (pm2 "vibecinema") — app.ts tin X-Real-IP trước (TRUST_PROXY=true)
+Video: trình duyệt ◄── YouTube trực tiếp (không qua VPS)
 ```
 
-| Bước | `--setup` | Việc |
+Nhờ realip chỉ tin dải IP Cloudflare, ai gọi thẳng IP VPS kèm header giả vẫn bị tính đúng IP của họ. Dải IP lấy từ
+https://www.cloudflare.com/ips/ — Cloudflare đổi thì sửa `deploy/nginx.site.conf` rồi chạy lại `--setup`.
+
+## 4. DNS trên Cloudflare (chủ dự án tự làm — đã làm cho production)
+
+1. https://dash.cloudflare.com → tên miền **vibe-coder.fun** → **DNS → Records → Add record**.
+2. **Type** `A` · **Name** `cinema` · **IPv4** = IP của VPS (giống bản ghi `corp` của VibeCorp; hoặc `VPS_HOST` trong
+   `deploy/vps.env`) · **Proxy status** bật (đám mây **cam**) · **TTL** Auto → **Save**.
+3. **SSL/TLS → Overview**: để nguyên chế độ đang dùng (**Full**) — VibeCorp chạy cùng chế độ này.
+4. **SSL/TLS → Edge Certificates → Always Use HTTPS**: bật.
+5. Đợi 1–5 phút, mở `https://cinema.vibe-coder.fun/api/health` → thấy `{"ok":true,…}`.
+
+## 5. Chuẩn bị trên máy dev
+
+- Công cụ: `bash`, `ssh`, `sshpass`, `rsync`, `curl`.
+- `deploy/vps.env` (chép từ `../agent_office/deploy/vps.env`, đổi `DOMAIN=cinema.vibe-coder.fun`): biến `VPS_HOST`,
+  `VPS_PORT`, `VPS_USER`, `VPS_PASS`, `DOMAIN`, tuỳ chọn `APP_PORT`.
+- `deploy/.env.production` (chép `.env.example`): bắt buộc `PORT=3300`; nên có `ADMIN_TOKEN` (≥ 12 ký tự, `openssl rand
+  -hex 16`), `YT_API_KEY`, `PERSIST=true`, `SITE_URL=https://cinema.vibe-coder.fun`. Các biến khác: bảng ở
+  [07](07-server.md) §16.
+- `npm test` xanh.
+
+## 6. `deploy/deploy.sh`
+
+```bash
+bash deploy/deploy.sh --setup   # lần đầu, hoặc khi đổi nginx.site.conf / nginx.limit.conf / cần lấy lại chứng chỉ
+bash deploy/deploy.sh           # cập nhật code (các lần sau)
+bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
+```
+
+| Bước | Chỉ `--setup` | Việc |
 |---|---|---|
-| 1 | | kiểm `vps.env`, `.env.production` (`PORT` đúng 3300; cảnh báo nếu thiếu `ADMIN_TOKEN` / `YT_API_KEY`), SSH thử |
-| 2 | ✓ | `ss -ltnp` kiểm cổng 3300: bị app khác dùng → **dừng**; tạo `/opt/vibecinema/data` |
-| 3 | | `rsync -az --delete` mã nguồn (loại: `node_modules`, `.git`, `data/*`, `.env`, `deploy/vps.env`, `deploy/.env.production`, log) |
-| 4 | | `scp .env.production` → `/opt/vibecinema/.env` (chmod 600) |
-| 5 | | dưới user `deploy`: `npm install --include=dev` (cần `tsx`), `pm2 restart vibecinema` hoặc `pm2 start npm --name vibecinema -- start`, `pm2 save` |
-| 6 | ✓ | ghi `conf.d/vibecinema-limit.conf` + site nginx, **`nginx -t`** — lỗi thì gỡ đúng 2 file vừa thêm, không reload; ổn thì `systemctl reload nginx`. Chưa có chứng chỉ → dựng bản chỉ HTTP, `certbot certonly --webroot -w /var/www/html -d DOMAIN`, rồi bật bản có 443 (lỗi `nginx -t` thì quay về bản chỉ HTTP) |
-| 7 | ✓ | `pm2 startup` (tự chạy lại khi VPS khởi động lại) |
-| 8 | | `curl` health trong VPS và qua `https://DOMAIN` |
+| 1 | | kiểm có `vps.env`, `.env.production`; `PORT` đúng `APP_PORT` (3300) — sai thì dừng; cảnh báo nếu thiếu `ADMIN_TOKEN` / `YT_API_KEY`; SSH thử (in hostname, phiên bản OS, node) |
+| 2 | ✓ | `ss -ltnp` kiểm cổng 3300: đang bị app **khác** dùng → dừng; tạo `/opt/vibecinema/data`, chown `deploy` |
+| 3 | | `rsync -az --delete` mã nguồn, loại: `node_modules`, `.git`, `data/*`, `.env`, `deploy/vps.env`, `deploy/.env.production`, `docs/preview`, `.claude`, `*.log`, `*.tmp-*`, `.DS_Store` |
+| 4 | | `scp deploy/.env.production` → `/opt/vibecinema/.env` (chmod 600) |
+| 5 | | dưới user `deploy`: `npm install --include=dev` (cần `tsx`, `typescript` là devDependency), `pm2 restart vibecinema --update-env` hoặc lần đầu `pm2 start npm --name vibecinema -- start`, `pm2 save`, in `pm2 ls` |
+| 6 | ✓ | ghi `conf.d/vibecinema-limit.conf`; chưa có chứng chỉ → dựng site **chỉ HTTP** (bỏ các dòng `# __SSL__`), `nginx -t && reload`, rồi `certbot certonly --webroot -w /var/www/html -d $DOMAIN --non-interactive --agree-tos --keep-until-expiring`; có chứng chỉ → dựng site **có 443** (`nginx -t` lỗi → quay về bản chỉ HTTP). Mọi lần `nginx -t` lỗi mà không quay về được → gỡ `sites-enabled/$DOMAIN` + `conf.d/vibecinema-limit.conf`, **không reload**, thoát |
+| 7 | ✓ | `pm2 startup systemd -u deploy` (tự chạy lại khi VPS khởi động lại) |
+| 8 | | `curl` `/api/health` trong VPS (127.0.0.1:3300) và qua `https://$DOMAIN` |
 
-`data/` trên VPS (hàng chờ, lệnh cấm, báo cáo, muối IP) không bao giờ bị ghi đè. Tắt server (deploy) → hàng chờ + video
-đang chiếu được lưu rồi khôi phục (người xem chỉ thấy "Mất kết nối — đang nối lại…" vài giây, tự vào lại đúng nhân vật).
+- `data/` trên VPS (hàng chờ, video bị gỡ, lệnh cấm, báo cáo, muối IP) **không bao giờ bị ghi đè** (rsync loại trừ).
+- Tắt server khi deploy (pm2 gửi `SIGINT`) → `rooms.json` được lưu rồi khôi phục: người xem thấy "Mất kết nối — đang nối
+  lại…" vài giây rồi tự vào lại (nhân vật mới cùng tên + ngoại hình, video đang chiếu tiếp đúng chỗ).
+- Phiên bản tài nguyên đổi theo file → trình duyệt tự tải JS / CSS mới, không cần xoá cache Cloudflare.
+- Site nginx chỉ được ghi khi `--setup`; deploy thường không đụng nginx.
 
-## 5. Admin trên production
+## 7. nginx
 
-Mở **một lần** `https://cinema.vibe-coder.fun/#admin=<ADMIN_TOKEN>` (dạng `#…` không bao giờ gửi lên máy chủ / log).
-Trình duyệt nhớ 1 năm (cookie HttpOnly chứa bản băm, không chứa mã). "🚪 Thoát admin trên máy này" trong bảng 🛠.
-Đổi `ADMIN_TOKEN` + deploy lại = mọi cookie admin cũ hết hiệu lực.
+- `deploy/nginx.site.conf` là mẫu: `__DOMAIN__`, `__PORT__` được `sed` thay; dòng có `# __SSL__` (listen 443,
+  `ssl_certificate`, `include /etc/letsencrypt/options-ssl-nginx.conf`, `ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem`)
+  bị bỏ khi chưa có chứng chỉ. Hai file `options-ssl-nginx.conf` / `ssl-dhparams.pem` phải có sẵn trên VPS (thường do
+  certbot tạo; thiếu thì `nginx -t` lỗi và script quay về bản chỉ HTTP).
+- `deploy/nginx.limit.conf` → `/etc/nginx/conf.d/vibecinema-limit.conf`:
+  `limit_req_zone $binary_remote_addr zone=vcin_api:10m rate=2r/s;` (phải nằm trong khối `http{}` nên để ở `conf.d`).
+- `X-Forwarded-Proto $scheme` cho app biết request là https (cookie admin thêm `Secure`).
 
-## 6. Sự cố thường gặp
+## 8. Chứng chỉ HTTPS & gia hạn
+
+- `--setup` tự lấy chứng chỉ bằng **webroot** (`/var/www/html`, qua cổng 80) cho riêng `cinema.vibe-coder.fun` — không
+  đụng chứng chỉ của site khác.
+- Gia hạn tự động bằng timer certbot trên VPS (`snap.certbot.renew.timer` — theo ghi chú vận hành, kiểm bằng
+  `systemctl list-timers | grep certbot`). Vì dùng webroot, sau khi gia hạn nginx phải **reload** mới dùng chứng chỉ mới:
+  kiểm có deploy hook (`/etc/letsencrypt/renewal-hooks/deploy/`) reload nginx; chưa có thì thêm, hoặc reload tay sau
+  mỗi lần gia hạn (~60 ngày). Thử: `certbot renew --dry-run`.
+- Chứng chỉ hỏng / hết hạn khi Cloudflare ở chế độ Full (không Strict) vẫn chạy, nhưng nên giữ đúng hạn.
+
+## 9. Biến môi trường production
+
+`deploy/.env.production` → `/opt/vibecinema/.env`, `dotenv` đọc khi khởi động (biến môi trường có sẵn thắng `.env`).
+Đổi biến → sửa file này rồi `bash deploy/deploy.sh` (pm2 restart). Bảng đầy đủ: [07](07-server.md) §16. Quan trọng:
+
+| Biến | Production |
+|---|---|
+| `PORT` | 3300 (bắt buộc) |
+| `HOST` | `127.0.0.1` (mặc định — chỉ nginx gọi được) |
+| `SITE_URL` | `https://cinema.vibe-coder.fun` |
+| `ADMIN_TOKEN`, `YT_API_KEY` | bí mật — chỉ ở file này |
+| `TRUST_PROXY` | `true` (đứng sau nginx + Cloudflare) |
+| `PERSIST`, `DATA_DIR` | `true`, `data` |
+| `DEFAULT_VIDEO`, `DEFAULT_IDLE_SECONDS` | kênh trực tiếp mặc định, 30 |
+
+Đổi `ADMIN_TOKEN` = mọi cookie admin cũ hết hiệu lực. Đổi `IP_SALT` (hoặc xoá `data/ip-salt.txt`) = lệnh cấm theo IP cũ
+mất tác dụng (lệnh cấm theo khoá máy vẫn còn).
+
+## 10. Dữ liệu sống — `/opt/vibecinema/data/`
+
+`rooms.json` (hàng chờ + video đang chiếu + video bị gỡ + bộ đếm id), `bans.json`, `reports.jsonl` (mỗi dòng một báo cáo
+— chứa tên tự đặt + ghi chú người báo cáo), `ip-salt.txt`. Quyền 600, chủ `deploy`. Sao lưu: chép cả thư mục. Xem
+báo cáo cũ: `tail -n 50 /opt/vibecinema/data/reports.jsonl` trên VPS (tab Báo cáo của admin chỉ giữ 100 báo cáo gần
+nhất trong bộ nhớ). Chi tiết định dạng: [07](07-server.md) §14.
+
+## 11. Log & theo dõi
+
+- `bash deploy/logs.sh [n]` = `pm2 logs vibecinema --lines n --nostream` (không in thông tin đăng nhập).
+- Log có: banner khởi động (luật video, số phòng, nơi lưu, admin bật / tắt — không in mã), video mặc định (đã kiểm / bị
+  tắt), báo cáo (`🚩 …`), admin gỡ video, video lỗi trình phát, lỗi YouTube API (lý do, không có key), lỗi ghi dữ liệu,
+  đăng nhập admin sai mã (không ghi mã), lỗi không bắt được.
+- `GET /api/health` → `{ ok, rooms, viewers, players, playing, yt }` — `yt: false` = thiếu `YT_API_KEY`.
+
+## 12. Admin trên production
+
+Mở **một lần** `https://cinema.vibe-coder.fun/#admin=<ADMIN_TOKEN>` (phần `#…` không bao giờ gửi lên máy chủ / log;
+dạng cũ `?admin=` vẫn chạy và nginx tắt access log cho nó). Trình duyệt nhớ 1 năm bằng cookie HttpOnly chứa bản băm.
+"🚪 Thoát admin trên máy này" trong bảng 🛠. Cách dùng bảng admin: [01](01-tong-quan.md) §2.
+
+## 13. Sự cố thường gặp
 
 | Triệu chứng | Kiểm tra |
 |---|---|
-| 502 | `bash deploy/logs.sh`; `PORT` trong `.env.production` ≠ 3300; pm2 `errored` |
-| https chuyển sang tokivietnam.com | site chưa nghe cổng 443 (chưa có chứng chỉ) → `bash deploy/deploy.sh --setup` |
+| 502 Bad Gateway | `bash deploy/logs.sh`; pm2 `errored`?; `PORT` trong `.env.production` ≠ 3300 |
+| https chuyển sang site khác (tokivietnam.com) | site chưa nghe 443 (chưa có chứng chỉ) → `bash deploy/deploy.sh --setup` |
 | "Rạp chưa cấu hình kiểm tra video" | thiếu `YT_API_KEY` trong `.env.production` → thêm rồi deploy |
-| "Rạp đang lỗi cấu hình kiểm tra video" | key sai / bị giới hạn IP khác IP VPS / chưa Enable YouTube Data API v3 |
+| "Rạp đang lỗi cấu hình kiểm tra video" | key sai / giới hạn IP khác IP VPS / chưa Enable YouTube Data API v3 (log ghi lý do) |
 | "hết lượt kiểm tra video" | quota 10.000 / ngày đã hết (reset 0 giờ giờ Thái Bình Dương) |
+| Kênh mặc định không phát | log "Video mặc định … không phát được / không đạt luật" → đổi `DEFAULT_VIDEO`; hoặc bị admin gỡ (bỏ chặn trong 🛠) |
 | Video không chạy trên iPhone | bình thường lần đầu: bấm "▶ Bấm để xem" dưới màn hình |
-| Nhân vật giật | xem `window.__vc.view().net` trên trình duyệt: `buffer` ~90–200 ms là bình thường |
-| Nhiều người cùng mạng bị "Vào ra nhanh quá" | nới `JOINS_PER_MINUTE` / `MAX_CONN_PER_IP` |
+| Nhân vật giật | trên trình duyệt: `window.__vc.view().net` — `buffer` ~90–200 ms là bình thường |
+| Nhiều người cùng mạng bị "Vào ra nhanh quá" / không nối được | nới `JOINS_PER_MINUTE` / `MAX_CONN_PER_IP` |
+| Sửa CSS / JS mà trình duyệt vẫn bản cũ (máy dev) | khởi động lại server (phiên bản tài nguyên tính lúc khởi động) |
+| `nginx -t` lỗi sau `--setup` | script đã gỡ phần của rạp và không reload; đọc lỗi, sửa `deploy/nginx.*.conf`, chạy lại |
 
-Rollback: VPS không có `.git` → checkout bản cũ trên máy dev rồi `bash deploy/deploy.sh`.
+## 14. Rollback
+
+VPS không có `.git`. Trên máy dev: `git checkout <commit / tag cũ>` → `bash deploy/deploy.sh` → `git checkout main`.
+`rsync --delete` thay toàn bộ mã nhưng **giữ `data/`**. Bản cũ đọc `rooms.json` của bản mới: mục không hiểu bị bỏ qua
+(nạp phòng thủ). Đổi nginx thì rollback cả `deploy/nginx.*.conf` rồi `--setup`.
