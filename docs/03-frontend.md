@@ -306,22 +306,24 @@ Bài học từ VibeCorp: giật trên production là do **so le WebSocket qua C
 gói + bộ đệm phát.
 
 - **Mình**: đi ngay trên máy (dự đoán), server chỉ sửa khi lệch (§8).
-- **Người khác** (`store.pushSample` / `actorPos`): mỗi người một trục thời gian riêng theo **giờ máy người đi** `c`:
-  `off = min(giờ mình lúc nhận − c)` (đường truyền nhanh nhất; theo kịp lệch đồng hồ rất chậm), vẽ tại `c* = now −
-  buffer − off`, nội suy giữa hai mốc kẹp `c*`. Dùng giờ máy người đi (không phải giờ server) nên so le của **cả hai
-  chặng** (người đi → server → mình) đều bị bộ đệm nuốt.
-- Nhịp: client gửi `move` tới **30 lần / giây** (`LIMITS.sendHz`), server gom **30 Hz** (`TICK_HZ`).
-- Bộ đệm thích ứng chung (`store.net`): khởi đầu 80 ms, trong **40–260 ms**; gói tới sát giờ vẽ (dư < 12 ms) → nới mức
-  cần; 60 gói liền đều dư nhiều → siết dần. Cỡ bộ đệm **nhích dần** về mức cần (`tickNet`, nới ≤ 0,25 ms / ms, siết ≤
-  0,05 ms / ms) — giãn / nén thời gian chứ không giật lùi.
-- **Đoán trước** (`targetPos`): gói mới tới muộn hơn bộ đệm mà người kia đang đi → đi tiếp theo vận tốc hai mốc cuối, tối
-  đa 220 ms, qua `moveWithCollision` (không xuyên tường) — thay vì đứng khựng. Gói thật tới sửa lại đường đoán → phần
-  lệch (`errX/errY`, tính ngay trong `pushSample`: vị trí trước − sau khi thêm mốc) được **kéo mượt** về 0 với hằng số
-  110 ms (`actorPos`) thay vì nhảy.
-- Đo bằng `npm run qa -- --jitter 100` (người xem giả gửi gói trễ ngẫu nhiên 0–100 ms như mạng 4G / Cloudflare): khựng
-  0,5 % (bản 15 Hz cũ 1,1 %), độ dao động bước đi 0,10 (cũ 0,22), bộ đệm ~108 ms (cũ ~169 ms).
-- Đứng lâu (> 300 ms) rồi mới đi → chèn mốc "vẫn ở chỗ cũ" để không trôi chậm; nhảy xa > 3 ô giữa hai mốc = dịch chuyển
-  tức thời (không kéo mượt); máy người kia vừa tải lại trang (`c` lùi > 2 s) → neo lại trục. Giữ tối đa 24 mốc.
+- **Người khác — đi theo vệt** (`store.pushSample` / `actorPos`). Đo thật trên production (Cloudflare + 4G): gói vị trí
+  tới **dồn cục** (một nửa số gói tới cùng lúc với gói trước) xen những lúc **khựng 0,3–1,4 s** rồi ùa tới cả loạt. Vẽ
+  theo giờ (bộ đệm thời gian — bản 0.4.1 trở về trước) gặp khựng là đứng, gói ùa tới là bị kéo vọt → "đi, đứng, nhảy".
+  Giờ mỗi người có một **vệt** điểm đã nhận (`a.path`); hình luôn **đi bộ dọc vệt** với tốc độ đi thật `SPEED`, điều tốc
+  theo phần vệt còn lại phía trước (backlog, ô) so với vệt cần giữ `a.lag`:
+  `k = clamp(1 + 0,8·(backlog − lag)/lag, 0,55, 2,2)` khi người kia còn đi (tin mới nhất `m = 1`); người kia đã dừng thì
+  đi nốt tới đúng chỗ dừng với `k = clamp(1 + backlog/2, 1, 2,2)`. Tụt lại → đi nhanh dần (≤ 2,2×) bắt kịp **liền mạch**;
+  vệt sắp hết → chậm lại (≥ 0,55×) đỡ phải đứng chờ. `a.lag` (0,4–1,6 ô, khởi đầu 0,5 ≈ 150 ms sau người thật) tăng 0,2
+  mỗi lần vệt cạn giữa lúc người kia đang đi, êm thì siết 0,03 ô / s (`tickNet`). Chỉ **dịch chuyển tức thời** khi điểm
+  mới cách hình > 5 ô. Hướng mặt = hướng gửi kèm điểm đang đi tới. Gói cũ / lệch thứ tự bị bỏ theo `c`.
+- Trục giờ máy người kia (`off = min(giờ mình lúc nhận − c)`) chỉ còn dùng để động tác bắt đầu đúng lúc (`localTimeOf`).
+- Nhịp: client gửi `move` tới **30 lần / giây** (`LIMITS.sendHz`), server gom **30 Hz** (`TICK_HZ`); server cho "dồn"
+  tối đa 2 s đi bộ (`BUDGET_CAP`) để loạt gói ùa tới sau khi mạng khựng không bị cắt (người đi không bị kéo giật lùi).
+- Đo bằng `npm run qa -- --bunch` (người xem giả gửi gói dồn cục 40–140 ms, 4 % lần khựng 0,4–1,2 s — đúng kiểu đo được
+  trên production): **0 lần nhảy cóc** (bản cũ 6), bước lớn nhất ~2,4× bước thường (cũ 64×), khựng 1,1 % (cũ 9,1 %).
+- **Hướng mặt của mình** (`me.js dirOf`): theo hướng **nhìn thấy trên màn hình** (trục sâu nhân `me.yScale = P.k / P.s`
+  ở chỗ mình đứng — phối cảnh nén chiều sâu); gần đường chéo giữ hướng cũ cho khỏi nháy, nhưng **chỉ khi hướng cũ cùng
+  phía chuyển động** (lệch ≤ 54°) — không bao giờ quay mặt ra mà đi lùi.
 - Động tác của người khác bắt đầu đúng lúc trên trục đã đệm (`localTimeOf(c)`) → không nhảy trước khi dừng chân; người
   vào sau thấy động tác đang dở nhờ `ae`.
 - Đồng hồ server (cho video): `offset` từ `hello.s`, chỉnh bằng `ping / pong` (3 s một lần × 8 lúc đầu, sau đó 15 s), giữ

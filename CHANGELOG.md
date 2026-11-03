@@ -1,5 +1,16 @@
 # Lịch sử thay đổi
 
+## 0.4.2 — 2026-11-03 · Hết "đi, đứng, nhảy" + hết đi lùi
+
+**Người khác đi theo vệt, không bao giờ nhảy cóc** — đo thật trên production: gói vị trí qua Cloudflare + 4G tới dồn cục
+xen những lúc khựng 0,3–1,4 s. Thay cách vẽ theo giờ bằng cách cho nhân vật **đi bộ dọc vệt điểm đã nhận**: tụt lại thì
+đi nhanh dần để bắt kịp liền mạch, vệt sắp hết thì chậm lại, người kia vừa đi là hình đi ngay. Với mạng giả lập đúng kiểu
+production: 0 lần nhảy cóc (trước 6 lần / 6 s), khựng 1,1 % (trước 9,1 %). Server cho dồn tới 2 s đi bộ sau khi mạng
+khựng (trước 1,2 s) để người đi không bị kéo giật lùi.
+
+**Hướng mặt đúng** — bấm chéo ra sau lúc đang quay mặt ra không còn "quay mặt ra mà đi lùi": hướng mặt theo hướng nhìn
+thấy trên màn hình (có tính phối cảnh), chỉ giữ hướng cũ khi cùng phía chuyển động.
+
 ## 0.4.1 — 2026-11-03 · Đi mượt gần như tức thì, hết kẹt nhân vật, chuyển rạp mượt
 
 **Thấy nhau đi gần như tức thì** — gửi + gom vị trí 30 lần / giây (trước 15); bộ đệm chống giật nhỏ hẳn (40–260 ms, trước
