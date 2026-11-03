@@ -39,6 +39,8 @@ export interface QueueItemInfo {
    * `maxVideoMin` phút, máy người xem báo độ dài thật (`vid_dur`) khi bắt đầu phát rồi server tự chỉnh giờ hết bài
    */
   unk?: boolean;
+  /** admin thêm: người thường không bỏ phiếu bỏ qua được */
+  adm?: boolean;
 }
 
 export interface NowInfo extends QueueItemInfo {
@@ -144,6 +146,9 @@ export type ClientMsg =
   | { t: 'switch'; room: string }
   /** đóng tab / rời trang: bỏ nhân vật ngay (khỏi để lại nhân vật "kẹt" chờ hết hạn) */
   | { t: 'leave' }
+  /** điện thoại: trang ẩn (chuyển app / tắt màn hình) → người khác không thấy nhân vật; hiện lại đúng chỗ khi 'back' */
+  | { t: 'away' }
+  | { t: 'back' }
   | { t: 'join'; name: string; look: unknown; room: string; token: string; ck: string }
   | { t: 'move'; x: number; y: number; d: number; c: number; m: 0 | 1 }
   | { t: 'act'; a: ActionId | ''; c: number }

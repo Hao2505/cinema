@@ -78,6 +78,8 @@ export interface Player {
   action: { a: ActionId; ct: number; at: number } | null;
   conn: Conn | null;
   ghostSince: number;
+  /** mốc chuyển sang ẩn (điện thoại chuyển app / tắt màn hình: trang ẩn) — 0 = đang có mặt. Người khác không thấy nhân vật */
+  away: number;
   token: string;
   ck: string;
   ipHash: string;
@@ -109,6 +111,8 @@ interface QueueItem {
   unk?: boolean;
   /** giây chiếu tối đa cho lượt này (video `unk`; video biết độ dài đã bị chặn > giới hạn lúc thêm) */
   cap?: number;
+  /** admin thêm: người thường không bỏ phiếu bỏ qua được, báo cáo không tự gỡ (admin vẫn được báo) */
+  byAdmin?: boolean;
 }
 
 interface NowPlaying extends QueueItem {
@@ -176,17 +180,21 @@ export class Room {
 
   get name(): string { return roomName(this.id); }
 
-  /** người đang ở trong phòng (tính cả người đang kết nối lại) */
-  count(): number { return this.players.size; }
+  /** người đang ở trong phòng (tính cả người đang kết nối lại, không tính người đang ẩn) */
+  count(): number {
+    let n = 0;
+    for (const p of this.players.values()) if (!p.away) n++;
+    return n;
+  }
   present(): number {
     let n = 0;
-    for (const p of this.players.values()) if (p.conn) n++;
+    for (const p of this.players.values()) if (p.conn && !p.away) n++;
     return n;
   }
   /** số mạng (IP băm) khác nhau đang có mặt */
   presentIps(): number {
     const s = new Set<string>();
-    for (const p of this.players.values()) if (p.conn) s.add(p.ipHash);
+    for (const p of this.players.values()) if (p.conn && !p.away) s.add(p.ipHash);
     return s.size;
   }
 
@@ -215,7 +223,10 @@ export class Room {
   }
 
   itemInfo(q: QueueItem): QueueItemInfo {
-    return { qid: q.qid, v: q.v, title: q.title, ch: q.ch, dur: q.dur, live: q.live, by: q.by, byId: q.byId, ...(q.unk ? { unk: true } : {}) };
+    return {
+      qid: q.qid, v: q.v, title: q.title, ch: q.ch, dur: q.dur, live: q.live, by: q.by, byId: q.byId,
+      ...(q.unk ? { unk: true } : {}), ...(q.byAdmin ? { adm: true } : {}),
+    };
   }
 
   nowInfo(): NowInfo | null {
@@ -229,7 +240,7 @@ export class Room {
       id: this.id,
       name: this.name,
       venue: this.venue,
-      players: [...this.players.values()].map((p) => this.playerInfo(p, now)),
+      players: [...this.players.values()].filter((p) => !p.away).map((p) => this.playerInfo(p, now)),
       queue: this.queue.map((q) => this.itemInfo(q)),
       locked: this.locked,
       now: this.nowInfo(),
@@ -271,7 +282,7 @@ export class Room {
   }
 
   private lastNeed = -1;
-  private sendVotesIfNeedChanged(): void {
+  sendVotesIfNeedChanged(): void {
     if (this.now && this.votesNeeded() !== this.lastNeed) this.votesChanged();
   }
 
@@ -707,6 +718,8 @@ export class Hub {
       p.ghostSince = Date.now();
       p.m = 0;
       const room = c.room;
+      // đang ẩn (người khác vốn không thấy) mà mất kết nối = đã đóng tab / tắt hẳn → bỏ luôn, không hiện "mất mạng"
+      if (room && p.away) { room.removePlayer(p); return; }
       if (room && room.players.has(p.id)) {
         room.broadcast({ t: 'pu', p: room.playerInfo(p, Date.now()) });
         room.votes.delete(p.id);
@@ -734,7 +747,10 @@ export class Hub {
     const p = c.player;
     const room = c.room;
     if (!p || !room || p.conn !== c) return;
+    if (msg.t === 'away') return this.onAway(room, p, now);
+    if (p.away) this.onBack(room, p, now); // 'back' hoặc thao tác bất kỳ = đã quay lại
     switch (msg.t) {
+      case 'back': return;
       case 'move': return this.onMove(p, msg, now);
       case 'act': return this.onAct(room, p, msg.a, msg.c, now);
       case 'chat': return this.onChat(room, p, msg.text, now);
@@ -779,6 +795,28 @@ export class Hub {
     c.player = null;
     p.conn = null;
     if (room) room.removePlayer(p);
+  }
+
+  /**
+   * Điện thoại chuyển app / tắt màn hình (trang ẩn): nhân vật biến khỏi mắt người khác NGAY (giữ chỗ đứng, không tính vào số
+   * người / phiếu); quay lại thì hiện lại đúng chỗ cũ. Đang ẩn mà mất kết nối (đóng tab, hệ điều hành ngắt) → bỏ luôn.
+   */
+  private onAway(room: Room, p: Player, now: number): void {
+    if (p.away) return;
+    p.away = now;
+    p.m = 0;
+    room.broadcast({ t: 'pl', id: p.id }, p.conn ?? undefined);
+    if (room.votes.delete(p.id)) room.votesChanged();
+    else room.sendVotesIfNeedChanged();
+    this.roomsChanged();
+  }
+
+  private onBack(room: Room, p: Player, now: number): void {
+    if (!p.away) return;
+    p.away = 0;
+    room.broadcast({ t: 'pj', p: room.playerInfo(p, now) }, p.conn ?? undefined);
+    room.sendVotesIfNeedChanged();
+    this.roomsChanged();
   }
 
   /** đưa nhân vật sang phòng `roomId` (cùng rạp mà đầy thì sang bản sao). false = không chuyển được (đã báo người xem) */
@@ -871,9 +909,12 @@ export class Hub {
         // chọn rạp khác rạp nhân vật cũ đang đứng → chuyển luôn sang rạp đó (đầy thì ở lại rạp cũ)
         const want = parseRoomId(msg.room)?.venue.id;
         if (want && want !== room.venue && this.moveTo(c, p, room, msg.room, now, false)) return;
+        const wasAway = p.away > 0;
+        p.away = 0;
         this.send(c, { t: 'welcome', you: p.id, token: p.token, room: room.id, snap: room.snapshot(now) });
-        room.broadcast({ t: 'pu', p: room.playerInfo(p, now) }, c);
+        room.broadcast({ t: wasAway ? 'pj' : 'pu', p: room.playerInfo(p, now) }, c);
         room.votesChanged();
+        if (wasAway) this.roomsChanged();
         return;
       }
     }
@@ -894,7 +935,7 @@ export class Hub {
     const sp = spawnPoint();
     const p: Player = {
       id: ++this.pid, name: nc.name, key, look: normalizeLook(msg.look), x: sp.x, y: sp.y, d: 1, m: 0,
-      ct: 0, lastMoveAt: now, budget: 0, dirty: false, action: null, conn: c, ghostSince: 0,
+      ct: 0, lastMoveAt: now, budget: 0, dirty: false, action: null, conn: c, ghostSince: 0, away: 0,
       token: randomBytes(16).toString('hex'), ck: msg.ck || randomBytes(8).toString('hex'), ipHash: c.ipHash, joinedAt: now, lastCorrAt: 0,
       chatBucket: new Bucket(3, 0.5, now), emoBucket: new Bucket(6, 2.5, now), actBucket: new Bucket(4, 2, now),
       lookBucket: new Bucket(3, 0.2, now), addBucket: new Bucket(2, 1 / this.cfg.queueAddSeconds, now), moveBucket: new Bucket(60, 40, now),
@@ -1094,6 +1135,7 @@ export class Hub {
       qid: ++this.qid, v: id, title: cleanText(info.title, 200) || 'Video không tên', ch: cleanText(info.ch, 100),
       dur: info.dur, live: info.live, by: p.name, byId: p.id, byCk: p.ck, addedAt: Date.now(),
       ...(info.unk ? { unk: true, cap: capSec } : {}),
+      ...(admin ? { byAdmin: true } : {}),
     };
     room.queue.push(item);
     this.dirty = true;
@@ -1121,8 +1163,14 @@ export class Hub {
       if (on && p.conn) this.notice(p.conn, 'Đây là kênh mặc định của rạp, tự nhường khi có video — dán link YouTube để chiếu video của bạn nhé.', 'info');
       return;
     }
+    const own = n.byId === p.id || (!!n.byCk && n.byCk === p.ck);
+    // video admin thêm: người thường không bỏ phiếu bỏ qua được (admin dùng bảng 🛠 hoặc tự bỏ qua bài mình)
+    if (n.byAdmin && !own && !p.conn?.admin) {
+      if (on && p.conn) this.notice(p.conn, 'Video do admin chọn — không bỏ phiếu bỏ qua được.', 'info');
+      return;
+    }
     // người thêm bài bỏ qua bài của chính mình: bỏ ngay
-    if (on && (n.byId === p.id || (n.byCk && n.byCk === p.ck))) {
+    if (on && own) {
       room.broadcast({ t: 'notice', kind: 'info', text: `${p.name} bỏ qua video của mình.` });
       room.next(Date.now());
       return;
@@ -1168,7 +1216,8 @@ export class Hub {
       this.notice(c, 'Đã gửi báo cáo cho admin. Cảm ơn bạn!', 'ok');
       // đếm người khác nhau theo IP (một người mở nhiều tab / xoá bộ nhớ trình duyệt không tự gỡ được video)
       const distinct = [...room.reports].filter((k) => k.startsWith('ip:')).length;
-      if (distinct >= this.cfg.reportAutoskip) {
+      // video admin thêm: không tự gỡ theo số báo cáo (admin đã được báo qua recordReport, tự quyết)
+      if (distinct >= this.cfg.reportAutoskip && !n.byAdmin) {
         this.blockVideo(n.v, n.title, `${distinct} người báo cáo: ${reason}`, room);
         room.broadcast({ t: 'notice', kind: 'warn', text: `Đã gỡ "${n.title}" vì nhiều người báo cáo.` });
         room.next(Date.now());

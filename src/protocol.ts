@@ -71,6 +71,8 @@ export function parseClientMsg(text: string): ClientMsg | null {
       return room && ROOM_ID_RE.test(room) ? { t: 'spec', room } : null;
     }
     case 'leave': return { t: 'leave' };
+    case 'away': return { t: 'away' };
+    case 'back': return { t: 'back' };
     case 'switch': {
       const room = str(m.room, 16); // "congvien-2" = 10 ký tự (ROOM_ID_RE kiểm dạng)
       return room && ROOM_ID_RE.test(room) ? { t: 'switch', room } : null;

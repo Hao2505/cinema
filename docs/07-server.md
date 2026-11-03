@@ -194,6 +194,10 @@ dồn 60, hồi 40 / s; cả kết nối dồn 120, hồi 70 / s (đủ cho 30 g
   / trùng tên → `notice` warn; được thì `removePlayer` ở phòng cũ, chỗ xuất hiện mới (`spawnPoint`), `addPlayer`, gửi
   `welcome` với ảnh chụp phòng mới.
 - `onLeave`: bỏ nhân vật ngay (client gửi khi đóng tab).
+- `onAway` / `onBack` (chỉ điện thoại gửi — trang ẩn / hiện lại): `p.away = mốc` → `pl` cho người khác, bỏ phiếu của
+  người đó; `count` / `present` / `presentIps` / `snapshot` không tính người đang ẩn. Quay lại (hoặc thao tác bất kỳ, hoặc
+  vào lại bằng token) → `pj` đúng chỗ cũ. `disconnect` khi đang ẩn → `removePlayer` ngay (đóng tab từ màn đa nhiệm không
+  hiện "mất mạng" 15 s).
 - `pickRoom()` **không chọn rạp** → rạp **đông nhất** còn chỗ (theo `present()`), để ít người thì mọi người gặp nhau thay
   vì mỗi người một rạp.
 
@@ -246,6 +250,8 @@ q_add {url}
 
 - `need = 1` nếu ≤ 1 người có mặt; ngược lại `min(có mặt, max(SKIP_VOTE_MIN, ⌈có mặt × SKIP_VOTE_RATIO⌉))`. "Có mặt" =
   người có kết nối (không tính ma).
+- Video **admin thêm** (`byAdmin`, gửi xuống là `adm`): người thường bỏ phiếu → `notice` "Video do admin chọn — không bỏ
+  phiếu bỏ qua được", không tính; admin dùng bảng 🛠. Báo cáo video admin không tự gỡ (vẫn ghi + báo admin).
 - Người thêm bài bỏ phiếu cho **bài của mình** → bỏ qua ngay. Đủ phiếu → `notice` + `next`. Người rời / mất mạng → phiếu
   của họ bị xoá, `need` tính lại (có thể làm đủ phiếu ngay).
 - Video mặc định (`filler`) **không bỏ phiếu được** — trả `notice` hướng dẫn dán link.

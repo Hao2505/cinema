@@ -75,6 +75,8 @@ Vị trí luôn tính **bằng ô** (tile), là **điểm chân**: `x` ngang (0 
 | `spec` | `room` khớp `ROOM_ID_RE` (≤ 16 ký tự) | chỉ khi chưa có nhân vật: đổi phòng đang xem → `hello` mới |
 | `switch` | `room` khớp `ROOM_ID_RE` (≤ 16 ký tự) | đã có nhân vật: chuyển sang phòng / rạp khác **không tải lại trang** — giữ id, tên, ngoại hình, token; xuất hiện ở lối đi cuối rạp mới → `welcome` mới. Rạp đầy / trùng tên / đổi quá nhanh (`JOINS_PER_MINUTE`) → `notice` warn, ở yên |
 | `leave` | — | đóng tab / rời trang (`pagehide`, không phải bộ nhớ đệm): bỏ nhân vật ngay (`pl` cho cả phòng); socket vẫn mở như người đứng xem |
+| `away` | — | **điện thoại** trang ẩn (chuyển app, về màn hình chính, tắt màn hình — `visibilitychange`): người khác nhận `pl` ngay, nhân vật giữ chỗ nhưng không có trong danh sách / số người / số phiếu; đang ẩn mà socket đóng → bỏ hẳn (không "mất mạng") |
+| `back` | — | trang hiện lại: `pj` cho người khác, hiện đúng chỗ cũ (thao tác bất kỳ khi đang ẩn cũng tính là quay lại; vào lại bằng token lúc đang ẩn cũng vậy) |
 | `join` | `name` chuỗi ≤ 80; `look` bất kỳ; `room` (sai → `''`); `token` 32 hex (sai → `''`); `ck` 16–64 hex (sai → `''`) | vào rạp / nối lại → `welcome` hoặc `join_err` ([07](07-server.md) §5) |
 | `move` | `x, y` hữu hạn, \|·\| ≤ 1000 (client gửi 3 chữ số lẻ); `d` nguyên 0–3; `c` 0–1e12 (làm tròn); `m` = `1`/`true` → 1, còn lại 0 | kiểm ngân sách + va chạm, có thể trả `corr`; vào frame `f` (x, y 3 chữ số lẻ) |
 | `act` | `a` ∈ `ACTION_IDS` hoặc `''` (thôi); `c` (sai → 0) | phát `act` cho cả phòng |
@@ -138,7 +140,7 @@ Mọi lệnh trừ `ping`, `spec`, `join`, `adm` cần đã có nhân vật **v�
 ```ts
 PlayerInfo   { id, name, look: Look, x, y, d, a: ActionId | '', ae, ghost }
 FrameEntry   [id, x, y, d, ct, m: 0 | 1]
-QueueItemInfo{ qid, v, title, ch, dur /* giây, 0 = live hoặc chưa rõ */, live, by, byId, unk?: true /* chưa rõ độ dài — kiểm cơ bản, xem docs/04 §3.1 */ }
+QueueItemInfo{ qid, v, title, ch, dur /* giây, 0 = live hoặc chưa rõ */, live, by, byId, unk?: true /* chưa rõ độ dài — kiểm cơ bản, xem docs/04 §3.1 */, adm?: true /* admin thêm: người thường không bỏ phiếu bỏ qua */ }
 NowInfo      = QueueItemInfo & { at, paused, pos, ends, filler?: true /* video mặc định */ }
 ChatInfo     { mid, pid, name, text, at }
 RoomInfo     { id, name, venue, now /* tên video đang chiếu, '' = màn hình trống */, count /* gồm người đang nối lại */, cap }

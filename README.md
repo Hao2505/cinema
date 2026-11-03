@@ -92,6 +92,7 @@ Quota miễn phí 10.000 lượt / ngày; mỗi link mới tốn 1 lượt (kế
   mã bị gỡ khỏi thanh địa chỉ. Mã nằm trong `deploy/.env.production` (production) / `.env` (máy nhà).
 - Có nút 🛠: bỏ qua / tạm dừng / chiếu tiếp (cả phòng), **gỡ hẳn video** (khiếu nại bản quyền), đưa bài lên đầu, xoá bài,
   khoá hàng chờ, xoá chat, xem báo cáo, bỏ cấm, bỏ chặn video. Bấm vào một nhân vật: tắt tiếng 10 phút / 1 giờ, mời ra (2 phút không vào lại), cấm 1 ngày / vĩnh viễn.
+- Video admin thêm: người thường **không bỏ phiếu bỏ qua được** (nút ⏭ ẩn), báo cáo cũng không tự gỡ — admin tự quyết.
 - Người thường không thấy gì về hệ thống (file admin không được tải nếu không phải admin).
 
 ## Deploy (VPS dùng chung với VibeCorp)

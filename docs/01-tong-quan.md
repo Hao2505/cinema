@@ -50,8 +50,10 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
   của mình.
 - **Xem chung**: "đồng hồ phòng" trên server; ẩn thanh tua / dừng của YouTube; lệch > 1 s tự tua; lỡ bấm dừng tự chạy
   lại; xem quảng cáo xong tự về đúng chỗ. Âm lượng + toàn màn hình video là nút riêng dưới màn hình.
-- Bỏ phiếu bỏ qua (≥ 50 % người có mặt, ≥ 2 phiếu); người thêm bài bỏ qua bài mình ngay. Chủ kênh tắt nhúng giữa chừng →
-  tự chuyển bài.
+- Bỏ phiếu bỏ qua (≥ 50 % người có mặt, ≥ 2 phiếu); người thêm bài bỏ qua bài mình ngay; **video admin thêm thì người
+  thường không bỏ phiếu bỏ qua được** (báo cáo cũng không tự gỡ — admin quyết). Chủ kênh tắt nhúng giữa chừng → tự chuyển bài.
+- Điện thoại chuyển app / về màn hình chính / tắt màn hình → nhân vật **biến khỏi rạp ngay** với người khác, mở lại hiện
+  đúng chỗ cũ; đóng tab lúc đang ẩn → bỏ hẳn, không hiện "mất mạng".
 - **Kênh mặc định**: phòng trống video + hàng chờ trống quá 30 s → tự phát một kênh trực tiếp 24/7 (`DEFAULT_VIDEO`); có
   người dán link là nhường ngay; không bỏ phiếu bỏ qua được.
 - 🚩 Báo cáo video (bản quyền, không phù hợp, spam…) → admin được báo ngay; 3 người (IP khác nhau) báo cáo → tự gỡ +

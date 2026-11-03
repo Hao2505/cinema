@@ -337,10 +337,21 @@ async function main(): Promise<void> {
   await step('báo cáo: 3 người báo cáo video đang chiếu → tự gỡ + chặn thêm lại', async () => {
     const extra: Client[] = [];
     for (const n of ['Rùa', 'Thỏ']) { const c = await connect(); assert.equal((await c.join(n)).t, 'welcome', n); extra.push(c); }
-    let cur = a.msgs.filter((m) => m.t === 'now').pop()!.n as { v: string; title: string } | null;
-    if (!cur) {
-      assert.equal((await qres(adm, 'https://youtu.be/reportMe001')).ok, true);
-      await a.waitT('now', 3000, (m) => !!m.n);
+    let cur = a.msgs.filter((m) => m.t === 'now').pop()!.n as { v: string; title: string; adm?: boolean } | null;
+    if (cur?.adm) {
+      // video admin thêm: báo cáo không tự gỡ (admin được báo, tự quyết) — rồi admin bỏ qua cho bước dưới
+      for (const c of [a, ...extra]) c.send({ t: 'report', kind: 'video', target: cur.v, reason: 'copyright', note: 'thử admin' });
+      await assert.rejects(a.wait((m) => m.t === 'now' && (m.n as { v: string } | null)?.v !== cur!.v, 600), 'video admin không tự gỡ theo báo cáo');
+      const skipped = a.waitT('now', 3000, (m) => (m.n as { v: string } | null)?.v !== cur!.v);
+      adm.send({ t: 'adm', op: 'skip' });
+      await skipped;
+      cur = a.msgs.filter((m) => m.t === 'now').pop()!.n as { v: string; title: string; adm?: boolean } | null;
+    }
+    if (!cur || cur.adm) {
+      const played = a.waitT('now', 3000, (m) => (m.n as { v: string } | null)?.v === 'reportMe001');
+      assert.equal((await qres(extra[0], 'https://youtu.be/reportMe001')).ok, true);
+      if (cur) { await sleep(30); adm.send({ t: 'adm', op: 'skip' }); }
+      await played;
       cur = a.msgs.filter((m) => m.t === 'now').pop()!.n as { v: string; title: string };
     }
     const gone = a.waitT('now', 3000, (m) => (m.n as { v: string } | null)?.v !== cur!.v);
@@ -711,6 +722,74 @@ async function main(): Promise<void> {
     } finally {
       c.close();
       await app4.close();
+    }
+  });
+
+  // ------------------------------------------------------------ video admin + điện thoại ẩn trang (server riêng)
+  await step('video admin thêm: người thường không bỏ phiếu bỏ qua được; điện thoại ẩn trang → người khác thấy rời đi ngay, quay lại hiện đúng chỗ; ẩn mà đứt kết nối → bỏ luôn, không "mất mạng"; vào lại lúc đang ẩn → hiện lại', async () => {
+    type P = { id: number; x: number; y: number; ghost?: boolean };
+    const app5 = createApp(makeCfg({ persist: false, defaultVideo: '' }), { youtube, dataDir: null, log: () => {} });
+    const port5 = await app5.listen(0, '127.0.0.1');
+    const url5 = `ws://127.0.0.1:${port5}/ws`;
+    const ad = new Client(url5, { 'x-real-ip': '10.9.3.1', cookie: adminCookie });
+    const u1 = new Client(url5, { 'x-real-ip': '10.9.3.2' });
+    const u2 = new Client(url5, { 'x-real-ip': '10.9.3.3' });
+    const extra: Client[] = [];
+    const roomCount = (m: Msg): number => (m.rooms as { id: string; count: number }[]).find((r) => r.id === 'nhung')?.count ?? -1;
+    try {
+      for (const c of [ad, u1, u2]) { await c.open(); await c.wait((m) => m.t === 'hello', 2000, true); }
+      assert.equal((await ad.join('Quản Lý', 'nhung')).t, 'welcome');
+      assert.equal((await u1.join('Khán Giả Một', 'nhung')).t, 'welcome');
+      assert.equal((await u2.join('Khán Giả Hai', 'nhung')).t, 'welcome');
+      // admin thêm video → có cờ adm; 2 người thường bỏ phiếu (bình thường là đủ) → bị từ chối, video vẫn chiếu
+      const playing = u1.wait((m) => m.t === 'now' && (m.n as { v?: string } | null)?.v === 'eRsGyueVLvQ', 3000);
+      ad.send({ t: 'q_add', url: 'https://youtu.be/eRsGyueVLvQ' });
+      assert.equal(((await playing).n as { adm?: boolean }).adm, true);
+      const note = u1.waitT('notice', 2000, (m) => /admin chọn/.test(String(m.text)));
+      u1.send({ t: 'vote', on: true });
+      await note;
+      u2.send({ t: 'vote', on: true });
+      await assert.rejects(u1.wait((m) => m.t === 'now' && (m.n as { v?: string } | null)?.v !== 'eRsGyueVLvQ', 600), 'video admin không được bị bỏ qua bằng phiếu');
+      // ẩn trang (điện thoại chuyển app) → người khác nhận 'pl' ngay, số người trong phòng giảm
+      const gone = u2.waitT('pl', 2000, (m) => m.id === u1.id);
+      const fewer = u2.waitT('rooms', 3000, (m) => roomCount(m) === 2);
+      u1.send({ t: 'away' });
+      await gone; await fewer;
+      // khách mới vào lúc u1 đang ẩn: không thấy u1
+      const u3 = new Client(url5, { 'x-real-ip': '10.9.3.4' }); extra.push(u3);
+      await u3.open();
+      const hello3 = await u3.wait((m) => m.t === 'hello', 2000, true);
+      assert.ok(!((hello3.snap as { players: P[] }).players.some((p) => p.id === u1.id)), 'người đang ẩn không có trong danh sách');
+      // quay lại → hiện lại đúng nhân vật cũ
+      const back = u2.waitT('pj', 2000, (m) => (m.p as P).id === u1.id);
+      u1.send({ t: 'back' });
+      assert.equal(((await back).p as P).id, u1.id);
+      // ẩn rồi đứt kết nối (đóng tab từ màn đa nhiệm / hệ điều hành ngắt) → bỏ luôn, không có 'pu' "mất mạng"
+      const gone2 = u2.waitT('pl', 2000, (m) => m.id === u1.id);
+      u1.send({ t: 'away' });
+      await gone2;
+      const before = u2.msgs.length;
+      const fewer2 = u2.waitT('rooms', 3000, (m) => roomCount(m) === 2);
+      u1.close();
+      await fewer2;
+      await new Promise((r) => setTimeout(r, 200));
+      assert.ok(!u2.msgs.slice(before).some((m) => m.t === 'pu' && (m.p as P).id === u1.id), 'không hiện "mất mạng" cho người đã ẩn');
+      // vào lại (socket mới, cùng token) lúc nhân vật đang ẩn → hiện lại cho người khác (pj)
+      const u4 = new Client(url5, { 'x-real-ip': '10.9.3.5' }); extra.push(u4);
+      await u4.open(); await u4.wait((m) => m.t === 'hello', 2000, true);
+      assert.equal((await u4.join('Khán Giả Bốn', 'nhung')).t, 'welcome');
+      const gone3 = u2.waitT('pl', 2000, (m) => m.id === u4.id);
+      u4.send({ t: 'away' });
+      await gone3;
+      const u4b = new Client(url5, { 'x-real-ip': '10.9.3.5' }); extra.push(u4b);
+      u4b.token = u4.token; u4b.ck = u4.ck;
+      await u4b.open(); await u4b.wait((m) => m.t === 'hello', 2000, true);
+      const again = u2.waitT('pj', 2000, (m) => (m.p as P).id === u4.id);
+      assert.equal((await u4b.join('Khán Giả Bốn', 'nhung')).t, 'welcome');
+      await again;
+    } finally {
+      for (const c of [ad, u1, u2, ...extra]) c.close();
+      await app5.close();
     }
   });
 

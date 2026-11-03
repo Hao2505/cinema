@@ -306,6 +306,9 @@ Bài học từ VibeCorp: giật trên production là do **so le WebSocket qua C
 gói + bộ đệm phát.
 
 - **Mình**: đi ngay trên máy (dự đoán), server chỉ sửa khi lệch (§8).
+- **Rời / ẩn**: `pagehide` → `leave` (bỏ nhân vật ngay). Điện thoại (`(hover: none) and (pointer: coarse)`) trang ẩn →
+  `away`, hiện lại → `back` (`main.js syncAway`; `welcome` lúc đang ẩn cũng gửi `away`). Máy tính để tab chạy nền vẫn đang
+  nghe nên giữ nguyên.
 - **Người khác — phát lại đều theo đồng hồ người gửi** (`store.pushSample` / `actorPos`, bản 0.4.3). Mỗi gói vị trí mang
   `c` = giờ máy người gửi. Máy mình xếp gói theo `c` (hàng `a.q`) rồi **phát lại đúng đường, đúng tốc độ người kia đã
   đi** (cần analog đẩy nhẹ → đi chậm cũng đúng chậm), trễ sau họ một khoảng **đệm** `a.buf`; mốc đang phát `a.pc` tính

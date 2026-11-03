@@ -471,6 +471,20 @@ store.on('welcome', (msg) => {
   updateAddPill();
 });
 
+// Điện thoại: chuyển app / về màn hình chính / tắt màn hình (trang ẩn) → báo 'away': người khác không thấy nhân vật nữa
+// (trước đây tab Chrome còn chạy nền là nhân vật đứng "kẹt" lại; đóng tab từ màn đa nhiệm thì hiện "mất mạng" một lúc).
+// Mở lại → 'back': hiện lại đúng chỗ cũ. Máy tính để tab chạy nền vẫn đang nghe nên giữ nguyên.
+const AWAY_ON_HIDE = window.matchMedia('(hover: none) and (pointer: coarse)');
+let awaySent = false;
+function syncAway() {
+  if (!store.joined || !AWAY_ON_HIDE.matches) { awaySent = false; return; }
+  if (document.hidden && !awaySent) awaySent = send({ t: 'away' });
+  else if (!document.hidden && awaySent) { awaySent = false; send({ t: 'back' }); }
+}
+document.addEventListener('visibilitychange', syncAway);
+// vào lại / nối lại đúng lúc trang đang ẩn (mạng chập chờn khi chạy nền) → ẩn luôn
+store.on('welcome', () => { awaySent = false; syncAway(); });
+
 /** nút "Dán link YouTube để chiếu" dưới màn hình khi rạp chưa chiếu gì / đang phát kênh mặc định */
 function updateAddPill() { $('btn-add-video').hidden = !(store.joined && (!store.now || store.now.filler)); }
 store.on('now', updateAddPill);

@@ -1,5 +1,14 @@
 # Lịch sử thay đổi
 
+## 0.4.7 — 2026-11-03 · Video admin không bị bỏ phiếu; điện thoại thoát là đi hẳn
+
+**Video admin thêm**: người thường không bỏ phiếu bỏ qua được (nút ⏭ ẩn, hàng chờ có dấu 🛠), báo cáo cũng không tự gỡ
+— admin vẫn được báo và tự quyết (bảng 🛠).
+
+**Điện thoại**: chuyển sang app khác / về màn hình chính / tắt màn hình là nhân vật **biến khỏi rạp ngay** với người khác
+(trước đây tab Chrome còn chạy nền nên nhân vật đứng "kẹt" lại), mở lại thì hiện đúng chỗ cũ. Đóng tab từ màn đa nhiệm
+không còn hiện "mất mạng" một lúc mới đi. Máy tính để tab chạy nền (vẫn nghe) thì giữ như cũ.
+
 ## 0.4.6 — 2026-11-03 · Thêm video không cần YouTube API key
 
 Chưa có `YT_API_KEY` (hoặc key hỏng / hết lượt trong ngày) rạp **vẫn thêm được video**: server kiểm cơ bản bằng oEmbed

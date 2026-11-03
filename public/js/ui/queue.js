@@ -34,11 +34,13 @@ function renderNow() {
   setText($('now-title'), n ? n.title : 'Chưa có video');
   setText($('now-meta'), !n ? 'Dán link YouTube bên dưới để chiếu cho cả rạp.'
     : n.filler ? `${n.ch ? `${n.ch} · ` : ''}phát khi hàng chờ trống — dán link để chiếu video của bạn, kênh này nhường ngay.`
-      : [n.ch, `thêm bởi ${n.by}`].filter(Boolean).join(' · '));
+      : [n.ch, `thêm bởi ${n.by}`, n.adm ? '🛠 admin chọn — không bỏ phiếu bỏ qua' : ''].filter(Boolean).join(' · '));
+  // video admin thêm: người thường không bỏ phiếu bỏ qua (server cũng chặn) — ẩn nút
+  const noSkip = !!n && !!n.adm && !store.admin && !isMine(n);
   const acts = [];
   if (n && store.joined && !n.filler) {
     const mine = isMine(n);
-    acts.push(el('button', {
+    if (!noSkip) acts.push(el('button', {
       type: 'button', class: `btn${votes.mine ? ' on' : ''}`, onclick: () => vote(),
       text: mine ? '⏭ Bỏ qua video của mình' : `⏭ ${votes.mine ? 'Đã bỏ phiếu' : 'Bỏ qua'} (${votes.n}/${votes.need})`,
       title: mine ? 'Bạn thêm video này nên bỏ qua được ngay' : `Đủ ${votes.need} phiếu thì chuyển bài`,
@@ -52,7 +54,7 @@ function renderNow() {
   setKids($('now-actions'), acts);
   // nút dưới màn hình (kênh mặc định: không bỏ phiếu — có video mới là tự nhường)
   const showTools = !!n && store.joined;
-  $('btn-vote').hidden = !showTools || !!n?.filler;
+  $('btn-vote').hidden = !showTools || !!n?.filler || noSkip;
   $('btn-report').hidden = !showTools;
   $('btn-vote').classList.toggle('on', !!votes.mine);
   setText($('vote-count'), n && isMine(n) ? '' : `${votes.n}/${votes.need}`);
@@ -101,7 +103,7 @@ function renderQueue() {
       el('span', { class: 'q-pos', text: String(i + 1) }),
       el('div', { style: { minWidth: '0' } },
         el('div', { class: 'q-title', text: it.title, title: it.title }),
-        el('div', { class: 'q-meta', text: `${it.live ? 'Trực tiếp' : it.unk ? 'chưa rõ thời lượng' : fmtTime(it.dur)} · ${it.by}${it.ch ? ` · ${it.ch}` : ''}` }),
+        el('div', { class: 'q-meta', text: `${it.live ? 'Trực tiếp' : it.unk ? 'chưa rõ thời lượng' : fmtTime(it.dur)} · ${it.by}${it.adm ? ' 🛠' : ''}${it.ch ? ` · ${it.ch}` : ''}` }),
       ),
       el('div', { class: 'q-tools' }, tools),
     );
