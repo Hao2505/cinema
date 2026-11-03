@@ -45,11 +45,11 @@ function renderNow() {
     }));
     acts.push(el('button', { type: 'button', class: 'btn btn-ghost', text: '🚩 Báo cáo', onclick: () => openReport(), title: 'Báo cáo video vi phạm' }));
   }
-  if (admin && n) acts.push(...admin.nowActions(n));
-  setKids($('now-actions'), acts);
   if (n && store.joined && n.filler) {
     acts.push(el('button', { type: 'button', class: 'btn btn-ghost', text: '🚩 Báo cáo', onclick: () => openReport(), title: 'Báo cáo video vi phạm' }));
   }
+  if (admin && n) acts.push(...admin.nowActions(n));
+  setKids($('now-actions'), acts);
   // nút dưới màn hình (kênh mặc định: không bỏ phiếu — có video mới là tự nhường)
   const showTools = !!n && store.joined;
   $('btn-vote').hidden = !showTools || !!n?.filler;

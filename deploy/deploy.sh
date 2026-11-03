@@ -81,7 +81,8 @@ if [ $SETUP = 1 ]; then
   if ! $SSH "test -f $CERT"; then
     apply_site 0 || rollback
     echo "▶ Chứng chỉ HTTPS cho $DOMAIN (Let's Encrypt, webroot qua cổng 80 — Cloudflare SSL 'Full' gọi cổng 443 của VPS)"
-    $SSH "certbot certonly --webroot -w /var/www/html -d $DOMAIN --non-interactive --agree-tos --keep-until-expiring -q" \
+    # --deploy-hook: gia hạn xong (mỗi ~60 ngày, snap.certbot.renew.timer) thì reload nginx để dùng chứng chỉ mới
+    $SSH "certbot certonly --webroot -w /var/www/html -d $DOMAIN --non-interactive --agree-tos --keep-until-expiring -q --deploy-hook 'systemctl reload nginx'" \
       || echo "⚠️  Chưa lấy được chứng chỉ — site tạm chỉ chạy HTTP (https qua Cloudflare sẽ lỗi), chạy lại --setup sau"
   fi
   if $SSH "test -f $CERT"; then

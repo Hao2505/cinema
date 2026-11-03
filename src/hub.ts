@@ -483,7 +483,7 @@ export class Hub {
   /** video mặc định dùng được lúc này (chưa bị gỡ / chặn, không đang tạm tắt) */
   defaultVideoFor(now: number): { v: string; title: string; ch: string } | null {
     const m = this.defaultMeta;
-    if (!m || now < this.defaultOffUntil || this.blocked.has(m.v)) return null;
+    if (!m || now < this.defaultOffUntil || this.blocked.has(m.v) || (this.embedFail.get(m.v) ?? 0) > now) return null;
     return m;
   }
 
@@ -963,7 +963,7 @@ export class Hub {
     room.queue.push(item);
     this.dirty = true;
     const pos = room.queue.length;
-    res(true, room.now ? `Đã thêm "${item.title}" — thứ ${pos} trong hàng chờ.` : `Đã thêm "${item.title}" — chiếu ngay!`);
+    res(true, room.now && !room.now.filler ? `Đã thêm "${item.title}" — thứ ${pos} trong hàng chờ.` : `Đã thêm "${item.title}" — chiếu ngay!`);
     if (!room.now) room.next(Date.now());
     else room.sendQueue();
     room.broadcast({ t: 'notice', kind: 'info', text: `${p.name} vừa thêm "${item.title}"${item.live ? ' (trực tiếp)' : ` · ${fmtDuration(item.dur)}`}` }, c);

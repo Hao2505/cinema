@@ -67,13 +67,13 @@ export function parseClientMsg(text: string): ClientMsg | null {
       return fin(m.c) ? { t: 'ping', c: m.c } : { t: 'ping', c: 0 };
     }
     case 'spec': {
-      const room = str(m.room, 8);
+      const room = str(m.room, 16); // "congvien-2" = 10 ký tự (ROOM_ID_RE kiểm dạng)
       return room && ROOM_ID_RE.test(room) ? { t: 'spec', room } : null;
     }
     case 'join': {
       const name = str(m.name, 80);
       if (name === null) return null;
-      const room = str(m.room, 8) ?? '';
+      const room = str(m.room, 16) ?? '';
       const token = str(m.token, 64) ?? '';
       const ck = str(m.ck, 64) ?? '';
       return {

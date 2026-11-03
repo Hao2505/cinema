@@ -228,6 +228,8 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
     }
   }
 
+  let visHooked = false;
+
   return {
     /** bật trình phát (sau khi người xem bấm "Vào rạp" — có thao tác người dùng thì trình duyệt cho phát có tiếng) */
     enable() {
@@ -237,7 +239,10 @@ export function createPlayer(slotEl, hostEl, hooks = {}) {
       sync(true);
       clearInterval(timer);
       timer = setInterval(() => sync(false), 500);
-      document.addEventListener('visibilitychange', () => { if (!document.hidden && enabled) { playAskedAt = 0; sync(true); } });
+      if (!visHooked) {
+        visHooked = true; // chỉ gắn một lần (vào lại rạp nhiều lần không nhân bộ nghe)
+        document.addEventListener('visibilitychange', () => { if (!document.hidden && enabled) { playAskedAt = 0; sync(true); } });
+      }
     },
     sync: () => sync(true),
     /** tắt hẳn trình phát (bị mời ra / phải vào lại): dừng phát + ẩn khung, không để video chạy dưới lớp phủ */

@@ -4,6 +4,7 @@
 import { adminLogout, send } from '../net.js';
 import { store } from '../store.js';
 import { el, setKids } from '../util.js';
+import { roomName } from '../shared/hall.js';
 import { registerAdminHooks } from './queue.js';
 import { registerUserAdmin } from './usercard.js';
 import { openSheet, sheetOpen } from './sheet.js';
@@ -61,7 +62,7 @@ function renderSheet() {
   } else if (tab === 'reports') {
     const items = (s.reports || []).map((r) => el('li', null,
       el('div', { class: 't', text: `${r.kind === 'video' ? '🎬' : '👤'} ${r.what}` }),
-      el('div', { class: 'm', text: `${r.reason}${r.note ? ` — "${r.note}"` : ''} · ${r.by} · Phòng ${r.room} · ${fmtAgo(r.at)}` }),
+      el('div', { class: 'm', text: `${r.reason}${r.note ? ` — "${r.note}"` : ''} · ${r.by} · ${roomName(r.room)} · ${fmtAgo(r.at)}` }),
     ));
     list = items.length ? el('ul', { class: 'adm-list' }, items) : el('p', { class: 'adm-empty', text: 'Chưa có báo cáo nào. (Báo cáo cũ lưu trong data/reports.jsonl trên server.)' });
   } else if (tab === 'bans') {
