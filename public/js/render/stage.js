@@ -6,7 +6,7 @@
 // Canvas phủ cả cửa sổ; giao diện nổi (cụm nút góc trên, dock dưới, ngăn kéo phải) báo chỗ chiếm qua setInsets() →
 // màn hình video tự lùi xuống dưới cụm nút góc trên và căn giữa phần còn trống bên trái ngăn kéo: không gì đè lên video.
 import { HALL, SEATS, seatAt } from '../shared/hall.js';
-import { store, actorPos, spawnFx } from '../store.js';
+import { store, actorPos, spawnFx, tickNet } from '../store.js';
 import { me, myRenderPos } from '../me.js';
 import { clamp, lerp, safeColor, easeOutCubic } from '../util.js';
 import { drawCharacter, U, headTop, headCenter, HEAD_RADIUS, moodOf } from './character.js';
@@ -31,6 +31,8 @@ export function createStage(canvas, slot, hooks = {}) {
   let view = 'lon'; // góc xem: 'can' | 'lon' | 'rong'
   let V = defaultTheme; // chủ đề vẽ của rạp đang xem (render/venues)
   let wantVenue = V.id;
+  // đổi rạp mượt: tối dần → đổi chủ đề (vẽ lại cache khi đang tối) → sáng dần. Mở trang: tối tới khi biết đúng rạp.
+  let fadeA = 1, fadeTarget = 1, pendingTheme = null;
   let props = V.props(); // cây, cột đèn… sắp theo độ sâu cùng người
   let tex = null;
   let band = null, bandKey = '';
@@ -196,6 +198,8 @@ export function createStage(canvas, slot, hooks = {}) {
 
   // ---------------------------------------------------------------- người
   function prepareActors(now) {
+    tickNet(Math.min(100, Math.max(0, now - (prepareActors.at || now))));
+    prepareActors.at = now;
     const out = [];
     const myPos = me.active ? myRenderPos(now) : null;
     for (const a of store.players.values()) {
@@ -362,6 +366,18 @@ export function createStage(canvas, slot, hooks = {}) {
   function draw(now) {
     const dt = Math.min(0.1, Math.max(0, (now - lastNow) / 1000));
     lastNow = now;
+    fadeA += (fadeTarget - fadeA) * Math.min(1, dt * 10);
+    if (Math.abs(fadeTarget - fadeA) < 0.004) fadeA = fadeTarget;
+    if (pendingTheme && fadeA >= 0.97) {
+      if (pendingTheme !== V) {
+        V = pendingTheme;
+        props = V.props();
+        tex = null; bandKey = ''; roomKey = ''; rowsKey = '';
+        spriteCache.clear();
+      }
+      pendingTheme = null;
+      fadeTarget = 0;
+    }
     resize();
     hooks.beforeFrame?.(dt, now);
     const myPos = me.active ? myRenderPos(now) : null;
@@ -446,6 +462,11 @@ export function createStage(canvas, slot, hooks = {}) {
     ctx.clip();
     drawOverlays(acts, figs, now, clipTop);
     ctx.restore();
+    // ---- màn tối khi mở trang / đổi rạp (video là iframe nằm trên canvas nên không bị che)
+    if (fadeA > 0.004) {
+      ctx.fillStyle = `rgba(7,5,10,${fadeA.toFixed(3)})`;
+      ctx.fillRect(0, 0, cssW, cssH);
+    }
   }
 
   function drawOverlays(acts, figs, now, clipTop) {
@@ -641,13 +662,9 @@ export function createStage(canvas, slot, hooks = {}) {
     /** đổi khung cảnh rạp: vẽ lại sàn, dải trời / tường, hàng ghế, vật trang trí */
     setVenue(id) {
       wantVenue = id;
-      loadTheme(id).then((t) => {
-        if (wantVenue !== id || t === V) return;
-        V = t;
-        props = V.props();
-        tex = null; bandKey = ''; roomKey = ''; rowsKey = '';
-        spriteCache.clear();
-      });
+      if (V.id === id) { pendingTheme = null; fadeTarget = 0; return; }
+      fadeTarget = 1; // tối dần trong lúc tải / chờ
+      loadTheme(id).then((t) => { if (wantVenue === id) pendingTheme = t; });
     },
     get venue() { return V.id; },
     get layout() { return L; },

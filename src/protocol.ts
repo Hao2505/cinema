@@ -70,6 +70,11 @@ export function parseClientMsg(text: string): ClientMsg | null {
       const room = str(m.room, 16); // "congvien-2" = 10 ký tự (ROOM_ID_RE kiểm dạng)
       return room && ROOM_ID_RE.test(room) ? { t: 'spec', room } : null;
     }
+    case 'leave': return { t: 'leave' };
+    case 'switch': {
+      const room = str(m.room, 16); // "congvien-2" = 10 ký tự (ROOM_ID_RE kiểm dạng)
+      return room && ROOM_ID_RE.test(room) ? { t: 'switch', room } : null;
+    }
     case 'join': {
       const name = str(m.name, 80);
       if (name === null) return null;

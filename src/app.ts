@@ -18,7 +18,9 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const PUBLIC_ROOT = (() => {
   try { return realpathSync(PUBLIC_DIR); } catch { return normalize(PUBLIC_DIR).replace(/[\\/]+$/, ''); }
 })();
-const HEARTBEAT_MS = 30_000;
+// ping WebSocket mỗi 10 s: socket chết im lặng (điện thoại tắt màn hình, mất sóng) bị phát hiện trong 10–20 s → nhân vật
+// chuyển sang "mất mạng" sớm thay vì đứng im giả vờ còn kết nối
+const HEARTBEAT_MS = 10_000;
 const ADMIN_COOKIE = 'vc_admin';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -125,6 +127,21 @@ export function createApp(cfg: Config, deps: AppDeps): App {
     return h.digest('hex').slice(0, 12);
   }
   const ASSET_VERSION = existsSync(PUBLIC_ROOT) ? computeAssetVersion() : 'dev';
+  // <link rel="modulepreload"> cho mọi module JS nạp ngay lúc mở trang → trình duyệt tải SONG SONG thay vì lần lượt theo
+  // chuỗi import (đỡ cảnh giao diện hiện từng mảnh). Bỏ module nạp động: admin, trang chính sách, chủ đề rạp ngoài trời.
+  const LAZY_JS = /^js\/(?:ui\/admin\.js|policy\.js|render\/venues\/(?!index\.js$|nhung\.js$).+)$/;
+  const MODULE_PRELOADS = (() => {
+    const out: string[] = [];
+    const walk = (dir: string, rel: string): void => {
+      for (const n of readdirSync(dir).sort()) {
+        const p = join(dir, n);
+        if (statSync(p).isDirectory()) walk(p, `${rel}${n}/`);
+        else if (n.endsWith('.js') && !LAZY_JS.test(`${rel}${n}`)) out.push(`${rel}${n}`);
+      }
+    };
+    try { walk(join(PUBLIC_ROOT, 'js'), 'js/'); } catch { return ''; }
+    return out.map((r) => `<link rel="modulepreload" href="/v/${ASSET_VERSION}/${r}">`).join('\n  ');
+  })();
   const ASSET_PREFIX_RE = /^\/v\/([A-Za-z0-9]{4,40})(\/.*)$/;
   const OG_VERSION = (() => {
     try { return createHash('sha1').update(readFileSync(join(PUBLIC_ROOT, 'og-image.jpg'))).digest('hex').slice(0, 10); } catch { return '0'; }
@@ -167,7 +184,8 @@ export function createApp(cfg: Config, deps: AppDeps): App {
     let e = htmlCache.get(file);
     if (!e || e.mtime !== mtimeMs) {
       const html = readFileSync(file, 'utf8').replace(/(href|src)="(?!https?:|data:|\/|%|#)([^"]+\.(?:css|js))"/g,
-        (_m, attr: string, path: string) => `${attr}="/v/${ASSET_VERSION}/${path}"`).replaceAll('%OG_VERSION%', OG_VERSION);
+        (_m, attr: string, path: string) => `${attr}="/v/${ASSET_VERSION}/${path}"`).replaceAll('%OG_VERSION%', OG_VERSION)
+        .replace('<!-- %MODULEPRELOAD% -->', MODULE_PRELOADS);
       e = { mtime: mtimeMs, html };
       htmlCache.set(file, e);
     }

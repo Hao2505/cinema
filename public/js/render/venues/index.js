@@ -27,6 +27,11 @@ const LOADERS = {
 };
 const pending = new Map();
 
+/** tải sẵn mọi rạp lúc máy rảnh → chuyển rạp không phải chờ mạng */
+export function prefetchThemes() {
+  for (const id of Object.keys(LOADERS)) loadTheme(id);
+}
+
 /** chủ đề đã nạp (null nếu chưa nạp) */
 export function themeOf(id) {
   return THEMES.get(id) || null;

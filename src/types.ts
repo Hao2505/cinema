@@ -135,6 +135,10 @@ export type AdminOp =
 export type ClientMsg =
   | { t: 'ping'; c: number }
   | { t: 'spec'; room: string }
+  /** đang ở trong rạp: chuyển sang phòng / rạp khác, giữ nguyên nhân vật, không tải lại trang → welcome mới */
+  | { t: 'switch'; room: string }
+  /** đóng tab / rời trang: bỏ nhân vật ngay (khỏi để lại nhân vật "kẹt" chờ hết hạn) */
+  | { t: 'leave' }
   | { t: 'join'; name: string; look: unknown; room: string; token: string; ck: string }
   | { t: 'move'; x: number; y: number; d: number; c: number; m: 0 | 1 }
   | { t: 'act'; a: ActionId | ''; c: number }

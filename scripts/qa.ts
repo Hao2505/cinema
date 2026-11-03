@@ -21,6 +21,7 @@ const video = args.get('video') ?? 'aqz-KE-bpKQ';
 const only = args.get('only') || ''; // 'desktop' | 'mobile'
 const room = args.get('room') || ''; // rạp cần chụp (vd 'bien'): người xem giả + trang QA vào đúng rạp đó
 const roomQs = room ? `?phong=${encodeURIComponent(room)}` : '';
+const jitter = Number(args.get('jitter') || 0); // giả lập mạng xấu cho người xem giả (ms)
 mkdirSync(outDir, { recursive: true });
 
 const errors: string[] = [];
@@ -138,7 +139,7 @@ async function main(): Promise<void> {
   const app = createApp(cfg, { youtube: createFakeYouTube(), dataDir: null, log: () => {} });
   const port = await app.listen(0, '127.0.0.1');
   const base = `http://localhost:${port}`;
-  const stopBots = startBots({ url: `ws://127.0.0.1:${port}/ws`, n: nBots, video, room });
+  const stopBots = startBots({ url: `ws://127.0.0.1:${port}/ws`, n: nBots, video, room, jitter });
   const browser = await launch();
   try {
     await sleep(2500);
@@ -210,6 +211,16 @@ async function main(): Promise<void> {
       await sleep(900);
       await shot(page, 'desktop-small.png');
       await checkOverlap(page, 'desktop 1280×680');
+      // chuyển rạp tại chỗ (không tải lại trang): canvas tối dần → rạp mới sáng dần
+      const fromRoom = await page.evaluate<string>('window.__vc.store.roomId');
+      await page.evaluate("window.__vcDoc = performance.timeOrigin; document.getElementById('room-pill').click()");
+      await sleep(400);
+      await page.evaluate("[...document.querySelectorAll('.room-item .btn')].find((b) => b.textContent.includes('Chuyển sang'))?.click()");
+      if (!(await waitFor(page, `window.__vc.store.roomId !== ${JSON.stringify(fromRoom)} && window.__vc.store.joined`, 6000))) errors.push('[desktop] chuyển rạp tại chỗ không được');
+      if (!(await page.evaluate<boolean>('window.__vcDoc === performance.timeOrigin'))) errors.push('[desktop] chuyển rạp bị tải lại trang');
+      await sleep(1200);
+      await shot(page, 'desktop-switched.png');
+      await checkOverlap(page, 'desktop sau khi chuyển rạp');
       // mở lại trang: người đã vào rạp thấy thẻ "Chào mừng quay lại", bấm một rạp là vào luôn (khỏi đặt tên lại)
       await page.send('Page.navigate', { url: `${base}/` });
       await waitFor(page, 'window.__vc && window.__vc.store.ready === true && window.__vc.store.rooms.length > 0');

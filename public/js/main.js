@@ -3,7 +3,8 @@
 import { store } from './store.js';
 import { adminLoginFromUrl, connect, isOpen, send } from './net.js';
 import { applyCorrection, me, placeMe, tickMe, walkTo } from './me.js';
-import { DIRS, ROOM_ID_RE, VENUES, parseRoomId, venueById } from './shared/hall.js';
+import { DIRS, ROOM_ID_RE, VENUES, parseRoomId, roomName, venueById } from './shared/hall.js';
+import { prefetchThemes } from './render/venues/index.js';
 import { createStage } from './render/stage.js';
 import { createPlayer } from './player.js';
 import { initInput } from './input.js';
@@ -373,9 +374,9 @@ $('room-pill').addEventListener('click', () => {
           type: 'button', class: 'btn', text: store.joined ? 'Chuyển sang' : 'Xem rạp này',
           disabled: r.count >= r.cap,
           onclick: () => {
-            if (!store.joined) { send({ t: 'spec', room: r.id }); closeSheet(); return; }
-            ssSet('vc.autojoin', '1');
-            location.href = `/?phong=${encodeURIComponent(r.id)}`;
+            closeSheet();
+            if (!store.joined) send({ t: 'spec', room: r.id });
+            else switchRoom(r.id);
           },
         }));
   });
@@ -423,7 +424,35 @@ store.on('hello', () => {
   if (wantJoin) sendJoin(); // nối lại sau khi rớt mạng: vào lại đúng nhân vật cũ (server giữ 15 giây)
 });
 
+/**
+ * chuyển rạp tại chỗ (không tải lại trang): canvas tối dần + tải khung cảnh rạp mới ngay, server chuyển nhân vật sang và
+ * gửi welcome mới → khung cảnh mới sáng dần. Server từ chối (đầy, trùng tên) / mạng chậm → sáng lại rạp đang ở.
+ */
+let switchTimer = 0;
+function switchRoom(id) {
+  const v = parseRoomId(id)?.venue;
+  if (!v || !send({ t: 'switch', room: id })) return;
+  stage.setVenue(v.id);
+  toast(`Đang chuyển sang ${roomName(id)}…`, 'info', 1800);
+  clearTimeout(switchTimer);
+  switchTimer = setTimeout(() => { switchTimer = 0; stage.setVenue(store.venue); }, 4000);
+}
+
+// vào một rạp vắng trong khi rạp khác đang có người → nhắc một lần (để mọi người gặp được nhau)
+let aloneHinted = false;
+function hintBusyRoom() {
+  if (aloneHinted || !store.joined) return;
+  const here = store.rooms.find((r) => r.id === store.roomId);
+  const busy = [...store.rooms].filter((r) => r.id !== store.roomId && r.count > 0).sort((a, b) => b.count - a.count)[0];
+  if (!here || here.count > 1 || !busy) return;
+  aloneHinted = true;
+  toast(`${busy.count} người đang ở ${busy.name} — bấm tên rạp góc trên để sang gặp mọi người`, 'info', 7000);
+}
+
 store.on('welcome', (msg) => {
+  clearTimeout(switchTimer);
+  switchTimer = 0;
+  setTimeout(hintBusyRoom, 1500);
   ssSet('vc.token', store.token);
   rememberJoin(store.roomId); // lần sau mở trang: vào thẳng, khỏi đặt tên / tạo nhân vật lại
   joinRoom = store.roomId; // rớt mạng quá lâu phải vào lại thì về đúng phòng này
@@ -487,6 +516,7 @@ store.on('replaced', () => {
 
 store.on('correct', (c) => applyCorrection(c.x, c.y));
 store.on('notice', (n) => {
+  if (switchTimer && n.kind === 'warn') { clearTimeout(switchTimer); switchTimer = 0; stage.setVenue(store.venue); }
   if (n.kind === 'info') systemLine(n.text);
   toast(n.text, n.kind === 'info' ? 'info' : n.kind, n.kind === 'info' ? 3200 : 4500);
 });
@@ -501,8 +531,25 @@ function updateRoomPill() {
 store.on('rooms', updateRoomPill);
 store.on('players', updateRoomPill);
 // rạp đổi (xem rạp khác trước khi vào, hoặc vào rạp) → đổi khung cảnh
-stage.setVenue(store.venue);
 store.on('venue', (v) => { stage.setVenue(v); updateRoomPill(); });
+
+// ---------------------------------------------------------------- mở trang mượt
+// Chỉ hiện giao diện khi đã dựng xong + có danh sách rạp (hello đầu tiên) + phông chữ (tối đa 2,5 s) — không còn cảnh
+// hiện từng mảnh (ô đặt tên trước, bảng nhân vật sau…). Canvas tối tới khi biết đúng rạp rồi sáng dần (stage.setVenue).
+{
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const fonts = document.fonts?.ready ? Promise.race([document.fonts.ready, wait(2500)]) : Promise.resolve();
+  const hello = new Promise((res) => { const off = store.on('hello', () => { off(); res(); }); });
+  hello.then(() => stage.setVenue(store.venue));
+  Promise.race([Promise.all([fonts, hello]), wait(2500)]).then(() => {
+    document.documentElement.classList.remove('booting');
+    stage.setVenue(store.venue); // mạng chậm chưa có hello: hiện khung cảnh mặc định, hello tới sẽ tự đổi
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500));
+    idle(() => prefetchThemes(), { timeout: 4000 }); // tải sẵn các rạp khác → chuyển rạp không phải chờ mạng
+  });
+  // phông chữ tới muộn: vẽ lại chữ trên canvas (biển hiệu, tên) bằng đúng phông
+  document.fonts?.ready?.then(() => stage.refresh());
+}
 
 store.on('conn', (state) => {
   const banner = $('conn');

@@ -1,5 +1,5 @@
 // Trạng thái phía client + xử lý thông điệp server (ServerMsg trong src/types.ts) + nội suy người khác chống giật.
-import { DEFAULT_VENUE, ROOM_ID_RE, actionById, parseRoomId, roomName } from './shared/hall.js';
+import { DEFAULT_VENUE, ROOM_ID_RE, SPEED, actionById, moveWithCollision, parseRoomId, roomName } from './shared/hall.js';
 import { showEmojiFrom } from './prefs.js';
 import { clamp, num, str, arr, warnOnce } from './util.js';
 
@@ -77,34 +77,77 @@ export function onPong(msg, sentAt) {
   k.samples++;
 }
 
-// ---------------------------------------------------------------- nội suy người khác (bộ đệm chống giật)
-// Người đi gửi vị trí kèm `c` = giờ máy họ (performance.now(), ms). Server gom 15 Hz rồi phát lại nguyên `c`.
-// Mỗi người có một trục thời gian riêng: off = (giờ máy mình lúc nhận − c) nhỏ nhất từng thấy (= đường truyền nhanh nhất).
-// Vẽ người đó tại thời điểm c* = now − buffer − off rồi nội suy giữa 2 mốc kẹp c*. Vì dùng giờ máy người đi, độ so le
-// của CẢ hai chặng mạng (người đi → server → mình, qua Cloudflare) đều bị bộ đệm hấp thụ. Bộ đệm tự nới khi gói tới
-// muộn, tự siết dần khi mạng êm (bài học VibeCorp: store.js §bộ đệm, docs/02 §10).
-const NET_MIN = 90, NET_MAX = 450, NET_START = 140, NET_SLACK = 22;
-const KF_MAX = 14;
-const TELEPORT = 3.0; // nhảy xa hơn mức này giữa 2 mốc = dịch chuyển tức thời
+// ---------------------------------------------------------------- người khác: gần như tức thì mà vẫn mượt
+// Người đi gửi vị trí 30 lần / giây kèm `c` = giờ máy họ (performance.now(), ms); server gom 30 Hz, phát lại nguyên `c`.
+// Mỗi người một trục thời gian: off = (giờ máy mình lúc nhận − c) nhỏ nhất từng thấy (= đường truyền nhanh nhất). Vẽ người
+// đó tại c* = now − buffer − off: bộ đệm NHỎ (40–260 ms, tự nới khi mạng so le, tự siết khi êm; đổi cỡ từ từ — giãn / nén
+// thời gian chứ không giật lùi). Gói tới muộn hơn bộ đệm → ĐOÁN TRƯỚC theo vận tốc cuối (tối đa 220 ms, không xuyên tường)
+// thay vì đứng khựng; gói thật tới sửa lại đường đoán → phần lệch được kéo mượt về 0 (~0,1 s) thay vì nhảy.
+const NET_MIN = 40, NET_MAX = 260, NET_START = 80, NET_SLACK = 12;
+const EXTRAP_MAX = 220; // ms đoán trước tối đa khi chưa có gói mới
+const ERR_TAU = 110; // ms: hằng số thời gian kéo mượt sai lệch
+const KF_MAX = 24;
+const TELEPORT = 3.0; // nhảy xa hơn mức này giữa 2 mốc = dịch chuyển tức thời (không kéo mượt)
+const VMAX = (SPEED * 1.6) / 1000; // ô / ms — nhanh hơn thì không đoán (mốc lạ)
 
-store.net = { buffer: NET_START, minSlack: Infinity, win: 0, late: 0, frames: 0 };
+store.net = { buffer: NET_START, target: NET_START, minSlack: Infinity, win: 0, late: 0, frames: 0, extrap: 0 };
 
 function adaptBuffer(slack) {
   const n = store.net;
   n.frames++;
   if (slack < NET_SLACK) {
-    n.buffer = Math.min(NET_MAX, n.buffer + (NET_SLACK - slack));
+    n.target = Math.min(NET_MAX, n.target + (NET_SLACK - slack));
     n.late++;
   }
   n.minSlack = Math.min(n.minSlack, slack);
-  if (++n.win >= 90) {
-    if (n.minSlack > NET_SLACK + 45) n.buffer = Math.max(NET_MIN, n.buffer - (n.minSlack - NET_SLACK - 25) / 2);
+  if (++n.win >= 60) {
+    if (n.minSlack > NET_SLACK + 30) n.target = Math.max(NET_MIN, n.target - (n.minSlack - NET_SLACK - 20) / 2);
     n.minSlack = Infinity;
     n.win = 0;
   }
 }
 
+/** mỗi khung hình: bộ đệm nhích dần về mức cần (nới nhanh, siết chậm) — không đổi cỡ đột ngột */
+export function tickNet(dtMs) {
+  const n = store.net;
+  const d = n.target - n.buffer;
+  n.buffer += d > 0 ? Math.min(d, dtMs * 0.25) : Math.max(d, -dtMs * 0.05);
+}
+
+/** vị trí "đúng" (chưa kéo mượt) của người khác tại now: nội suy giữa 2 mốc, hoặc đoán trước khi gói tới muộn */
+function targetPos(a, now) {
+  const kf = a.kf;
+  if (!kf.length || a.off === null) return { x: a.x, y: a.y, d: a.dir, seg: false };
+  const rt = now - store.net.buffer - a.off;
+  const last = kf[kf.length - 1];
+  if (rt >= last.t || kf.length === 1) {
+    if (last.m === 1 && kf.length >= 2 && !last.jump) {
+      const prev = kf[kf.length - 2];
+      const dt = last.t - prev.t;
+      const e = Math.min(rt - last.t, EXTRAP_MAX);
+      if (dt > 0 && e > 0) {
+        const vx = (last.x - prev.x) / dt, vy = (last.y - prev.y) / dt;
+        if (Math.hypot(vx, vy) <= VMAX) {
+          store.net.extrap++;
+          const r = moveWithCollision(last.x, last.y, vx * e, vy * e);
+          return { x: r.x, y: r.y, d: last.d, seg: true };
+        }
+      }
+    }
+    return { x: last.x, y: last.y, d: last.d, seg: false };
+  }
+  if (rt <= kf[0].t) return { x: kf[0].x, y: kf[0].y, d: kf[0].d, seg: false };
+  let i = kf.length - 2;
+  while (i > 0 && kf[i].t > rt) i--;
+  const p = kf[i], q = kf[i + 1];
+  if (q.jump) return { x: p.x, y: p.y, d: p.d, seg: false };
+  const k = q.t > p.t ? clamp((rt - p.t) / (q.t - p.t), 0, 1) : 1;
+  return { x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k, d: q.d, seg: q.m === 1 };
+}
+
 function pushSample(a, ct, x, y, d, m, now) {
+  // vị trí đang vẽ TRƯỚC khi thêm mốc mới — sau khi thêm, phần lệch được kéo mượt thay vì nhảy
+  const before = a.kf.length && a.off !== null ? targetPos(a, now) : null;
   const transit = now - ct;
   if (a.off === null || (a.lastCt && ct < a.lastCt - 2000)) {
     // mẫu đầu (hoặc máy người kia vừa tải lại trang → đồng hồ về 0): neo lại trục thời gian
@@ -120,33 +163,38 @@ function pushSample(a, ct, x, y, d, m, now) {
   let last = kf.length ? kf[kf.length - 1] : null;
   if (last && ct <= last.t) return;
   if (!last) {
-    kf.push({ t: ct - 70, x: a.x, y: a.y, d: a.dir, m: 0, jump: false });
+    kf.push({ t: ct - 40, x: a.x, y: a.y, d: a.dir, m: 0, jump: false });
     last = kf[0];
   } else if (ct - last.t > 300) {
     // đứng yên một lúc rồi mới đi: chèn mốc "vẫn ở chỗ cũ" ngay trước mẫu mới để không trôi chậm từ mốc cũ
-    kf.push({ t: ct - 70, x: last.x, y: last.y, d: last.d, m: 0, jump: false });
+    kf.push({ t: ct - 40, x: last.x, y: last.y, d: last.d, m: 0, jump: false });
     last = kf[kf.length - 1];
   }
   const jump = Math.hypot(x - last.x, y - last.y) > TELEPORT;
   kf.push({ t: ct, x, y, d, m, jump });
   if (kf.length > KF_MAX) kf.splice(0, kf.length - KF_MAX);
   a.lastCt = ct;
+  if (before) {
+    const after = targetPos(a, now);
+    const ex = before.x - after.x, ey = before.y - after.y;
+    if (Math.hypot(ex, ey) < TELEPORT) { a.errX = (a.errX || 0) + ex; a.errY = (a.errY || 0) + ey; }
+    else { a.errX = 0; a.errY = 0; }
+  }
 }
 
-/** vị trí + hướng nội suy của người khác tại `now` (trục performance.now()) */
+/** vị trí + hướng của người khác để vẽ tại `now` (trục performance.now()) — gọi mỗi khung một lần mỗi người */
 export function actorPos(a, now) {
-  const kf = a.kf;
-  if (!kf.length || a.off === null) return { x: a.x, y: a.y, d: a.dir, seg: false };
-  const rt = now - store.net.buffer - a.off;
-  const last = kf[kf.length - 1];
-  if (rt >= last.t || kf.length === 1) return { x: last.x, y: last.y, d: last.d, seg: false };
-  if (rt <= kf[0].t) return { x: kf[0].x, y: kf[0].y, d: kf[0].d, seg: false };
-  let i = kf.length - 2;
-  while (i > 0 && kf[i].t > rt) i--;
-  const p = kf[i], q = kf[i + 1];
-  if (q.jump) return { x: p.x, y: p.y, d: p.d, seg: false };
-  const k = q.t > p.t ? clamp((rt - p.t) / (q.t - p.t), 0, 1) : 1;
-  return { x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k, d: q.d, seg: q.m === 1 };
+  const p = targetPos(a, now);
+  const fdt = a.posAt ? Math.min(250, Math.max(0, now - a.posAt)) : 0;
+  a.posAt = now;
+  if (a.errX || a.errY) {
+    const k = Math.exp(-fdt / ERR_TAU);
+    a.errX *= k; a.errY *= k;
+    if (Math.abs(a.errX) < 0.002) a.errX = 0;
+    if (Math.abs(a.errY) < 0.002) a.errY = 0;
+    return { x: p.x + a.errX, y: p.y + a.errY, d: p.d, seg: p.seg || Math.hypot(a.errX, a.errY) > 0.05 };
+  }
+  return p;
 }
 
 /** mốc giờ máy mình (performance.now) ứng với giờ máy người kia `c` khi vẽ (đã tính bộ đệm) */
@@ -163,7 +211,7 @@ function newActor(p, now, bornAt = now) {
   const a = {
     id: p.id, name: str(p.name, 40), look: p.look || null, ghost: !!p.ghost,
     x: num(p.x, 16), y: num(p.y, 12), dir: DIRS[num(p.d, 0)] || 'down',
-    kf: [], off: null, lastCt: 0,
+    kf: [], off: null, lastCt: 0, errX: 0, errY: 0, posAt: 0,
     moving: false, moveAmt: 0, phase: 0, seed: (Math.random() * 1000) | 0,
     act: null, bornAt, goneAt: 0, isMe: false,
     emoAt: 0, emo: '', fxAt: 0,

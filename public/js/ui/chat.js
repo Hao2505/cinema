@@ -103,6 +103,7 @@ export function initChat({ isChatVisible, feedVisible, onUnread }) {
   const renderAll = (list = store.chat) => {
     log.replaceChildren(...list.filter(visible).map((m) => msgNode(m, false)));
     if (!prefs.chat) log.append(el('li', { class: 'c-sys', text: 'Bạn đang ẩn chat của mọi người — bật lại trong ⚙️ Tùy chọn.' }));
+    feed?.replaceChildren(); // vào / chuyển phòng: khung chat nổi không giữ tin của phòng cũ
     stuck = true;
     pending = 0;
     toBottom(log, false);

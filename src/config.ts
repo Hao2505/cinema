@@ -105,7 +105,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     roomCapacity: int('ROOM_CAPACITY', 60, 2, 200),
     maxRooms: int('MAX_ROOMS', 3, 1, 9), // số phòng tối đa MỖI rạp (bản chính + bản sao khi đầy)
     reportAutoskip: int('REPORT_AUTOSKIP', 3, 1, 100),
-    tickHz: int('TICK_HZ', 15, 5, 30),
+    tickHz: int('TICK_HZ', 30, 5, 30), // 30 Hz: người khác thấy mình đi gần như tức thì
     persist: bool('PERSIST', true),
     dataDir: resolve(str('DATA_DIR', 'data') || 'data'),
     contactEmail: str('CONTACT_EMAIL'),

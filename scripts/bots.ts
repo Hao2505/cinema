@@ -2,9 +2,15 @@
 //   npx tsx scripts/bots.ts --url ws://localhost:3399/ws --n 20 [--video aqz-KE-bpKQ] [--seconds 0 (= chạy mãi)] [--room bien]
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
-import { ACTIONS, HALL, HOME, REACTIONS, SEATS, SPEED, moveWithCollision, randomLook, spawnPoint } from '../public/js/shared/hall.js';
+import { ACTIONS, HALL, HOME, LIMITS, REACTIONS, SEATS, SPEED, moveWithCollision, randomLook, spawnPoint } from '../public/js/shared/hall.js';
 
-export interface BotOpts { url: string; n: number; video?: string; seconds?: number; /** id phòng / rạp (vd 'bien'); rỗng = server tự xếp */ room?: string }
+export interface BotOpts {
+  url: string; n: number; video?: string; seconds?: number;
+  /** id phòng / rạp (vd 'bien'); rỗng = server tự xếp */
+  room?: string;
+  /** giả lập mạng xấu: mỗi gói vị trí trễ ngẫu nhiên 0..jitter ms (như qua Cloudflare / 4G) */
+  jitter?: number;
+}
 const NAMES = ['Minh Anh', 'Tuấn', 'Lan Chi', 'Bảo', 'Hà My', 'Khoa', 'Ngọc', 'Phúc', 'Thảo', 'Duy', 'Quỳnh', 'Hiếu', 'Trang', 'Long', 'Vy', 'Nam', 'Linh', 'Sơn', 'Mai', 'Đạt', 'Yến', 'Toàn', 'Hạnh', 'Kiên'];
 const CHATS = ['Hay quá mọi người ơi 😍', 'Bài này đỉnh thật', 'Ai ngồi cạnh mình không?', 'Quẩy lên nào 🕺', 'Hahaha', 'Âm thanh chuẩn ghê', 'Chào cả rạp 👋', 'Cho bài tiếp đi', '10 điểm!', 'Nhảy chung không?'];
 const rand = Math.random;
@@ -39,23 +45,31 @@ export function startBots(o: BotOpts): () => void {
       } else if (m.t === 'corr' && typeof m.x === 'number' && typeof m.y === 'number') { x = m.x; y = m.y; }
       else if (m.t === 'join_err') console.log(`bot ${i}: ${m.text}`);
     });
-    // đi: 15 Hz
+    // gửi gói (giả lập mạng xấu: trễ ngẫu nhiên — có thể đến lệch thứ tự, server bỏ gói cũ như thật)
+    const jitter = o.jitter || 0;
+    const sendMove = (m: Record<string, unknown>): void => {
+      const data = JSON.stringify(m);
+      if (!jitter) { ws.send(data); return; }
+      setTimeout(() => { if (ws.readyState === 1) ws.send(data); }, Math.random() * jitter);
+    };
+    // đi: cùng nhịp với người thật (LIMITS.sendHz)
+    const HZ = LIMITS.sendHz;
     const moveTimer = setInterval(() => {
       if (!id || ws.readyState !== 1) return;
       if (!target) return;
       const dx = target.x - x, dy = target.y - y, dist = Math.hypot(dx, dy);
       if (dist < 0.05) {
         target = null;
-        ws.send(JSON.stringify({ t: 'move', x, y, d, c: now(), m: 0 }));
+        sendMove({ t: 'move', x, y, d, c: now(), m: 0 });
         return;
       }
-      const step = Math.min(dist, SPEED / 15);
+      const step = Math.min(dist, SPEED / HZ);
       const r = moveWithCollision(x, y, (dx / dist) * step, (dy / dist) * step);
       if (Math.hypot(r.x - x, r.y - y) < 0.001) target = null;
       x = r.x; y = r.y;
       d = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 2 : 3) : dy < 0 ? 1 : 0;
-      ws.send(JSON.stringify({ t: 'move', x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, d, c: now(), m: 1 }));
-    }, 1000 / 15);
+      sendMove({ t: 'move', x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, d, c: now(), m: 1 });
+    }, 1000 / HZ);
     let thinkTimer: NodeJS.Timeout | null = null;
     cleanups.push(() => { clearInterval(moveTimer); if (thinkTimer) clearTimeout(thinkTimer); });
     // quyết định: 1,5–5 s một lần
@@ -108,7 +122,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const url = args.get('url') || 'ws://localhost:3399/ws';
   const n = Number(args.get('n') || 12);
   const seconds = Number(args.get('seconds') || 0);
-  startBots({ url, n, video: args.get('video') || '', seconds, room: args.get('room') || '' });
+  startBots({ url, n, video: args.get('video') || '', seconds, room: args.get('room') || '', jitter: Number(args.get('jitter') || 0) });
   console.log(`${n} bot → ${url}`);
   if (seconds) setTimeout(() => process.exit(0), seconds * 1000 + 500);
 }

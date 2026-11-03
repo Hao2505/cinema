@@ -264,5 +264,5 @@ export const LIMITS = Object.freeze({
   nameMin: 2,
   nameMax: 20,
   chatMax: 140,
-  sendHz: 15, // client gửi vị trí tối đa 15 lần / giây khi đang đi
+  sendHz: 30, // client gửi vị trí tối đa 30 lần / giây khi đang đi (server gom 30 Hz) — người khác thấy gần như tức thì
 });

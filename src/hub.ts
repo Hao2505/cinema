@@ -625,6 +625,12 @@ export class Hub {
     if (pref && pref.count() < cap) return pref;
     const sorted = this.sortedRooms();
     const venue = parseRoomId(preferred ?? '')?.venue.id;
+    // không chọn rạp → rạp ĐÔNG NHẤT còn chỗ (ít người thì mọi người gặp nhau, không bị rải mỗi người một rạp)
+    if (!venue) {
+      const open = sorted.filter((r) => r.count() < cap);
+      open.sort((a, b) => b.present() - a.present());
+      return open[0] ?? null;
+    }
     if (venue) {
       for (const r of sorted) if (r.venue === venue && r.count() < cap) return r;
       for (let n = 2; n <= this.cfg.maxRooms; n++) {
@@ -648,7 +654,7 @@ export class Hub {
     this.ipConns.set(meta.ipHash, n + 1);
     const c: Conn = {
       cid: ++this.cid, sock, ipHash: meta.ipHash, admin: meta.admin, room: null, player: null,
-      bucket: new Bucket(80, 45), strikes: 0, closed: false,
+      bucket: new Bucket(120, 70), strikes: 0, closed: false, // gửi vị trí 30 lần / giây + ping + chat
     };
     this.conns.add(c);
     // link ?phong=<id>: đúng phòng đó, bản sao đã đóng thì về phòng chính của rạp
@@ -699,6 +705,8 @@ export class Hub {
     switch (msg.t) {
       case 'ping': this.send(c, { t: 'pong', c: msg.c, s: Date.now() }); return;
       case 'spec': return this.onSpec(c, msg.room);
+      case 'switch': return this.onSwitch(c, msg.room, now);
+      case 'leave': return this.onLeave(c);
       case 'join': return this.onJoin(c, msg, now);
       case 'adm': return this.onAdmin(c, msg, now);
       default: break;
@@ -731,6 +739,50 @@ export class Hub {
     this.sendHello(c);
   }
 
+  /**
+   * Đang ở trong rạp mà chuyển sang rạp / phòng khác: không tải lại trang, giữ nguyên nhân vật (id, tên, ngoại hình,
+   * token nối lại), xuất hiện ở lối đi cuối rạp mới → gửi welcome với ảnh chụp phòng mới. Rạp đầy / trùng tên → báo, ở yên.
+   */
+  private onSwitch(c: Conn, roomId: string, now: number): void {
+    const p = c.player;
+    const from = p ? this.roomOf(p) : null;
+    if (!p || !from || from.id === roomId) return;
+    this.moveTo(c, p, from, roomId, now, true);
+  }
+
+  /** rời trang (đóng tab, chuyển trang): bỏ nhân vật ngay — người khác không thấy nhân vật "kẹt" lại chờ hết hạn */
+  private onLeave(c: Conn): void {
+    const p = c.player;
+    if (!p) return;
+    const room = this.roomOf(p);
+    c.player = null;
+    p.conn = null;
+    if (room) room.removePlayer(p);
+  }
+
+  /** đưa nhân vật sang phòng `roomId` (cùng rạp mà đầy thì sang bản sao). false = không chuyển được (đã báo người xem) */
+  private moveTo(c: Conn, p: Player, from: Room, roomId: string, now: number, limit: boolean): boolean {
+    const want = parseRoomId(roomId)?.venue.id;
+    if (!want) return false;
+    if (limit && !this.joinWindow.hit(c.ipHash, now)) { this.notice(c, 'Chuyển rạp nhanh quá, đợi một chút rồi thử lại nhé.', 'warn'); return false; }
+    const to = this.pickRoom(roomId);
+    if (!to || to.venue !== want) { this.notice(c, `${roomName(roomId)} đang đầy, thử rạp khác nhé.`, 'warn'); return false; }
+    if (to === from) return false;
+    for (const q of to.players.values()) {
+      if (q.key === p.key) { this.notice(c, `Tên "${p.name}" đang có người dùng trong ${to.name} — đổi tên rồi vào nhé.`, 'warn'); return false; }
+    }
+    from.removePlayer(p);
+    from.spectators.delete(c);
+    const sp = spawnPoint();
+    p.x = sp.x; p.y = sp.y; p.d = 1; p.m = 0; p.action = null;
+    p.ct = 0; p.lastMoveAt = now; p.budget = 0; p.dirty = false;
+    c.room = to;
+    to.spectators.add(c);
+    to.addPlayer(p, now);
+    this.send(c, { t: 'welcome', you: p.id, token: p.token, room: to.id, snap: to.snapshot(now) });
+    return true;
+  }
+
   /** tắt tiếng theo MÁY (không theo IP: ở VN nhiều người dùng chung IP qua 4G / wifi) */
   private isMuted(p: Player, now = Date.now()): number {
     const until = this.mutes.get(`ck:${p.ck}`) ?? 0;
@@ -743,34 +795,65 @@ export class Hub {
     return `Bạn đang bị tắt tiếng (còn ${min} phút).`;
   }
 
+  /** nhân vật cũ của người đang vào lại: theo token (rớt mạng, F5 cùng tab) trước, rồi theo khoá máy (đóng tab mở lại…) */
+  private findReturning(token: string, ck: string): { room: Room; p: Player } | null {
+    let byCk: { room: Room; p: Player } | null = null;
+    for (const room of this.rooms.values()) {
+      for (const p of room.players.values()) {
+        if (token && p.token === token && p.ck === ck) return { room, p };
+        if (ck && p.ck === ck && !byCk) byCk = { room, p };
+      }
+    }
+    return byCk;
+  }
+
+  /** bỏ hẳn một nhân vật (đổi tên khi vào lại…): socket cũ còn treo thì đóng */
+  private dropPlayer(room: Room, p: Player, reason: string): void {
+    room.removePlayer(p);
+    const old = p.conn;
+    p.conn = null;
+    if (old) {
+      old.player = null;
+      this.send(old, { t: 'notice', kind: 'warn', text: reason });
+      setTimeout(() => { try { old.sock.close(4002, 'replaced'); } catch { /* bỏ qua */ } }, 50).unref?.();
+    }
+  }
+
   private onJoin(c: Conn, msg: Extract<ClientMsg, { t: 'join' }>, now: number): void {
     if (c.player) return;
-    // quay lại sau khi rớt mạng: gắn lại đúng nhân vật cũ
-    if (msg.token) {
-      for (const room of this.rooms.values()) {
-        for (const p of room.players.values()) {
-          if (p.token !== msg.token || p.ck !== msg.ck) continue;
-          // socket cũ còn treo (đổi wifi ↔ 4G, server chưa kịp biết) hoặc tab nhân bản: socket mới thay chỗ, socket cũ bị đóng
-          const old = p.conn;
-          if (old && old !== c) {
-            old.player = null;
-            this.send(old, { t: 'notice', kind: 'warn', text: 'Bạn vừa vào rạp ở tab / máy khác.' });
-            setTimeout(() => { try { old.sock.close(4002, 'replaced'); } catch { /* bỏ qua */ } }, 50).unref?.();
-          }
-          // trang vừa tải lại → giờ máy (performance.now) về gần 0: bỏ mốc cũ để gói di chuyển mới không bị coi là gói cũ
-          p.ct = 0;
-          p.lastMoveAt = now;
-          p.budget = 0;
-          p.conn = c;
-          c.player = p;
-          c.room?.spectators.delete(c);
-          c.room = room;
-          room.spectators.add(c);
-          this.send(c, { t: 'welcome', you: p.id, token: p.token, room: room.id, snap: room.snapshot(now) });
-          room.broadcast({ t: 'pu', p: room.playerInfo(p, now) }, c);
-          room.votesChanged();
-          return;
+    // vào lại: nhận lại ĐÚNG nhân vật cũ (dù đang "mất mạng" hay socket cũ còn treo) thay vì báo trùng tên — theo token
+    // của tab, hoặc theo khoá máy khi tab mới không còn token. Cố ý đổi sang tên khác thì bỏ nhân vật cũ, vào mới.
+    const back = this.findReturning(msg.token, msg.ck);
+    if (back) {
+      const { room, p } = back;
+      const nc = checkName(msg.name, LIMITS.nameMin, LIMITS.nameMax);
+      if (nc.ok && nameKey(nc.name) !== p.key) {
+        this.dropPlayer(room, p, 'Bạn vừa vào rạp bằng tên khác ở tab / máy khác.');
+      } else {
+        // socket cũ còn treo (đổi wifi ↔ 4G, server chưa kịp biết) hoặc tab nhân bản: socket mới thay chỗ, socket cũ bị đóng
+        const old = p.conn;
+        if (old && old !== c) {
+          old.player = null;
+          this.send(old, { t: 'notice', kind: 'warn', text: 'Bạn vừa vào rạp ở tab / máy khác.' });
+          setTimeout(() => { try { old.sock.close(4002, 'replaced'); } catch { /* bỏ qua */ } }, 50).unref?.();
         }
+        // trang vừa tải lại → giờ máy (performance.now) về gần 0: bỏ mốc cũ để gói di chuyển mới không bị coi là gói cũ
+        p.ct = 0;
+        p.lastMoveAt = now;
+        p.budget = 0;
+        p.conn = c;
+        p.look = normalizeLook(msg.look);
+        c.player = p;
+        c.room?.spectators.delete(c);
+        c.room = room;
+        room.spectators.add(c);
+        // chọn rạp khác rạp nhân vật cũ đang đứng → chuyển luôn sang rạp đó (đầy thì ở lại rạp cũ)
+        const want = parseRoomId(msg.room)?.venue.id;
+        if (want && want !== room.venue && this.moveTo(c, p, room, msg.room, now, false)) return;
+        this.send(c, { t: 'welcome', you: p.id, token: p.token, room: room.id, snap: room.snapshot(now) });
+        room.broadcast({ t: 'pu', p: room.playerInfo(p, now) }, c);
+        room.votesChanged();
+        return;
       }
     }
     const fail = (code: string, text: string): void => this.send(c, { t: 'join_err', code, text });
@@ -793,7 +876,7 @@ export class Hub {
       ct: 0, lastMoveAt: now, budget: 0, dirty: false, action: null, conn: c, ghostSince: 0,
       token: randomBytes(16).toString('hex'), ck: msg.ck || randomBytes(8).toString('hex'), ipHash: c.ipHash, joinedAt: now, lastCorrAt: 0,
       chatBucket: new Bucket(3, 0.5, now), emoBucket: new Bucket(6, 2.5, now), actBucket: new Bucket(4, 2, now),
-      lookBucket: new Bucket(3, 0.2, now), addBucket: new Bucket(2, 1 / this.cfg.queueAddSeconds, now), moveBucket: new Bucket(30, 24, now),
+      lookBucket: new Bucket(3, 0.2, now), addBucket: new Bucket(2, 1 / this.cfg.queueAddSeconds, now), moveBucket: new Bucket(60, 40, now),
       lastChat: { text: '', at: 0 }, chatStrikes: [], reportBucket: new Bucket(3, 3 / 60, now),
     };
     c.player = p;

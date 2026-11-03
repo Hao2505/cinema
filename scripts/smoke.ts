@@ -443,6 +443,82 @@ async function main(): Promise<void> {
     c.close();
     c2.close();
   });
+  await step('vào lại ở tab mới (mất token, cùng khoá máy) → nhận lại đúng nhân vật, không báo trùng tên; đổi tên → nhân vật mới', async () => {
+    const spy = await connect({}, '?room=congvien');
+    const t1 = await connect();
+    const w1 = await t1.join('Tab Cũ', 'congvien');
+    assert.equal(w1.t, 'welcome');
+    const ck = t1.ck;
+    t1.close();
+    await spy.waitT('pu', 2000, (m) => (m.p as { id: number; ghost: boolean }).id === w1.you && (m.p as { ghost: boolean }).ghost);
+    const t2 = await connect();
+    t2.ck = ck;
+    const w2 = await t2.join('Tab Cũ', 'congvien');
+    assert.equal(w2.t, 'welcome', 'cùng máy vào lại không được báo trùng tên');
+    assert.equal(w2.you, w1.you, 'phải nhận lại đúng nhân vật cũ');
+    const gone = spy.waitT('pl', 2000, (m) => m.id === w1.you);
+    const t3 = await connect();
+    t3.ck = ck;
+    const w3 = await t3.join('Tên Mới Toanh', 'congvien');
+    assert.equal(w3.t, 'welcome');
+    assert.notEqual(w3.you, w1.you, 'đổi tên → nhân vật mới');
+    await gone;
+    spy.close(); t2.close(); t3.close();
+  });
+  await step('chuyển rạp tại chỗ (switch): giữ nhân vật, sang rạp mới, rạp cũ thấy rời đi; vào lại chọn rạp khác → chuyển luôn', async () => {
+    const spy = await connect({}, '?room=congvien');
+    const s1 = await connect();
+    const w1 = await s1.join('Người Chuyển', 'congvien');
+    assert.equal(w1.room, 'congvien');
+    const left = spy.waitT('pl', 2000, (m) => m.id === w1.you);
+    const moved = s1.wait((m) => m.t === 'welcome' && m.room === 'bien', 2000);
+    s1.send({ t: 'switch', room: 'bien' });
+    const w2 = await moved;
+    assert.equal(w2.you, w1.you, 'giữ nguyên nhân vật');
+    assert.equal((w2.snap as { venue: string }).venue, 'bien');
+    await left;
+    // tải lại trang (còn token) rồi bấm rạp khác trên thẻ chào lại → vào đúng rạp vừa chọn
+    const tok = s1.token, ck = s1.ck;
+    s1.close();
+    await sleep(100);
+    const s2 = await connect();
+    s2.token = tok; s2.ck = ck;
+    const w3 = await s2.join('Người Chuyển', 'doxe');
+    assert.equal(w3.you, w1.you);
+    assert.equal(w3.room, 'doxe');
+    spy.close(); s2.close();
+  });
+  await step('đóng tab (leave) → nhân vật biến mất ngay, không kẹt lại; khách mới không chọn rạp → vào rạp đông nhất', async () => {
+    const spy = await connect({}, '?room=doxe');
+    const l1 = await connect();
+    const w = await l1.join('Sắp Về', 'doxe');
+    const gone = spy.waitT('pl', 1500, (m) => m.id === w.you);
+    l1.send({ t: 'leave' });
+    await gone;
+    spy.close(); l1.close();
+    // server riêng: 2 người ở Rạp Đỗ Xe → khách mới không chọn rạp được xếp vào Rạp Đỗ Xe (đông nhất), không phải rạp đầu danh sách
+    const app3 = createApp(makeCfg({ persist: false }), { youtube, dataDir: null, log: () => {} });
+    const port3 = await app3.listen(0, '127.0.0.1');
+    const mk = (ip: string, q = ''): Client => new Client(`ws://127.0.0.1:${port3}/ws${q}`, { 'x-real-ip': ip });
+    const ps: Client[] = [];
+    try {
+      for (const [i, n] of ['Đỗ Một', 'Đỗ Hai'].entries()) {
+        const c = mk(`10.8.0.${i + 1}`);
+        ps.push(c);
+        await c.open();
+        await c.wait((m) => m.t === 'hello', 2000, true);
+        assert.equal((await c.join(n, 'doxe')).room, 'doxe');
+      }
+      const fresh = mk('10.8.0.9');
+      ps.push(fresh);
+      await fresh.open();
+      const h = await fresh.wait((m) => m.t === 'hello', 2000, true);
+      assert.equal(h.room, 'doxe', 'khách mới phải vào rạp đông nhất');
+    } finally {
+      for (const c of ps) c.close();
+      await app3.close();
+    }
+  });
   await step('rạp đầy (8 người, tính cả người đang kết nối lại) → tự mở bản sao cùng rạp (nhung-2)', async () => {
     // đang có: a, b, adm (+ người vào / ra); thêm tới khi tràn
     const extra: Client[] = [];

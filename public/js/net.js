@@ -53,6 +53,13 @@ function wsUrl() {
   return `${proto}//${location.host}/ws${room && ROOM_ID_RE.test(room) ? `?room=${room}` : ''}`;
 }
 
+// đóng tab / rời trang: báo server bỏ nhân vật NGAY (khỏi để lại nhân vật "kẹt" trong rạp chờ hết hạn).
+// pagehide có persisted = trang vào bộ nhớ đệm (sẽ quay lại) → không báo.
+window.addEventListener('pagehide', (e) => {
+  if (e.persisted || !store.joined || !ws || ws.readyState !== 1) return;
+  try { ws.send(JSON.stringify({ t: 'leave' })); } catch { /* bỏ qua */ }
+});
+
 export function connect() {
   clearTimeout(retryTimer);
   if (stopped) return;

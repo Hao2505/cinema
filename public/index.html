@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi">
+<html lang="vi" class="booting">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
@@ -36,6 +36,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="style.css">
+  <!-- server chèn <link rel="modulepreload"> cho mọi module JS: tải song song, mở trang nhanh hơn -->
+  <!-- %MODULEPRELOAD% -->
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
@@ -137,6 +139,8 @@
 
   <!-- vào rạp: đặt tên + chọn ngoại hình -->
   <div class="join" id="join" role="dialog" aria-modal="true" aria-labelledby="join-title">
+    <!-- lúc mở trang: chờ giao diện dựng xong rồi mới hiện thẻ (không hiện từng mảnh) -->
+    <div class="boot" aria-live="polite"><span class="boot-spin" aria-hidden="true"></span><span>Đang mở rạp…</span></div>
     <form class="join-card" id="join-form" autocomplete="off">
       <div class="join-hero">
         <canvas class="join-preview" id="join-preview" width="180" height="200" aria-hidden="true"></canvas>

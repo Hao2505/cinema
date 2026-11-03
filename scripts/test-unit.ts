@@ -137,6 +137,8 @@ test('parseClientMsg: id phòng bản sao dài (congvien-2) không bị bỏ', (
   assert.deepEqual(parseClientMsg('{"t":"spec","room":"congvien-2"}'), { t: 'spec', room: 'congvien-2' });
   assert.equal((parseClientMsg('{"t":"join","name":"Ab","look":{},"room":"congvien-2","token":"","ck":""}') as { room: string }).room, 'congvien-2');
   assert.equal(parseClientMsg('{"t":"spec","room":"congvien-1"}'), null);
+  assert.deepEqual(parseClientMsg('{"t":"switch","room":"bien-2"}'), { t: 'switch', room: 'bien-2' });
+  assert.equal(parseClientMsg('{"t":"switch","room":"../x"}'), null);
 });
 test('parseClientMsg: nhận đúng dạng, bỏ rác', () => {
   assert.deepEqual(parseClientMsg('{"t":"move","x":3.2,"y":5,"d":1,"c":1234.6,"m":1}'), { t: 'move', x: 3.2, y: 5, d: 1, c: 1235, m: 1 });

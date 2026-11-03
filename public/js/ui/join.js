@@ -165,7 +165,9 @@ export function initJoin(onSubmit, onQuick) {
     if (quick.hidden) return;
     setText($('jq-name'), savedName());
     const last = lastRoom();
-    const rooms = [...store.rooms].sort((a, b) => (b.id === last) - (a.id === last));
+    // rạp đông lên đầu (ít người thì gặp được nhau), rồi rạp lần trước
+    const rooms = [...store.rooms].sort((a, b) => (b.count - a.count) || ((b.id === last) - (a.id === last)));
+    const top = rooms[0] && rooms[0].count > 0 ? rooms[0].id : '';
     if (!rooms.length) { setKids($('jq-rooms'), el('p', { class: 'jq-sub', text: 'Đang tải danh sách rạp…' })); return; }
     setKids($('jq-rooms'), rooms.map((r) => {
       const v = VENUES.find((x) => x.id === r.venue);
@@ -176,7 +178,9 @@ export function initJoin(onSubmit, onQuick) {
       },
       el('span', { class: 'e', 'aria-hidden': 'true', text: v?.emoji || '🎬' }),
       el('span', { class: 't' },
-        el('b', null, r.name, r.id === last ? el('span', { class: 'jq-badge', text: 'LẦN TRƯỚC' }) : null),
+        el('b', null, r.name,
+          r.id === top ? el('span', { class: 'jq-badge hot', text: '🔥 ĐÔNG NHẤT' }) : null,
+          r.id === last ? el('span', { class: 'jq-badge', text: 'LẦN TRƯỚC' }) : null),
         el('small', { text: `${r.count}/${r.cap} người · ${r.now ? `Đang chiếu: ${r.now}` : v?.desc || 'Màn hình đang trống'}` })),
       el('span', { class: 'go', text: busyRoom === r.id ? 'Đang vào…' : full ? 'Đầy' : 'Vào ▸' }));
     }));
