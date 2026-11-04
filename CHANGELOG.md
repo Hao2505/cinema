@@ -1,15 +1,17 @@
 # Lịch sử thay đổi
 
-## 0.5.0 — 2026-11-04 · 🔒 Phòng riêng
+## 0.5.0 — 2026-11-04 · 🔒 Phòng riêng · rạp chung nhận video 30 phút
+
+**Rạp chung**: video dài tối đa **30 phút** (trước 15). Phòng riêng trống **3 phút** là tự đóng.
 
 Xem chung với người yêu / bạn bè ở xa trong **phòng riêng có mật khẩu — luôn miễn phí**. Bấm "🔒 Tạo phòng riêng" (màn
 vào rạp, thẻ chào lại hoặc đầu bảng chọn rạp) → đặt mật khẩu, số người tối đa (2–20), khung cảnh → thẻ mời có link + mật
 khẩu để sao chép / gửi qua Zalo, Messenger. Bạn bè mở link, nhập mật khẩu là vào; lần sau (tải lại trang, rớt mạng, mở lại
 link) vào thẳng bằng "vé" lưu trên máy, khỏi nhập lại. Phòng không hiện trong danh sách rạp, tự đóng khi không còn ai
-trong 10 phút.
+trong 3 phút.
 
-Trong phòng riêng: video không giới hạn 15 phút (tối đa 12 giờ — với video rạp kiểm đủ qua YouTube Data API; lúc rạp chỉ
-kiểm cơ bản được thì vẫn tối đa 15 phút như rạp chung, rạp chưa có key thì tấm tạo phòng ghi đúng 15 phút), mỗi người
+Trong phòng riêng: video không giới hạn 30 phút (tối đa 12 giờ — với video rạp kiểm đủ qua YouTube Data API; lúc rạp chỉ
+kiểm cơ bản được thì vẫn tối đa 30 phút như rạp chung, rạp chưa có key thì tấm tạo phòng ghi đúng 30 phút), mỗi người
 chờ 10 video, ai cũng **dừng / phát tiếp cho cả phòng** bằng nút ⏸ dưới màn hình (tự dừng trên thanh YouTube thì chỉ
 dừng máy mình, bấm ▶ là xem tiếp đúng giờ chung); chủ phòng bỏ qua ngay, xoá bài, mời ra, đổi mật khẩu (người đang trong
 phòng ở lại và giữ vé, ai vào sau cần mật khẩu mới), đổi số người, đóng phòng. Vẫn chỉ chiếu video YouTube cho nhúng,

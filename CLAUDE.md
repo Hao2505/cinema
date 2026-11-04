@@ -78,7 +78,7 @@
   `npm test` xanh (typecheck + test đơn vị + smoke). QA hình: `npm run qa -- --out <thư mục>`.
 - **Xem thử trên máy** (YouTube giả, không cần key): `npx tsx scripts/qa-server.ts` + `npx tsx scripts/bots.ts --n 10 --video aqz-KE-bpKQ`
   → http://localhost:3399 (admin QA: `#admin=qa-local-admin`).
-- **Mặc định đã chọn cho §7 (chờ chủ dự án duyệt, đổi trong `.env`)**: video ≤ 15 phút (admin 240), live ≤ 30 phút / lượt;
+- **Mặc định đã chọn cho §7 (chờ chủ dự án duyệt, đổi trong `.env`)**: video ≤ 30 phút (chủ dự án nâng từ 15, 04/11) (admin 240), live ≤ 30 phút / lượt;
   mỗi người chờ 2 video; bỏ qua khi ≥ 50 % người có mặt và ≥ 2 phiếu (người thêm tự bỏ qua bài mình ngay); 60 người / phòng
   (rạp 130 ghế + sàn nhảy lớn — chủ dự án chê rạp 64 ghế chật),
   đầy tự mở phòng kế (tối đa 3), **mỗi phòng hàng chờ riêng**; 3 báo cáo → tự gỡ; 8 động tác như §1; điện thoại = cần điều
@@ -92,7 +92,7 @@
   cơ bản** bằng oEmbed (`docs/04` §3.1) — vẫn thêm được video. Vẫn nên tạo key (README) để kiểm đủ luật ngay lúc dán link:
   điền `.env` + `deploy/.env.production` rồi deploy lại.
 - **Phòng riêng** (0.5.0, chủ dự án yêu cầu "cho cặp đôi yêu xa / bạn bè ở xa"): có mật khẩu (băm scrypt), 2–20 người,
-  không hiện trong danh sách, tự đóng khi trống 10 phút, video tới 12 giờ (chỉ video Data API kiểm đủ), link dạng
+  không hiện trong danh sách, tự đóng khi trống 3 phút (chủ dự án chọn), video tới 12 giờ (chỉ video Data API kiểm đủ), link dạng
   `/#phong=p-xxxxxxxxxx`; luôn miễn phí; admin vào được để xử lý báo cáo nhưng luôn hiện 🛡 (trừ phòng do chính admin tạo).
   Thiết kế + 2 vòng soi bằng nhiều agent (`docs/07` §20, `docs/04` §12). Deploy lần đầu cần `bash deploy/deploy.sh --setup`
   (log nginx mới không ghi IP / query — `deploy/nginx.limit.conf` `vcin_noip`).

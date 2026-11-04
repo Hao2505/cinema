@@ -402,7 +402,7 @@ $('btn-help').addEventListener('click', () => {
 function privateRules() {
   const min = Number(store.cfg.privMaxMin) || 720;
   const len = min % 60 === 0 ? `${min / 60} giờ` : `${min} phút`;
-  return `Phòng riêng: video dài tới ${len} (lúc rạp chỉ kiểm cơ bản được video thì tối đa ${Number(store.cfg.maxVideoMin) || 15} phút như rạp chung), mỗi người chờ tối đa ${Number(store.cfg.privPerUser) || 10} video, ai trong phòng cũng dừng / phát tiếp được, chủ phòng bỏ qua / mời ra / đổi mật khẩu / đóng phòng.`;
+  return `Phòng riêng: video dài tới ${len} (lúc rạp chỉ kiểm cơ bản được video thì tối đa ${Number(store.cfg.maxVideoMin) || 30} phút như rạp chung), mỗi người chờ tối đa ${Number(store.cfg.privPerUser) || 10} video, ai trong phòng cũng dừng / phát tiếp được, chủ phòng bỏ qua / mời ra / đổi mật khẩu / đóng phòng.`;
 }
 
 // đổi ngoại hình

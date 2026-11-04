@@ -13,8 +13,8 @@ export const store = {
   token: '',
   admin: false,
   cfg: {
-    maxVideoMin: 15, maxPerUser: 2, capacity: 60, liveMaxMin: 30, allowLive: true, skipRatio: 0.5, noCookie: true, ytReady: true,
-    privMax: 20, privMaxMin: 720, privPerUser: 10, privEmptyMin: 10,
+    maxVideoMin: 30, maxPerUser: 2, capacity: 60, liveMaxMin: 30, allowLive: true, skipRatio: 0.5, noCookie: true, ytReady: true,
+    privMax: 20, privMaxMin: 720, privPerUser: 10, privEmptyMin: 3,
   },
   rooms: [],
   roomId: DEFAULT_VENUE,

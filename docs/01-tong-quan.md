@@ -46,7 +46,7 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
 
 **Video**
 - 📋 Hàng chờ: dán link YouTube; server kiểm qua YouTube Data API v3 — **công khai, cho nhúng, không giới hạn tuổi, xem
-  được ở VN, ≤ 15 phút** (live ≤ 30 phút / lượt) — từ chối thì nói rõ lý do. Mỗi người chờ tối đa 2 video, xoá được bài
+  được ở VN, ≤ 30 phút** (live ≤ 30 phút / lượt) — từ chối thì nói rõ lý do. Mỗi người chờ tối đa 2 video, xoá được bài
   của mình.
 - **Xem chung**: "đồng hồ phòng" trên server; thanh điều khiển YouTube hiện (âm lượng, phụ đề) nhưng tua / dừng / đổi tốc
   độ riêng tự về giờ chung; lệch > 1 s tự tua; xem quảng cáo xong tự về đúng chỗ; lỡ bấm video gợi ý → nút "↩ Về video của
@@ -56,7 +56,7 @@ deploy được chép sang rồi chỉnh. Yêu cầu gốc: `CLAUDE.md`.
   vào, lần sau vào thẳng bằng vé trên máy. Không hiện trong danh sách rạp; video tối đa 12 giờ (video rạp kiểm đủ qua
   YouTube Data API; chỉ kiểm cơ bản thì giới hạn như rạp chung), 10 video / người; ai cũng dừng / phát tiếp cho cả phòng
   (dừng trên thanh YouTube chỉ dừng máy mình); chủ phòng bỏ qua, xoá bài, mời ra, đổi mật khẩu / số người, đóng phòng;
-  trống 10 phút tự đóng. Luật video + gỡ bản quyền như rạp chung; quản trị viên vào được khi xử lý báo cáo (cả phòng được
+  trống 3 phút tự đóng. Luật video + gỡ bản quyền như rạp chung; quản trị viên vào được khi xử lý báo cáo (cả phòng được
   báo, dấu 🛡 hiện suốt lúc đó, không chiếm chỗ).
 - Bỏ phiếu bỏ qua (≥ 50 % người có mặt, ≥ 2 phiếu); người thêm bài bỏ qua bài mình ngay; **video admin thêm thì người
   thường không bỏ phiếu bỏ qua được** (báo cáo cũng không tự gỡ — admin quyết). Chủ kênh tắt nhúng giữa chừng → tự chuyển bài.
@@ -163,7 +163,7 @@ Trình duyệt ──HTTPS / WSS (DNS only, thẳng VPS)──► nginx (VPS dù
 
 | Việc | Mặc định | Biến |
 |---|---|---|
-| Độ dài tối đa / video | 15 phút (admin 240) | `MAX_VIDEO_MINUTES`, `ADMIN_MAX_VIDEO_MINUTES` |
+| Độ dài tối đa / video | 30 phút (admin 240) | `MAX_VIDEO_MINUTES`, `ADMIN_MAX_VIDEO_MINUTES` |
 | Video live | nhận, tối đa 30 phút / lượt | `ALLOW_LIVE`, `LIVE_MAX_MINUTES` |
 | Video chờ / người | 2 | `MAX_QUEUE_PER_USER` |
 | Ngưỡng bỏ qua | ≥ 50 % người có mặt, ≥ 2 phiếu; người thêm bỏ qua bài mình ngay | `SKIP_VOTE_RATIO`, `SKIP_VOTE_MIN` |
@@ -171,7 +171,7 @@ Trình duyệt ──HTTPS / WSS (DNS only, thẳng VPS)──► nginx (VPS dù
 | Phòng / rạp | 3 (chính + 2 bản sao), mỗi phòng hàng chờ riêng | `MAX_ROOMS` |
 | Tự gỡ khi bị báo cáo | 3 IP khác nhau | `REPORT_AUTOSKIP` |
 | Kênh mặc định | `rFZHOHl-L8A` sau 30 s trống (phòng riêng không phát) | `DEFAULT_VIDEO`, `DEFAULT_IDLE_SECONDS` |
-| Phòng riêng | 2–20 người (chủ phòng chọn), video ≤ 12 giờ (chỉ video Data API kiểm đủ), 10 video / người, trống 10 phút tự đóng; 3 phòng đang mở / mạng (IPv4 /32, IPv6 /64) + 6 / dải mạng (/24, /48), 4 lần tạo / giờ / mạng, 400 phòng cả rạp | `PRIVATE_*` |
+| Phòng riêng | 2–20 người (chủ phòng chọn), video ≤ 12 giờ (chỉ video Data API kiểm đủ), 10 video / người, trống 3 phút tự đóng; 3 phòng đang mở / mạng (IPv4 /32, IPv6 /64) + 6 / dải mạng (/24, /48), 4 lần tạo / giờ / mạng, 400 phòng cả rạp | `PRIVATE_*` |
 | Động tác | 8 động tác trong `ACTIONS` | — |
 | Điện thoại | cần ảo + chạm sàn + nút 🎭 + chụm phóng | — |
 

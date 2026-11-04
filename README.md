@@ -10,9 +10,9 @@ Phía trên là màn hình lớn — trình phát YouTube chính thức đặt k
 - **4 rạp**, mỗi rạp một khung cảnh + màn hình + hàng chờ riêng: 🎭 **Rạp Nhung Đỏ** (trong nhà, ghế nhung), 🌳 **Rạp Công
   Viên** (ngoài trời, gối lười trên cỏ), 🚗 **Rạp Đỗ Xe** (kiểu Mỹ, ngồi xe mui trần), 🏖️ **Rạp Bãi Biển** (ghế xếp trên cát).
 - **🔒 Phòng riêng** (miễn phí): tạo phòng có mật khẩu để xem chung với người yêu / bạn bè ở xa — gửi link + mật khẩu là
-  vào, không hiện trong danh sách rạp, video không giới hạn 15 phút (tối đa 12 giờ khi rạp kiểm đủ được video qua YouTube
+  vào, không hiện trong danh sách rạp, video không giới hạn 30 phút (tối đa 12 giờ khi rạp kiểm đủ được video qua YouTube
   Data API), ai trong phòng cũng dừng / phát tiếp được; chủ phòng bỏ qua bài, mời ra, đổi mật khẩu, đóng phòng. Phòng tự
-  đóng khi không còn ai trong 10 phút.
+  đóng khi không còn ai trong 3 phút.
 - **Kênh mặc định**: rạp trống video quá 30 giây thì tự phát một kênh trực tiếp 24/7; ai dán link là nhường ngay.
 - Rạp phủ cả màn hình, nút bấm là các cụm nổi nhỏ không bao giờ che video; **đang chiếu thì xung quanh tối lại** cho video
   nổi bật, đứng yên vài giây các nút tự mờ đi.
@@ -43,14 +43,14 @@ Phía trên là màn hình lớn — trình phát YouTube chính thức đặt k
 
 ## Luật rạp (mặc định, đổi trong `.env`)
 
-- Chỉ nhận video **công khai, cho phép nhúng, không giới hạn tuổi, xem được ở Việt Nam**, dài tối đa **15 phút**
+- Chỉ nhận video **công khai, cho phép nhúng, không giới hạn tuổi, xem được ở Việt Nam**, dài tối đa **30 phút**
   (server hỏi YouTube Data API trước khi cho vào hàng chờ). Chủ kênh tắt nhúng giữa chừng → rạp tự chuyển bài.
 - Mỗi người chờ tối đa **2 video**. Bỏ qua khi **≥ 50 %** người trong phòng bỏ phiếu (ít nhất 2 phiếu); người thêm bài
   bỏ qua bài của mình ngay.
 - **Xem chung**: thanh điều khiển YouTube hiện (âm lượng, phụ đề) nhưng tua / dừng / đổi tốc độ riêng sẽ tự về giờ chung;
   chỉ admin dừng được cả phòng. Lỡ bấm video gợi ý của YouTube thì có nút "↩ Về video của rạp" dưới màn hình.
 - **Phòng riêng**: video dài tối đa 12 giờ với video rạp kiểm đủ qua YouTube Data API (khi rạp chỉ kiểm cơ bản — chưa có /
-  hết lượt API — thì tối đa 15 phút như rạp chung), mỗi người chờ tối đa 10 video, 2–20 người (chủ phòng chọn); ai trong
+  hết lượt API — thì tối đa 30 phút như rạp chung), mỗi người chờ tối đa 10 video, 2–20 người (chủ phòng chọn); ai trong
   phòng cũng dừng / phát tiếp cho cả phòng (⏸ dưới màn hình), tự dừng trên thanh YouTube thì chỉ dừng máy mình. Kiểm
   video y như rạp chung (có key: công khai, cho nhúng, không 18+, xem được ở VN; chưa có key: kiểm cơ bản — mục dưới).
   Link mời dạng `/#phong=p-…` (mã phòng không tới máy chủ web hay YouTube). Quản trị viên rạp có thể vào khi xử lý báo

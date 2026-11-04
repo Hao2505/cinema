@@ -21,7 +21,7 @@ tới video, trình phát, bố cục quanh màn hình thì đọc lại cả tr
 | Không chặn link video liên quan / gợi ý của trình phát | `player.js` (`offVideo`): bấm video gợi ý thì **không** tự quay lại — nút "↩ Về video của rạp" ngoài khung video (§5) |
 | Phòng riêng: mật khẩu chỉ khoá **phòng** (ngoại lệ "login" của III.F.3.b — thao tác không đặc thù YouTube), không bao giờ khoá một video; không đòi đăng ký kênh / thích / chia sẻ | `ui/private.js`, server `hub.ts` (§12) |
 | Phòng riêng **luôn miễn phí** — không bán phòng, mật khẩu, chỗ ngồi, "VIP" (III.F.3.a/c, III.G.1.b) | không có gì thu tiền trong code — giữ nguyên như vậy; `/chinh-sach` §3–4 |
-| Giới hạn 15 phút là luật **của rạp**, không phải của YouTube → phòng riêng nới tới 12 giờ, **chỉ với video Data API đã kiểm đủ**; video chỉ kiểm cơ bản (oEmbed, item `basic`) giữ giới hạn của rạp chung ở mọi phòng; mọi điều kiện khác giữ nguyên | server `hub.ts` (`PRIVATE_MAX_VIDEO_MINUTES`, `onQueueAdd`, `Room.playMs`) (§3.1, §12) |
+| Giới hạn 30 phút (`MAX_VIDEO_MINUTES`) là luật **của rạp**, không phải của YouTube → phòng riêng nới tới 12 giờ, **chỉ với video Data API đã kiểm đủ**; video chỉ kiểm cơ bản (oEmbed, item `basic`) giữ giới hạn của rạp chung ở mọi phòng; mọi điều kiện khác giữ nguyên | server `hub.ts` (`PRIVATE_MAX_VIDEO_MINUTES`, `onQueueAdd`, `Room.playMs`) (§3.1, §12) |
 | Xem chung: tự dừng trên thanh YouTube → **phòng chung** chạy lại ngay (luật cốt lõi của rạp: cả phòng một đồng hồ, có giải thích, chỉ dùng hàm API có tài liệu); **phòng riêng** giữ dừng trên máy đó (phòng có nút ⏸ cho cả phòng ngoài khung video nên không cần ép từng máy — can thiệp ít nhất vào trình phát) | `player.js onState / sync` (§5, §12) |
 | Gỡ video bản quyền phải tới cả phòng riêng | server: phòng riêng nằm trong `Hub.rooms` — `adm block`, danh sách `blocked`, `embedFail` áp như thường |
 | Không để lộ id phòng riêng cho YouTube | link + thanh địa chỉ dùng **phần `#`** (`/#phong=p-…` — không bao giờ gửi lên máy chủ, không vào Referer); `player.js` **tự dựng `<iframe>`** (cách "tự tạo iframe" có tài liệu của IFrame API) với `src` chỉ gồm tham số cố định + `origin` / `widget_referrer` = gốc trang → widget API không thêm `forigin` / `gporigin` (§5) |
@@ -271,9 +271,9 @@ với các điều kiện:
    chỉ khoá **phòng** (thao tác không đặc thù YouTube, như đăng nhập — ngoại lệ của III.F.3.b), không bao giờ khoá một
    video; tạo / vào phòng không bao giờ đòi đăng ký kênh, thích hay chia sẻ.
 2. **Cùng trình phát chính thức + cùng kiểm tra lúc thêm** (công khai, cho nhúng, không 18+, xem được ở VN). Chỉ nới luật
-   **của rạp**: mỗi người chờ 10 video, và không giới hạn 15 phút (tối đa 12 giờ — `PRIVATE_MAX_VIDEO_MINUTES`, cả live) —
+   **của rạp**: mỗi người chờ 10 video, và không giới hạn 30 phút (tối đa 12 giờ — `PRIVATE_MAX_VIDEO_MINUTES`, cả live) —
    nhưng **chỉ với video Data API đã kiểm đủ** (biết chắc công khai). Video chỉ qua kiểm cơ bản (oEmbed — chưa có / hỏng /
-   hết lượt key; item `basic`) giữ giới hạn rạp chung ở mọi phòng: 15 phút (admin 240), live `LIVE_MAX_MINUTES` — vì
+   hết lượt key; item `basic`) giữ giới hạn rạp chung ở mọi phòng: 30 phút (admin 240), live `LIVE_MAX_MINUTES` — vì
    oEmbed không phân biệt "không công khai" (§3.1).
 3. **Gỡ bản quyền tới được phòng riêng**: phòng riêng nằm trong `Hub.rooms` → "🚫 Gỡ hẳn" (`adm block`), danh sách
    `blocked`, `embedFail` áp như phòng chung; admin xem danh sách phòng riêng và đóng được (tab 🔒 Phòng riêng). Báo cáo từ

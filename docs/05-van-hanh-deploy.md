@@ -173,7 +173,7 @@ bash deploy/logs.sh [số dòng]   # 50 dòng log pm2 cuối (mặc định)
 | `DEFAULT_VIDEO`, `DEFAULT_IDLE_SECONDS` | kênh trực tiếp mặc định, 30 |
 | `PRIVATE_ROOMS_MAX`, `PRIVATE_PER_NET`, `PRIVATE_PER_SUBNET`, `PRIVATE_CREATE_PER_HOUR` | phòng riêng: 400 cả server (đủ thì thu hồi phòng hết thành viên, không có thì chia đều theo dải mạng), 3 phòng đang mở / mạng (IPv4 /32, IPv6 /64), 6 / dải mạng (IPv4 /24, IPv6 /48), 4 lần tạo / giờ / mạng (mặc định — thường không cần đặt; nhiều người chung một dải 4G bị "Mạng bạn đang dùng đã có nhiều phòng riêng" thì nới `PRIVATE_PER_SUBNET`) |
 | `PRIVATE_CAP_MAX`, `PRIVATE_MAX_VIDEO_MINUTES`, `PRIVATE_PER_USER` | 20 người, 720 phút / video (chỉ video `YT_API_KEY` kiểm đủ — chưa có / hết lượt key thì vẫn giới hạn rạp chung), 10 video chờ / người |
-| `PRIVATE_EMPTY_SECONDS`, `PRIVATE_IDLE_PAUSE_MINUTES`, `PRIVATE_IDLE_CLOSE_MINUTES` | 600 (trống 10 phút thì đóng), 240, 480 |
+| `PRIVATE_EMPTY_SECONDS`, `PRIVATE_IDLE_PAUSE_MINUTES`, `PRIVATE_IDLE_CLOSE_MINUTES` | 180 (trống 3 phút thì đóng), 240, 480 |
 
 Đổi `ADMIN_TOKEN` = mọi cookie admin cũ hết hiệu lực. Đổi `IP_SALT` (hoặc xoá `data/ip-salt.txt`) = lệnh cấm theo IP cũ
 mất tác dụng (lệnh cấm theo khoá máy vẫn còn).

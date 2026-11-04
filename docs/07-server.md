@@ -429,7 +429,7 @@ khoá `priv` — quay về bản cũ (rollback) rồi lưu là mất phòng riê
 | `YT_API_KEY` | rỗng | | YouTube Data API v3; rỗng = không ai thêm được video |
 | `YT_REGION` | `VN` | 2 chữ | vùng bắt buộc xem được |
 | `YT_NOCOOKIE` | `true` | bool | nhúng qua `youtube-nocookie.com` |
-| `MAX_VIDEO_MINUTES` | 15 | 1–600 | độ dài tối đa / video |
+| `MAX_VIDEO_MINUTES` | 30 | 1–600 | độ dài tối đa / video (chủ dự án nâng từ 15 lên 30 ngày 04/11/2026) |
 | `ADMIN_MAX_VIDEO_MINUTES` | 240 | 1–1440 | độ dài tối đa khi admin thêm |
 | `ALLOW_LIVE` | `true` | bool | nhận video đang phát trực tiếp |
 | `LIVE_MAX_MINUTES` | 30 | 1–1440 | mỗi lượt live chiếu tối đa |
@@ -460,7 +460,7 @@ khoá `priv` — quay về bản cũ (rollback) rồi lưu là mất phòng riê
 | `PRIVATE_CAP_MAX` | 20 | 2–200 | số người tối đa chủ phòng chọn được |
 | `PRIVATE_MAX_VIDEO_MINUTES` | 720 | 1–1440 | độ dài tối đa / video trong phòng riêng (cũng là thời gian chiếu một lượt live) |
 | `PRIVATE_PER_USER` | 10 | 1–50 | video chờ / người trong phòng riêng |
-| `PRIVATE_EMPTY_SECONDS` | 600 | 10–86400 | phòng riêng không còn ai bấy nhiêu giây thì đóng |
+| `PRIVATE_EMPTY_SECONDS` | 180 | 10–86400 | phòng riêng không còn ai bấy nhiêu giây thì đóng (chủ dự án chọn 3 phút) |
 | `PRIVATE_IDLE_PAUSE_MINUTES` | 240 | 1–10080 | không ai thao tác → tạm dừng video |
 | `PRIVATE_IDLE_CLOSE_MINUTES` | 480 | 1–10080 | không ai thao tác → đóng phòng |
 
@@ -608,8 +608,9 @@ thành viên lâu nhất, hoặc chia đều — §20.3).
 
 - Hết thành viên (`members() === 0` — admin ở lại một mình không giữ phòng, trừ khi chính là chủ phòng; đóng thì admin
   cũng về rạp chung) quá
-  `PRIVATE_EMPTY_SECONDS` → đóng (đủ lâu để chủ phòng trên điện thoại sang Zalo gửi link rồi quay lại — socket ẩn bị cắt
-  sau 10–20 s). `emptySince` = bây giờ ở mỗi nhịp còn thành viên, nên hết thành viên bằng đường nào cũng đếm đúng từ đó.
+  `PRIVATE_EMPTY_SECONDS` (mặc định 3 phút — chủ dự án chọn) → đóng. Đánh đổi: chủ phòng trên điện thoại sang Zalo gửi
+  link thì socket ẩn bị cắt sau 10–20 s, phòng tính là trống — bạn bè cần mở link trong ~3 phút, không thì phòng đã đóng
+  và phải tạo lại. `emptySince` = bây giờ ở mỗi nhịp còn thành viên, nên hết thành viên bằng đường nào cũng đếm đúng từ đó.
 - `now − lastInput ≥ PRIVATE_IDLE_PAUSE_MINUTES` và đang chiếu video thường → tạm dừng + `notice` "⏸ Đã tạm dừng vì lâu
   không ai thao tác — bấm ▶ để xem tiếp." (live: để chạy tới hết lượt). `≥ PRIVATE_IDLE_CLOSE_MINUTES` → đóng ("Phòng riêng
   đã đóng vì lâu không ai thao tác.") — một socket treo không giữ phòng mãi được.

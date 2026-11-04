@@ -198,7 +198,7 @@ interface QueueItem {
   unk?: boolean;
   /**
    * chỉ qua kiểm cơ bản (oEmbed): GIỮ luôn (vid_dur chỉ bỏ `unk`) — video này theo giới hạn của rạp chung ở mọi phòng (cả
-   * phòng riêng: 15 phút / admin 240, live LIVE_MAX_MINUTES); 12 giờ của phòng riêng chỉ dành cho video Data API kiểm đủ
+   * phòng riêng: MAX_VIDEO_MINUTES / admin 240, live LIVE_MAX_MINUTES); 12 giờ của phòng riêng chỉ dành cho video Data API kiểm đủ
    */
   basic?: boolean;
   /** giây chiếu tối đa cho lượt này (video `unk`; video biết độ dài đã bị chặn > giới hạn lúc thêm) */
@@ -775,7 +775,7 @@ export class Hub {
       this.roomsChanged();
       this.dirty = true;
     }
-    // phòng riêng hết hạn: đóng trong nhịp này, lưu MỘT lần cho cả nhịp (khởi động lại xong 10 phút, các phòng khôi phục
+    // phòng riêng hết hạn: đóng trong nhịp này, lưu MỘT lần cho cả nhịp (khởi động lại xong PRIVATE_EMPTY_SECONDS, các phòng khôi phục
     // mà không ai vào lại hết hạn cùng lúc — mỗi phòng ghi rooms.json một lần là nghẽn đĩa vô ích)
     let closedAny = false;
     for (const room of [...this.rooms.values()]) {

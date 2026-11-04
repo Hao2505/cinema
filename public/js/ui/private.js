@@ -28,7 +28,7 @@ export const ADMIN_WATCHING = 'Quản trị viên rạp đang xem phòng này';
 
 // id phòng riêng nằm SAU dấu # — trình duyệt không bao giờ gửi phần này tới máy chủ (nhật ký truy cập, Referer) hay YouTube
 const inviteLink = (room) => `${location.origin}/#phong=${room}`;
-const emptyMin = () => Math.max(1, Math.round(Number(store.cfg.privEmptyMin) || 10));
+const emptyMin = () => Math.max(1, Math.round(Number(store.cfg.privEmptyMin) || 3));
 /** độ dài video tối đa của phòng riêng (mặc định 720 phút → "12 giờ") */
 const privLen = () => {
   const min = Math.max(1, Math.round(Number(store.cfg.privMaxMin) || 720));
@@ -177,7 +177,7 @@ export function openCreateSheet() {
     el('ul', { class: 'pr-notes' },
       // 12 giờ chỉ với video rạp kiểm đủ được qua YouTube Data API; rạp chưa có khoá API (cfg.ytReady = false) thì mọi video
       // chỉ qua kiểm cơ bản → giới hạn như rạp chung — không hứa 12 giờ
-      el('li', { text: `${store.cfg.ytReady ? `Video dài tới ${privLen()}` : `Video tối đa ${Math.max(1, Math.round(Number(store.cfg.maxVideoMin) || 15))} phút như rạp chung`} · Phòng tự đóng khi không còn ai trong ${emptyMin()} phút.` }),
+      el('li', { text: `${store.cfg.ytReady ? `Video dài tới ${privLen()}` : `Video tối đa ${Math.max(1, Math.round(Number(store.cfg.maxVideoMin) || 30))} phút như rạp chung`} · Phòng tự đóng khi không còn ai trong ${emptyMin()} phút.` }),
       el('li', { text: 'Vẫn chỉ chiếu video YouTube cho phép nhúng, kiểm như rạp chung.' }),
       el('li', { text: 'Quản trị viên rạp có thể vào phòng khi xử lý báo cáo.' })),
     err,
